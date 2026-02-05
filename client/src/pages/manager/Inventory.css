@@ -1,0 +1,79 @@
+.inventory-page {
+  height: 100%;
+}
+
+.inventory-header {
+  margin-bottom: 1.5rem;
+}
+
+.inventory-header h2 {
+  margin-bottom: 1rem;
+}
+
+.inventory-layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 1.5rem;
+}
+
+.products-list {
+  overflow: hidden;
+}
+
+.products-table-container {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: calc(100vh - 260px);
+}
+
+.product-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.product-name-table {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.product-category-table {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.batch-cart .card {
+  display: flex;
+  flex-direction: column;
+  height: fit-content;
+  max-height: calc(100vh - 200px);
+}
+
+.batch-cart .card-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.125rem;
+}
+
+.batch-cart .card-body {
+  overflow-y: auto;
+  max-height: 500px;
+}
+
+.cart-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 0.75rem;
+}
+
+@media (max-width: 1024px) {
+  .inventory-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .products-table-container {
+    max-height: 50vh;
+  }
+}
