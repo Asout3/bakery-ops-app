@@ -171,7 +171,7 @@ CREATE INDEX idx_sale_items_sale ON sale_items(sale_id);
 
 -- Insert default admin user (password: admin123)
 INSERT INTO users (username, email, password_hash, role) 
-VALUES ('admin', 'admin@bakery.com', '$2a$10$rN8ZqJ5xIxVxH8LxqYKXUeY3HvPZz5z.JNE7yKxYxH8LxqYKXUeY3u', 'admin')
+VALUES ('admin', 'admin@bakery.com', '$2a$10$dn8KZ/YdUSxWjAWlAnK2We/oAbn6LIhLGDsQYurAhjDWkzpLYvmL2', 'admin')
 ON CONFLICT (username) DO NOTHING;
 
 -- Insert sample categories
