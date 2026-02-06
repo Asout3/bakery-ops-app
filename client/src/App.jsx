@@ -6,12 +6,23 @@ import Login from './pages/Login';
 
 // Admin pages
 import AdminDashboard from './pages/admin/Dashboard';
+import ProductsPage from './pages/admin/Products';
+import AdminInventory from './pages/admin/Inventory';
+import SalesPage from './pages/admin/Sales';
+import ExpensesPage from './pages/admin/Expenses';
+import StaffPaymentsPage from './pages/admin/StaffPayments';
+import ReportsPage from './pages/admin/Reports';
+import NotificationsPage from './pages/admin/Notifications';
 
 // Manager pages
 import ManagerInventory from './pages/manager/Inventory';
+import ManagerBatches from './pages/manager/Batches';
+import ManagerProducts from './pages/admin/Products'; // Reuse admin component
+import ManagerNotifications from './pages/admin/Notifications'; // Reuse admin component
 
 // Cashier pages
 import CashierSales from './pages/cashier/Sales';
+import CashierHistory from './pages/cashier/History';
 
 function App() {
   return (
@@ -27,13 +38,13 @@ function App() {
             </ProtectedRoute>
           }>
             <Route path="dashboard" element={<AdminDashboard />} />
-            <Route path="products" element={<div className="card card-body">Products page coming soon</div>} />
-            <Route path="inventory" element={<div className="card card-body">Admin Inventory page coming soon</div>} />
-            <Route path="sales" element={<div className="card card-body">Sales page coming soon</div>} />
-            <Route path="expenses" element={<div className="card card-body">Expenses page coming soon</div>} />
-            <Route path="staff-payments" element={<div className="card card-body">Staff Payments page coming soon</div>} />
-            <Route path="reports" element={<div className="card card-body">Reports page coming soon</div>} />
-            <Route path="notifications" element={<div className="card card-body">Notifications page coming soon</div>} />
+            <Route path="products" element={<ProductsPage />} />
+            <Route path="inventory" element={<AdminInventory />} />
+            <Route path="sales" element={<SalesPage />} />
+            <Route path="expenses" element={<ExpensesPage />} />
+            <Route path="staff-payments" element={<StaffPaymentsPage />} />
+            <Route path="reports" element={<ReportsPage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
           </Route>
 
           {/* Manager Routes */}
@@ -43,9 +54,9 @@ function App() {
             </ProtectedRoute>
           }>
             <Route path="inventory" element={<ManagerInventory />} />
-            <Route path="batches" element={<div className="card card-body">Batches page coming soon</div>} />
-            <Route path="products" element={<div className="card card-body">Products page coming soon</div>} />
-            <Route path="notifications" element={<div className="card card-body">Notifications page coming soon</div>} />
+            <Route path="batches" element={<ManagerBatches />} />
+            <Route path="products" element={<ManagerProducts />} />
+            <Route path="notifications" element={<ManagerNotifications />} />
           </Route>
 
           {/* Cashier Routes */}
@@ -55,7 +66,7 @@ function App() {
             </ProtectedRoute>
           }>
             <Route path="sales" element={<CashierSales />} />
-            <Route path="history" element={<div className="card card-body">Sales History page coming soon</div>} />
+            <Route path="history" element={<CashierHistory />} />
           </Route>
 
           <Route path="/" element={<Navigate to="/login" replace />} />
