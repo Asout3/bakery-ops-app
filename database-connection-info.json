@@ -1,0 +1,8 @@
+{
+  "host": "ep-gentle-cloud-ai059op6-pooler.c-4.us-east-1.aws.neon.tech",
+  "database": "neondb",
+  "user": "neondb_owner",
+  "password": "npg_hZt3oVFsM5cR",
+  "port": 5432,
+  "ssl": true
+}
