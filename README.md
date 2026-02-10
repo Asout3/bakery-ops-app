@@ -1,5 +1,7 @@
 ASout3
 
+> ⚠️ **NOTICE (Ready to push):** This branch is prepared for `main` push once your git remote is configured.
+
 # Bakery Operations Web App
 
 A comprehensive, role-based web application designed to streamline daily operations for small-to-mid bakeries. Manage inventory, sales, expenses, staff payments, and generate actionable reports - all from one modern, intuitive interface.
@@ -101,6 +103,36 @@ npm run client
 6. **Access the application**
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:5000
+
+
+### Common Local Dev Error: `ECONNREFUSED 127.0.0.1:5432`
+
+If you see login errors like `connect ECONNREFUSED 127.0.0.1:5432`, your API cannot reach PostgreSQL.
+
+1. Copy env file and set DB values:
+```bash
+cp .env.example .env
+```
+
+2. Start PostgreSQL locally (example with Docker):
+```bash
+docker run --name bakery-postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=bakery_ops \
+  -p 5432:5432 -d postgres:16
+```
+
+3. Apply schema/migrations:
+```bash
+npm run setup-db
+PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d bakery_ops -f database/migrations/001_ops_hardening.sql
+PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d bakery_ops -f database/migrations/002_branch_access_and_kpi.sql
+```
+
+4. Start app:
+```bash
+npm run dev
+```
 
 ### Default Login Credentials
 - **Username**: admin

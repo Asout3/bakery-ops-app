@@ -54,6 +54,11 @@ router.post('/register',
       res.status(201).json({ user, token });
     } catch (err) {
       console.error('Registration error:', err);
+      if (err.code === 'ECONNREFUSED') {
+        return res.status(503).json({
+          error: 'Database is not reachable. Start PostgreSQL or set DATABASE_URL correctly.',
+        });
+      }
       res.status(500).json({ error: 'Internal server error' });
     }
   }
@@ -102,6 +107,11 @@ router.post('/login',
       res.json({ user, token });
     } catch (err) {
       console.error('Login error:', err);
+      if (err.code === 'ECONNREFUSED') {
+        return res.status(503).json({
+          error: 'Database is not reachable. Start PostgreSQL or set DATABASE_URL correctly.',
+        });
+      }
       res.status(500).json({ error: 'Internal server error' });
     }
   }
@@ -122,6 +132,11 @@ router.get('/me', authenticateToken, async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Get user error:', err);
+    if (err.code === 'ECONNREFUSED') {
+      return res.status(503).json({
+        error: 'Database is not reachable. Start PostgreSQL or set DATABASE_URL correctly.',
+      });
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });
