@@ -1,12 +1,14 @@
 import { useEffect } from 'react';
 import api from '../api/axios';
-import { flushQueue } from '../utils/offlineQueue';
+import { flushQueue, getQueueSize } from '../utils/offlineQueue';
 
 export function useOfflineSync() {
   useEffect(() => {
     const runSync = async () => {
       try {
-        await flushQueue(api);
+        const result = await flushQueue(api);
+        const queueSize = await getQueueSize();
+        localStorage.setItem('offline_sync_last_result', JSON.stringify({ ...result, queueSize, at: new Date().toISOString() }));
       } catch (err) {
         console.error('Offline sync failed:', err);
       }

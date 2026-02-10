@@ -12,7 +12,8 @@ export default function AdminInventory() {
   const [formData, setFormData] = useState({
     product_id: '',
     location_id: '',
-    quantity: ''
+    quantity: '',
+    source: 'baked'
   });
 
   useEffect(() => {
@@ -41,14 +42,14 @@ export default function AdminInventory() {
     e.preventDefault();
     try {
       if (editingItem) {
-        await api.put(`/inventory/${editingItem.id}`, formData);
+        await api.put(`/inventory/${editingItem.product_id}`, { quantity: formData.quantity, source: formData.source });
       } else {
-        await api.post('/inventory', formData);
+        await api.post('/inventory', { product_id: formData.product_id, quantity: formData.quantity, source: formData.source });
       }
       fetchData();
       setShowForm(false);
       setEditingItem(null);
-      setFormData({ product_id: '', location_id: '', quantity: '' });
+      setFormData({ product_id: '', location_id: '', quantity: '', source: 'baked' });
     } catch (err) {
       console.error('Failed to save inventory:', err);
     }
@@ -81,7 +82,7 @@ export default function AdminInventory() {
           className="btn btn-primary" 
           onClick={() => {
             setEditingItem(null);
-            setFormData({ product_id: '', location_id: '', quantity: '' });
+            setFormData({ product_id: '', location_id: '', quantity: '', source: 'baked' });
             setShowForm(true);
           }}
         >
@@ -161,7 +162,8 @@ export default function AdminInventory() {
                           setFormData({
                             product_id: item.product_id,
                             location_id: item.location_id,
-                            quantity: item.quantity
+                            quantity: item.quantity,
+                            source: item.source || 'baked'
                           });
                           setShowForm(true);
                         }}
@@ -232,6 +234,20 @@ export default function AdminInventory() {
                 />
               </div>
               
+
+              <div className="mb-3">
+                <label className="form-label">Source *</label>
+                <select
+                  className="form-select"
+                  value={formData.source}
+                  onChange={(e) => setFormData({...formData, source: e.target.value})}
+                  required
+                >
+                  <option value="baked">Baked</option>
+                  <option value="purchased">Purchased</option>
+                </select>
+              </div>
+
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary">{editingItem ? 'Update' : 'Add'} Item</button>

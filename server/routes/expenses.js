@@ -9,7 +9,7 @@ const router = express.Router();
 // Get expenses
 router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
-    const locationId = getTargetLocationId(req);
+    const locationId = await getTargetLocationId(req, query);
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
     const category = req.query.category;
@@ -62,7 +62,7 @@ router.post('/',
     }
 
     const { category, description, amount, expense_date } = req.body;
-    const locationId = getTargetLocationId(req);
+    const locationId = await getTargetLocationId(req, query);
 
     const idempotencyKey = req.headers['x-idempotency-key'];
 
@@ -182,7 +182,7 @@ router.delete('/:id',
 // Get expense categories summary
 router.get('/summary/categories', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
-    const locationId = getTargetLocationId(req);
+    const locationId = await getTargetLocationId(req, query);
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
 

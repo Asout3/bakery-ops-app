@@ -1,36 +1,108 @@
-const QUEUE_KEY = 'offline_ops_queue_v1';
+const DB_NAME = 'bakery_ops_offline_v1';
+const DB_VERSION = 1;
+const OPS_STORE = 'operations';
+const HISTORY_STORE = 'history';
 
-const readQueue = () => {
-  try {
-    return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
-  } catch {
-    return [];
-  }
-};
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(OPS_STORE)) {
+        const opsStore = db.createObjectStore(OPS_STORE, { keyPath: 'id' });
+        opsStore.createIndex('created_at', 'created_at');
+      }
+      if (!db.objectStoreNames.contains(HISTORY_STORE)) {
+        const historyStore = db.createObjectStore(HISTORY_STORE, { keyPath: 'id' });
+        historyStore.createIndex('created_at', 'created_at');
+        historyStore.createIndex('status', 'status');
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
 
-const writeQueue = (queue) => localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+function txPromise(tx) {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
 
-export const enqueueOperation = (operation) => {
-  const queue = readQueue();
-  queue.push({
-    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+async function appendHistory(entry) {
+  const db = await openDb();
+  const tx = db.transaction(HISTORY_STORE, 'readwrite');
+  tx.objectStore(HISTORY_STORE).put(entry);
+  await txPromise(tx);
+  db.close();
+}
+
+export async function enqueueOperation(operation) {
+  const db = await openDb();
+  const tx = db.transaction(OPS_STORE, 'readwrite');
+  const op = {
+    id: operation.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     retries: 0,
     created_at: new Date().toISOString(),
     ...operation,
+  };
+  tx.objectStore(OPS_STORE).put(op);
+  await txPromise(tx);
+  db.close();
+
+  await appendHistory({
+    id: `${op.id}-queued-${Date.now()}`,
+    operation_id: op.id,
+    status: 'queued',
+    message: `Queued ${op.method?.toUpperCase() || 'REQUEST'} ${op.url}`,
+    created_at: new Date().toISOString(),
   });
-  writeQueue(queue);
-};
+}
 
-export const getQueueSize = () => readQueue().length;
+export async function listQueuedOperations() {
+  const db = await openDb();
+  const tx = db.transaction(OPS_STORE, 'readonly');
+  const req = tx.objectStore(OPS_STORE).getAll();
+  const items = await new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+  await txPromise(tx);
+  db.close();
+  return items.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+}
 
-export const flushQueue = async (api) => {
-  if (!navigator.onLine) return { synced: 0, failed: getQueueSize() };
+export async function listSyncHistory(limit = 200) {
+  const db = await openDb();
+  const tx = db.transaction(HISTORY_STORE, 'readonly');
+  const req = tx.objectStore(HISTORY_STORE).getAll();
+  const items = await new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+  await txPromise(tx);
+  db.close();
+  return items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
+}
 
-  const queue = readQueue();
+export async function getQueueSize() {
+  const items = await listQueuedOperations();
+  return items.length;
+}
+
+export async function flushQueue(api) {
+  if (!navigator.onLine) {
+    const queued = await getQueueSize();
+    return { synced: 0, failed: queued };
+  }
+
+  const queue = await listQueuedOperations();
   if (!queue.length) return { synced: 0, failed: 0 };
 
-  const remaining = [];
   let synced = 0;
+  let failed = 0;
 
   for (const op of queue) {
     try {
@@ -42,17 +114,63 @@ export const flushQueue = async (api) => {
           ...(op.headers || {}),
           'X-Idempotency-Key': op.idempotencyKey,
           'X-Queued-Request': 'true',
+          'X-Retry-Count': String(op.retries || 0),
         },
       });
+
+      const db = await openDb();
+      const tx = db.transaction(OPS_STORE, 'readwrite');
+      tx.objectStore(OPS_STORE).delete(op.id);
+      await txPromise(tx);
+      db.close();
+
       synced += 1;
-    } catch {
+      await appendHistory({
+        id: `${op.id}-synced-${Date.now()}`,
+        operation_id: op.id,
+        status: 'synced',
+        message: `Synced ${op.method?.toUpperCase() || 'REQUEST'} ${op.url}`,
+        created_at: new Date().toISOString(),
+      });
+    } catch (error) {
+      failed += 1;
       const retries = (op.retries || 0) + 1;
-      if (retries < 5) {
-        remaining.push({ ...op, retries });
+      const db = await openDb();
+      const tx = db.transaction(OPS_STORE, 'readwrite');
+      if (retries >= 5) {
+        tx.objectStore(OPS_STORE).delete(op.id);
+      } else {
+        tx.objectStore(OPS_STORE).put({ ...op, retries, last_error: error.message || 'Sync failed' });
       }
+      await txPromise(tx);
+      db.close();
+
+      await appendHistory({
+        id: `${op.id}-failed-${Date.now()}`,
+        operation_id: op.id,
+        status: retries >= 5 ? 'conflict' : 'retrying',
+        message: `${error.message || 'Sync failed'}${retries >= 5 ? ' (moved to conflict log)' : ''}`,
+        created_at: new Date().toISOString(),
+      });
     }
   }
 
-  writeQueue(remaining);
-  return { synced, failed: remaining.length };
-};
+  return { synced, failed };
+}
+
+export async function retryOperation(operationId) {
+  const history = await listSyncHistory(1000);
+  const latest = history.find((h) => h.operation_id === operationId);
+  if (!latest) return;
+
+  const queued = await listQueuedOperations();
+  if (queued.find((q) => q.id === operationId)) return;
+
+  await appendHistory({
+    id: `${operationId}-manual-retry-${Date.now()}`,
+    operation_id: operationId,
+    status: 'manual_retry_requested',
+    message: 'Manual retry requested from UI',
+    created_at: new Date().toISOString(),
+  });
+}

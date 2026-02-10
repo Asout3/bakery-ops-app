@@ -53,7 +53,7 @@ export default function ExpensesPage() {
     } catch (err) {
       if (!editingExpense && !err.response) {
         const idempotencyKey = `expense-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        enqueueOperation({ url: '/expenses', method: 'post', data: formData, idempotencyKey });
+        await enqueueOperation({ url: '/expenses', method: 'post', data: formData, idempotencyKey });
         setMessage({ type: 'warning', text: 'Offline: expense queued for sync.' });
         setShowForm(false);
       } else {

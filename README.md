@@ -16,10 +16,11 @@ A comprehensive, role-based web application designed to streamline daily operati
 - **Expense Tracking**: Comprehensive expense and staff payment management
 - **Reporting & Analytics**: Daily, weekly, and monthly reports with visual charts
 - **Notifications**: Low stock alerts and system notifications
+- **Sync Queue Monitor**: Admin page for queued operations and retry/conflict history (`/admin/sync`)
 - **Activity Logging**: Complete audit trail of all operations
 - **Transactional Integrity**: Atomic sale/batch operations with rollback on failure
 - **Inventory Protection**: Sales are blocked when stock is insufficient to prevent silent oversell
-- **Offline Queue v1**: Sales, batches, and expenses can be queued when offline and auto-synced
+- **Offline Queue v2 (IndexedDB)**: Sales, batches, and expenses are queued in IndexedDB with retry/conflict history UI
 - **Offline-First Design**: Local storage with background sync capability
 
 ### Technical Highlights
@@ -60,6 +61,8 @@ GRANT ALL ON SCHEMA public TO bakery_user;
 PGPASSWORD=bakery_pass psql -U bakery_user -d bakery_ops -f database/schema.sql
 # Apply hardening migration for idempotency, inventory ledger, KPI events, and alert rules
 PGPASSWORD=bakery_pass psql -U bakery_user -d bakery_ops -f database/migrations/001_ops_hardening.sql
+# Apply branch-access and KPI extension migration
+PGPASSWORD=bakery_pass psql -U bakery_user -d bakery_ops -f database/migrations/002_branch_access_and_kpi.sql
 ```
 
 3. **Install dependencies**
@@ -179,6 +182,7 @@ npm run client
 - `GET /api/reports/monthly` - Monthly summary report
 - `GET /api/reports/products/profitability` - Product profitability analysis
 - `GET /api/reports/branches/summary` - Multi-branch daily snapshot (admin)
+- `GET /api/reports/kpis` - KPI summary aligned to success criteria (admin)
 
 ### Notifications
 - `GET /api/notifications` - Get user notifications
@@ -213,6 +217,7 @@ The application uses PostgreSQL with the following main tables:
 - `inventory_movements` - Inventory ledger for traceable stock movements
 - `kpi_events` - KPI telemetry events (sales, batches, expenses)
 - `alert_rules` - Threshold rules for low stock and sales anomalies
+- `user_locations` - Explicit branch access map for users with multi-branch permissions
 
 ## Recent Reliability Improvements
 
@@ -223,6 +228,8 @@ The application uses PostgreSQL with the following main tables:
 - Added Offline Queue v1 with periodic/online retry sync for sales, batches, and expenses.
 - Added inventory movement ledger, idempotency keys, KPI events, and alert-rule management.
 - Added multi-branch branch selector context in frontend and branch summary reporting endpoint.
+- Added branch-access enforcement helper and tests for admin branch authorization.
+- Upgraded offline queue to IndexedDB with retry/conflict history support.
 
 ## Technology Stack
 

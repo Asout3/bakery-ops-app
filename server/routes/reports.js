@@ -8,8 +8,16 @@ const router = express.Router();
 // Daily summary report
 router.get('/daily', authenticateToken, async (req, res) => {
   try {
-    const locationId = getTargetLocationId(req);
+    const locationId = await getTargetLocationId(req, query);
     const date = req.query.date || new Date().toISOString().split('T')[0];
+
+    if (req.user?.role === 'admin') {
+      await query(
+        `INSERT INTO kpi_events (location_id, user_id, event_type, metric_key, event_value, metadata)
+         VALUES ($1, $2, 'report_viewed', 'owner_report_usage', 1, $3)`,
+        [locationId, req.user.id, JSON.stringify({ report: 'daily' })]
+      );
+    }
 
     // Sales summary
     const salesResult = await query(
@@ -89,8 +97,16 @@ router.get('/daily', authenticateToken, async (req, res) => {
 // Weekly summary report
 router.get('/weekly', authenticateToken, async (req, res) => {
   try {
-    const locationId = getTargetLocationId(req);
+    const locationId = await getTargetLocationId(req, query);
     const endDate = req.query.end_date || new Date().toISOString().split('T')[0];
+
+    if (req.user?.role === 'admin') {
+      await query(
+        `INSERT INTO kpi_events (location_id, user_id, event_type, metric_key, event_value, metadata)
+         VALUES ($1, $2, 'report_viewed', 'owner_report_usage', 1, $3)`,
+        [locationId, req.user.id, JSON.stringify({ report: 'weekly' })]
+      );
+    }
 
     let startDate = req.query.start_date;
     if (!startDate) {
@@ -189,8 +205,16 @@ router.get('/weekly', authenticateToken, async (req, res) => {
 // Weekly summary CSV export
 router.get('/weekly/export', authenticateToken, async (req, res) => {
   try {
-    const locationId = getTargetLocationId(req);
+    const locationId = await getTargetLocationId(req, query);
     const endDate = req.query.end_date || new Date().toISOString().split('T')[0];
+
+    if (req.user?.role === 'admin') {
+      await query(
+        `INSERT INTO kpi_events (location_id, user_id, event_type, metric_key, event_value, metadata)
+         VALUES ($1, $2, 'report_viewed', 'owner_report_usage', 1, $3)`,
+        [locationId, req.user.id, JSON.stringify({ report: 'weekly' })]
+      );
+    }
     let startDate = req.query.start_date;
     if (!startDate) {
       const startDateObj = new Date(endDate);
@@ -226,8 +250,16 @@ router.get('/weekly/export', authenticateToken, async (req, res) => {
 // Monthly summary report
 router.get('/monthly', authenticateToken, async (req, res) => {
   try {
-    const locationId = getTargetLocationId(req);
+    const locationId = await getTargetLocationId(req, query);
     const year = req.query.year || new Date().getFullYear();
+
+    if (req.user?.role === 'admin') {
+      await query(
+        `INSERT INTO kpi_events (location_id, user_id, event_type, metric_key, event_value, metadata)
+         VALUES ($1, $2, 'report_viewed', 'owner_report_usage', 1, $3)`,
+        [locationId, req.user.id, JSON.stringify({ report: 'monthly' })]
+      );
+    }
     const month = req.query.month || (new Date().getMonth() + 1);
 
     // Sales summary
@@ -340,13 +372,64 @@ router.get('/branches/summary', authenticateToken, authorizeRoles('admin'), asyn
   }
 });
 
+
+// KPI summary mapped to success criteria
+router.get('/kpis', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    const locationId = await getTargetLocationId(req, query);
+
+    const cashierTiming = await query(
+      `SELECT COALESCE(AVG(duration_ms), 0) as avg_order_ms
+       FROM kpi_events
+       WHERE location_id = $1 AND metric_key = 'cashier_order_processing_time' AND duration_ms IS NOT NULL
+         AND created_at >= CURRENT_DATE - INTERVAL '30 days'`,
+      [locationId]
+    );
+
+    const ownerUsage = await query(
+      `SELECT COALESCE(COUNT(*), 0) as weekly_views
+       FROM kpi_events
+       WHERE location_id = $1 AND metric_key = 'owner_report_usage' AND created_at >= CURRENT_DATE - INTERVAL '7 days'`,
+      [locationId]
+    );
+
+    const retryMetric = await query(
+      `SELECT COALESCE(AVG((metadata->>'retry_count')::numeric), 0) as avg_batch_retries,
+              COALESCE(SUM(CASE WHEN (metadata->>'retry_count')::int = 0 THEN 1 ELSE 0 END), 0) as zero_retry_batches,
+              COALESCE(COUNT(*), 0) as total_batches
+       FROM kpi_events
+       WHERE location_id = $1 AND metric_key = 'batch_retry_count' AND created_at >= CURRENT_DATE - INTERVAL '30 days'`,
+      [locationId]
+    );
+
+    const retry = retryMetric.rows[0];
+    const totalBatches = Number(retry.total_batches || 0);
+    const zeroRetryBatches = Number(retry.zero_retry_batches || 0);
+
+    res.json({
+      avg_cashier_order_seconds: Number(cashierTiming.rows[0].avg_order_ms || 0) / 1000,
+      owner_report_views_weekly: Number(ownerUsage.rows[0].weekly_views || 0),
+      batch_zero_retry_rate_percent: totalBatches > 0 ? (zeroRetryBatches / totalBatches) * 100 : 0,
+      avg_batch_retries: Number(retry.avg_batch_retries || 0),
+      goals: {
+        cashier_order_target_seconds: 20,
+        owner_views_target_weekly: 5,
+        batch_zero_retry_target_percent: 80
+      }
+    });
+  } catch (err) {
+    console.error('KPI summary error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+  }
+});
+
 // Product profitability analysis
 router.get('/products/profitability', 
   authenticateToken, 
   authorizeRoles('admin'), 
   async (req, res) => {
     try {
-      const locationId = getTargetLocationId(req);
+      const locationId = await getTargetLocationId(req, query);
       const startDate = req.query.start_date;
       const endDate = req.query.end_date;
 

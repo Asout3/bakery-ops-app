@@ -7,7 +7,7 @@ const router = express.Router();
 
 router.get('/rules', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const locationId = getTargetLocationId(req);
+    const locationId = await getTargetLocationId(req, query);
     const result = await query('SELECT * FROM alert_rules WHERE location_id = $1 ORDER BY event_type', [locationId]);
     res.json(result.rows);
   } catch (err) {
@@ -18,7 +18,7 @@ router.get('/rules', authenticateToken, authorizeRoles('admin'), async (req, res
 
 router.post('/rules', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const locationId = getTargetLocationId(req);
+    const locationId = await getTargetLocationId(req, query);
     const { event_type, threshold, enabled = true } = req.body;
 
     const result = await query(

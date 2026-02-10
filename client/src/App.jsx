@@ -15,6 +15,7 @@ import ExpensesPage from './pages/admin/Expenses';
 import StaffPaymentsPage from './pages/admin/StaffPayments';
 import ReportsPage from './pages/admin/Reports';
 import NotificationsPage from './pages/admin/Notifications';
+import SyncQueuePage from './pages/admin/SyncQueue';
 
 // Manager pages
 import ManagerInventory from './pages/manager/Inventory';
@@ -49,6 +50,7 @@ function AppInner() {
             <Route path="staff-payments" element={<StaffPaymentsPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="sync" element={<SyncQueuePage />} />
           </Route>
 
           {/* Manager Routes */}

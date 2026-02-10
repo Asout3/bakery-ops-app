@@ -8,7 +8,7 @@ const router = express.Router();
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const locationId = getTargetLocationId(req);
+    const locationId = await getTargetLocationId(req, query);
 
     const result = await query(
       `SELECT i.*, p.name as product_name, p.price, p.unit, c.name as category_name
@@ -27,6 +27,41 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+
+router.post(
+  '/',
+  authenticateToken,
+  authorizeRoles('admin', 'manager'),
+  body('product_id').isInt({ min: 1 }),
+  body('quantity').isInt({ min: 0 }),
+  body('source').optional().isIn(['baked', 'purchased']),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      const locationId = await getTargetLocationId(req, query);
+      const { product_id, quantity, source = 'baked' } = req.body;
+
+      const result = await query(
+        `INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+         ON CONFLICT (product_id, location_id)
+         DO UPDATE SET quantity = EXCLUDED.quantity, source = EXCLUDED.source, last_updated = CURRENT_TIMESTAMP
+         RETURNING *`,
+        [product_id, locationId, quantity, source]
+      );
+
+      res.status(201).json(result.rows[0]);
+    } catch (err) {
+      console.error('Create inventory row error:', err);
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+    }
+  }
+);
+
 router.put(
   '/:productId',
   authenticateToken,
@@ -41,7 +76,7 @@ router.put(
 
     const { productId } = req.params;
     const { quantity, source } = req.body;
-    const locationId = getTargetLocationId(req);
+    const locationId = await getTargetLocationId(req, query);
 
     try {
       const result = await query(
@@ -95,7 +130,8 @@ router.post(
     }
 
     const { items, notes } = req.body;
-    const locationId = getTargetLocationId(req);
+    const retryCount = Number(req.headers['x-retry-count'] || 0);
+    const locationId = await getTargetLocationId(req, query);
     const idempotencyKey = req.headers['x-idempotency-key'];
 
     try {
@@ -147,9 +183,9 @@ router.post(
         }
 
         await tx.query(
-          `INSERT INTO kpi_events (location_id, user_id, event_type, event_value, metadata)
-           VALUES ($1, $2, 'batch_sent', $3, $4)`,
-          [locationId, req.user.id, items.length, JSON.stringify({ batch_id: createdBatch.id })]
+          `INSERT INTO kpi_events (location_id, user_id, event_type, event_value, metric_key, metadata)
+           VALUES ($1, $2, 'batch_sent', $3, $4, $5)`,
+          [locationId, req.user.id, items.length, 'batch_retry_count', JSON.stringify({ batch_id: createdBatch.id, retry_count: retryCount })]
         );
 
         await tx.query(
@@ -186,7 +222,7 @@ router.post(
 
 router.get('/batches', authenticateToken, async (req, res) => {
   try {
-    const locationId = getTargetLocationId(req);
+    const locationId = await getTargetLocationId(req, query);
     const limit = parseInt(req.query.limit, 10) || 50;
 
     const result = await query(

@@ -20,8 +20,8 @@ router.post(
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { items, payment_method } = req.body;
-    const locationId = getTargetLocationId(req);
+    const { items, payment_method, cashier_timing_ms } = req.body;
+    const locationId = await getTargetLocationId(req, query);
     const cashierId = req.user.id;
     const idempotencyKey = req.headers['x-idempotency-key'];
 
@@ -126,9 +126,16 @@ router.post(
         }
 
         await tx.query(
-          `INSERT INTO kpi_events (location_id, user_id, event_type, event_value, metadata)
-           VALUES ($1, $2, 'sale_created', $3, $4)`,
-          [locationId, cashierId, totalAmount, JSON.stringify({ sale_id: createdSale.id, items_count: items.length })]
+          `INSERT INTO kpi_events (location_id, user_id, event_type, event_value, metric_key, duration_ms, metadata)
+           VALUES ($1, $2, 'sale_created', $3, $4, $5, $6)`,
+          [
+            locationId,
+            cashierId,
+            totalAmount,
+            'cashier_order_processing_time',
+            Number(cashier_timing_ms) || null,
+            JSON.stringify({ sale_id: createdSale.id, items_count: items.length })
+          ]
         );
 
         const highSaleRule = await tx.query(
@@ -184,7 +191,7 @@ router.post(
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const locationId = getTargetLocationId(req);
+    const locationId = await getTargetLocationId(req, query);
     const limit = parseInt(req.query.limit, 10) || 100;
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;

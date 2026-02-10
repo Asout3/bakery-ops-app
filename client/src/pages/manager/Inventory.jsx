@@ -108,7 +108,7 @@ export default function Inventory() {
       if (!err.response) {
         const payload = { items: cart, notes: 'Batch sent from manager' };
         const idempotencyKey = `batch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        enqueueOperation({ url: '/inventory/batches', method: 'post', data: payload, idempotencyKey });
+        await enqueueOperation({ url: '/inventory/batches', method: 'post', data: payload, idempotencyKey });
         setMessage({ type: 'warning', text: 'Offline: batch queued for sync.' });
         setCart([]);
       } else {

@@ -60,6 +60,7 @@ export default function Layout() {
         { to: '/admin/staff-payments', icon: Users, label: 'Staff Payments' },
         { to: '/admin/reports', icon: BarChart3, label: 'Reports' },
         { to: '/admin/notifications', icon: Bell, label: 'Notifications' },
+        { to: '/admin/sync', icon: BarChart3, label: 'Sync Queue' },
       ];
     } else if (role === 'manager') {
       return [
