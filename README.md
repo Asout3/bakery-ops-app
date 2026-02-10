@@ -16,6 +16,8 @@ A comprehensive, role-based web application designed to streamline daily operati
 - **Reporting & Analytics**: Daily, weekly, and monthly reports with visual charts
 - **Notifications**: Low stock alerts and system notifications
 - **Activity Logging**: Complete audit trail of all operations
+- **Transactional Integrity**: Atomic sale/batch operations with rollback on failure
+- **Inventory Protection**: Sales are blocked when stock is insufficient to prevent silent oversell
 - **Offline-First Design**: Local storage with background sync capability
 
 ### Technical Highlights
@@ -132,6 +134,9 @@ npm run client
 - `POST /api/auth/login` - User login
 - `GET /api/auth/me` - Get current user
 
+### Locations
+- `GET /api/locations` - List active bakery locations/branches
+
 ### Products
 - `GET /api/products` - List all products
 - `GET /api/products/:id` - Get single product
@@ -142,12 +147,12 @@ npm run client
 ### Inventory
 - `GET /api/inventory` - Get inventory for location
 - `PUT /api/inventory/:productId` - Update inventory quantity
-- `POST /api/inventory/batches` - Create inventory batch
+- `POST /api/inventory/batches` - Create inventory batch (atomic transaction)
 - `GET /api/inventory/batches` - Get batch history
 - `GET /api/inventory/batches/:id` - Get batch details
 
 ### Sales
-- `POST /api/sales` - Create new sale
+- `POST /api/sales` - Create new sale (fails safely when stock is insufficient)
 - `GET /api/sales` - Get sales history
 - `GET /api/sales/:id` - Get sale details
 
@@ -195,6 +200,13 @@ The application uses PostgreSQL with the following main tables:
 - `notifications` - User notifications
 - `activity_log` - Audit trail
 - `sync_queue` - Offline sync queue
+
+## Recent Reliability Improvements
+
+- Refactored critical write flows (`/api/sales`, `/api/inventory/batches`) to use real PostgreSQL transactions with commit/rollback behavior.
+- Added strict stock validation during checkout so sales cannot finalize when inventory is insufficient.
+- Added `GET /api/locations` endpoint to support branch-aware UI flows.
+- Updated weekly reporting endpoint to honor optional `start_date` for custom date ranges.
 
 ## Technology Stack
 

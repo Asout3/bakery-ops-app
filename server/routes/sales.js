@@ -1,6 +1,6 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
-import { query } from '../db.js';
+import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -10,6 +10,8 @@ router.post('/',
   authenticateToken,
   authorizeRoles('admin', 'cashier', 'manager'),
   body('items').isArray({ min: 1 }),
+  body('items.*.product_id').isInt({ min: 1 }),
+  body('items.*.quantity').isInt({ min: 1 }),
   body('payment_method').optional().isIn(['cash', 'card', 'mobile']),
   async (req, res) => {
     const errors = validationResult(req);
@@ -21,106 +23,106 @@ router.post('/',
     const locationId = req.user.location_id;
     const cashierId = req.user.id;
 
-    const client = await query('BEGIN');
-
     try {
-      // Calculate total
-      let totalAmount = 0;
-      const saleItems = [];
+      const sale = await withTransaction(async (tx) => {
+        let totalAmount = 0;
+        const saleItems = [];
 
-      for (const item of items) {
-        const productResult = await query(
-          'SELECT price FROM products WHERE id = $1',
-          [item.product_id]
-        );
-
-        if (productResult.rows.length === 0) {
-          throw new Error(`Product ${item.product_id} not found`);
-        }
-
-        const unitPrice = productResult.rows[0].price;
-        const subtotal = unitPrice * item.quantity;
-        totalAmount += subtotal;
-
-        saleItems.push({
-          product_id: item.product_id,
-          quantity: item.quantity,
-          unit_price: unitPrice,
-          subtotal
-        });
-      }
-
-      // Generate receipt number
-      const receiptNumber = `RCP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-
-      // Create sale
-      const saleResult = await query(
-        `INSERT INTO sales (location_id, cashier_id, total_amount, payment_method, receipt_number)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING *`,
-        [locationId, cashierId, totalAmount, payment_method || 'cash', receiptNumber]
-      );
-
-      const sale = saleResult.rows[0];
-
-      // Insert sale items and update inventory
-      for (const item of saleItems) {
-        await query(
-          `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [sale.id, item.product_id, item.quantity, item.unit_price, item.subtotal]
-        );
-
-        // Decrease inventory
-        await query(
-          `UPDATE inventory 
-           SET quantity = quantity - $1, last_updated = CURRENT_TIMESTAMP
-           WHERE product_id = $2 AND location_id = $3 AND quantity >= $1`,
-          [item.quantity, item.product_id, locationId]
-        );
-
-        // Check if inventory went negative (warning)
-        const checkInventory = await query(
-          'SELECT quantity FROM inventory WHERE product_id = $1 AND location_id = $2',
-          [item.product_id, locationId]
-        );
-
-        if (checkInventory.rows.length > 0 && checkInventory.rows[0].quantity < 5) {
-          // Create low stock notification
-          await query(
-            `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-             SELECT id, $1, $2, $3, $4 FROM users WHERE role IN ('admin', 'manager') AND location_id = $1`,
-            [
-              locationId,
-              'Low Stock Alert',
-              `Product ${item.product_id} is running low (${checkInventory.rows[0].quantity} remaining)`,
-              'low_stock'
-            ]
+        for (const item of items) {
+          const productResult = await tx.query(
+            'SELECT id, name, price FROM products WHERE id = $1',
+            [item.product_id]
           );
+
+          if (productResult.rows.length === 0) {
+            const notFoundError = new Error(`Product ${item.product_id} not found`);
+            notFoundError.status = 404;
+            throw notFoundError;
+          }
+
+          const product = productResult.rows[0];
+          const unitPrice = Number(product.price);
+          const subtotal = unitPrice * item.quantity;
+          totalAmount += subtotal;
+
+          saleItems.push({
+            product_id: item.product_id,
+            product_name: product.name,
+            quantity: item.quantity,
+            unit_price: unitPrice,
+            subtotal
+          });
         }
-      }
 
-      await query(
-        `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata) 
-         VALUES ($1, $2, $3, $4, $5)`,
-        [
-          cashierId,
-          locationId,
-          'sale_created',
-          `Sale ${receiptNumber} - Total: ${totalAmount}`,
-          JSON.stringify({ sale_id: sale.id, receipt_number: receiptNumber, items_count: items.length })
-        ]
-      );
+        const receiptNumber = `RCP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-      await query('COMMIT');
+        const saleResult = await tx.query(
+          `INSERT INTO sales (location_id, cashier_id, total_amount, payment_method, receipt_number)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING *`,
+          [locationId, cashierId, totalAmount, payment_method || 'cash', receiptNumber]
+        );
+
+        const createdSale = saleResult.rows[0];
+
+        for (const item of saleItems) {
+          await tx.query(
+            `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [createdSale.id, item.product_id, item.quantity, item.unit_price, item.subtotal]
+          );
+
+          const inventoryUpdateResult = await tx.query(
+            `UPDATE inventory 
+             SET quantity = quantity - $1, last_updated = CURRENT_TIMESTAMP
+             WHERE product_id = $2 AND location_id = $3 AND quantity >= $1
+             RETURNING quantity`,
+            [item.quantity, item.product_id, locationId]
+          );
+
+          if (inventoryUpdateResult.rowCount === 0) {
+            const stockError = new Error(`Insufficient stock for ${item.product_name}`);
+            stockError.status = 400;
+            throw stockError;
+          }
+
+          const remainingQty = Number(inventoryUpdateResult.rows[0].quantity);
+
+          if (remainingQty < 5) {
+            await tx.query(
+              `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+               SELECT id, $1, $2, $3, $4 FROM users WHERE role IN ('admin', 'manager') AND location_id = $1`,
+              [
+                locationId,
+                'Low Stock Alert',
+                `${item.product_name} is running low (${remainingQty} remaining)`,
+                'low_stock'
+              ]
+            );
+          }
+        }
+
+        await tx.query(
+          `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            cashierId,
+            locationId,
+            'sale_created',
+            `Sale ${receiptNumber} - Total: ${totalAmount}`,
+            JSON.stringify({ sale_id: createdSale.id, receipt_number: receiptNumber, items_count: items.length })
+          ]
+        );
+
+        return createdSale;
+      });
 
       // Fetch complete sale with items
       const completeSale = await getSaleWithItems(sale.id);
       res.status(201).json(completeSale);
     } catch (err) {
-      await query('ROLLBACK');
       console.error('Create sale error:', err);
-      res.status(500).json({ error: err.message || 'Internal server error' });
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
     }
   }
 );
