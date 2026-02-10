@@ -1,6 +1,6 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
-import { query } from '../db.js';
+import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -78,6 +78,9 @@ router.post('/batches',
   authenticateToken,
   authorizeRoles('admin', 'manager'),
   body('items').isArray({ min: 1 }),
+  body('items.*.product_id').isInt({ min: 1 }),
+  body('items.*.quantity').isInt({ min: 1 }),
+  body('items.*.source').isIn(['baked', 'purchased']),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -87,56 +90,53 @@ router.post('/batches',
     const { items, notes } = req.body;
     const locationId = req.user.location_id;
 
-    const client = await query('BEGIN');
-
     try {
-      // Create batch
-      const batchResult = await query(
-        `INSERT INTO inventory_batches (location_id, created_by, batch_date, status, notes)
-         VALUES ($1, $2, CURRENT_DATE, 'sent', $3)
-         RETURNING *`,
-        [locationId, req.user.id, notes || null]
-      );
-
-      const batch = batchResult.rows[0];
-
-      // Insert batch items and update inventory
-      for (const item of items) {
-        await query(
-          `INSERT INTO batch_items (batch_id, product_id, quantity, source)
-           VALUES ($1, $2, $3, $4)`,
-          [batch.id, item.product_id, item.quantity, item.source]
+      const batch = await withTransaction(async (tx) => {
+        const batchResult = await tx.query(
+          `INSERT INTO inventory_batches (location_id, created_by, batch_date, status, notes)
+           VALUES ($1, $2, CURRENT_DATE, 'sent', $3)
+           RETURNING *`,
+          [locationId, req.user.id, notes || null]
         );
 
-        // Update inventory
-        await query(
-          `INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)
-           VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-           ON CONFLICT (product_id, location_id)
-           DO UPDATE SET 
-             quantity = inventory.quantity + $3,
-             last_updated = CURRENT_TIMESTAMP`,
-          [item.product_id, locationId, item.quantity, item.source]
+        const createdBatch = batchResult.rows[0];
+
+        for (const item of items) {
+          await tx.query(
+            `INSERT INTO batch_items (batch_id, product_id, quantity, source)
+             VALUES ($1, $2, $3, $4)`,
+            [createdBatch.id, item.product_id, item.quantity, item.source]
+          );
+
+          await tx.query(
+            `INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)
+             VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+             ON CONFLICT (product_id, location_id)
+             DO UPDATE SET 
+               quantity = inventory.quantity + $3,
+               source = $4,
+               last_updated = CURRENT_TIMESTAMP`,
+            [item.product_id, locationId, item.quantity, item.source]
+          );
+        }
+
+        await tx.query(
+          `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            req.user.id,
+            locationId,
+            'batch_sent',
+            `Sent inventory batch #${createdBatch.id}`,
+            JSON.stringify({ batch_id: createdBatch.id, items_count: items.length })
+          ]
         );
-      }
 
-      await query(
-        `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata) 
-         VALUES ($1, $2, $3, $4, $5)`,
-        [
-          req.user.id,
-          locationId,
-          'batch_sent',
-          `Sent inventory batch #${batch.id}`,
-          JSON.stringify({ batch_id: batch.id, items_count: items.length })
-        ]
-      );
-
-      await query('COMMIT');
+        return createdBatch;
+      });
 
       res.status(201).json(batch);
     } catch (err) {
-      await query('ROLLBACK');
       console.error('Create batch error:', err);
       res.status(500).json({ error: 'Internal server error' });
     }

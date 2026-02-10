@@ -90,10 +90,13 @@ router.get('/weekly', authenticateToken, async (req, res) => {
   try {
     const locationId = req.user.location_id || req.query.location_id;
     const endDate = req.query.end_date || new Date().toISOString().split('T')[0];
-    
-    const startDateObj = new Date(endDate);
-    startDateObj.setDate(startDateObj.getDate() - 7);
-    const startDate = startDateObj.toISOString().split('T')[0];
+
+    let startDate = req.query.start_date;
+    if (!startDate) {
+      const startDateObj = new Date(endDate);
+      startDateObj.setDate(startDateObj.getDate() - 7);
+      startDate = startDateObj.toISOString().split('T')[0];
+    }
 
     // Sales by day
     const salesByDayResult = await query(
