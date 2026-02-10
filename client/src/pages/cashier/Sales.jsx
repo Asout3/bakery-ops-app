@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { Plus, Minus, ShoppingCart, Trash2, Search } from 'lucide-react';
 import './Sales.css';
+import { enqueueOperation } from '../../utils/offlineQueue';
 
 export default function Sales() {
   const [products, setProducts] = useState([]);
@@ -9,6 +10,7 @@ export default function Sales() {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
+  const [orderStartedAt, setOrderStartedAt] = useState(Date.now());
 
   useEffect(() => {
     fetchProducts();
@@ -28,6 +30,9 @@ export default function Sales() {
   );
 
   const addToCart = (product) => {
+    if (cart.length === 0) {
+      setOrderStartedAt(Date.now());
+    }
     const existing = cart.find((item) => item.product_id === product.id);
     
     if (existing) {
@@ -77,7 +82,8 @@ export default function Sales() {
           product_id: item.product_id,
           quantity: item.quantity
         })),
-        payment_method: 'cash'
+        payment_method: 'cash',
+        cashier_timing_ms: Date.now() - orderStartedAt
       });
 
       setMessage({ 
@@ -85,13 +91,27 @@ export default function Sales() {
         text: `Sale completed! Receipt: ${response.data.receipt_number}` 
       });
       setCart([]);
+      setOrderStartedAt(Date.now());
       
       setTimeout(() => setMessage(null), 5000);
     } catch (err) {
-      setMessage({ 
-        type: 'danger', 
-        text: err.response?.data?.error || 'Failed to process sale' 
-      });
+      if (!err.response) {
+        const payload = {
+          items: cart.map(item => ({ product_id: item.product_id, quantity: item.quantity })),
+          payment_method: 'cash',
+          cashier_timing_ms: Date.now() - orderStartedAt
+        };
+        const idempotencyKey = `sale-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        await enqueueOperation({ url: '/sales', method: 'post', data: payload, idempotencyKey });
+        setMessage({ type: 'warning', text: 'Offline: sale queued for sync.' });
+        setCart([]);
+        setOrderStartedAt(Date.now());
+      } else {
+        setMessage({ 
+          type: 'danger', 
+          text: err.response?.data?.error || 'Failed to process sale' 
+        });
+      }
     } finally {
       setLoading(false);
     }

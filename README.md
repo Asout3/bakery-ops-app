@@ -1,3 +1,5 @@
+ASout3
+
 # Bakery Operations Web App
 
 A comprehensive, role-based web application designed to streamline daily operations for small-to-mid bakeries. Manage inventory, sales, expenses, staff payments, and generate actionable reports - all from one modern, intuitive interface.
@@ -9,13 +11,18 @@ A comprehensive, role-based web application designed to streamline daily operati
 
 ### Core Functionality
 - **Role-Based Access Control**: Separate interfaces for Admin, Manager, and Cashier roles
+- **Multi-Branch Switching**: Admin can switch active branch context from the top bar
 - **Inventory Management**: Track baked and purchased items with real-time stock levels
 - **Batch Tracking**: Ground managers can log and send inventory batches
 - **Point of Sale**: Fast, intuitive sales interface for cashiers with cart functionality
 - **Expense Tracking**: Comprehensive expense and staff payment management
 - **Reporting & Analytics**: Daily, weekly, and monthly reports with visual charts
 - **Notifications**: Low stock alerts and system notifications
+- **Sync Queue Monitor**: Admin page for queued operations and retry/conflict history (`/admin/sync`)
 - **Activity Logging**: Complete audit trail of all operations
+- **Transactional Integrity**: Atomic sale/batch operations with rollback on failure
+- **Inventory Protection**: Sales are blocked when stock is insufficient to prevent silent oversell
+- **Offline Queue v2 (IndexedDB)**: Sales, batches, and expenses are queued in IndexedDB with retry/conflict history UI
 - **Offline-First Design**: Local storage with background sync capability
 
 ### Technical Highlights
@@ -54,6 +61,10 @@ GRANT ALL ON SCHEMA public TO bakery_user;
 
 # Run database schema
 PGPASSWORD=bakery_pass psql -U bakery_user -d bakery_ops -f database/schema.sql
+# Apply hardening migration for idempotency, inventory ledger, KPI events, and alert rules
+PGPASSWORD=bakery_pass psql -U bakery_user -d bakery_ops -f database/migrations/001_ops_hardening.sql
+# Apply branch-access and KPI extension migration
+PGPASSWORD=bakery_pass psql -U bakery_user -d bakery_ops -f database/migrations/002_branch_access_and_kpi.sql
 ```
 
 3. **Install dependencies**
@@ -132,6 +143,9 @@ npm run client
 - `POST /api/auth/login` - User login
 - `GET /api/auth/me` - Get current user
 
+### Locations
+- `GET /api/locations` - List active bakery locations/branches
+
 ### Products
 - `GET /api/products` - List all products
 - `GET /api/products/:id` - Get single product
@@ -141,13 +155,15 @@ npm run client
 
 ### Inventory
 - `GET /api/inventory` - Get inventory for location
+- `POST /api/inventory` - Create inventory record (admin/manager)
 - `PUT /api/inventory/:productId` - Update inventory quantity
-- `POST /api/inventory/batches` - Create inventory batch
+- `DELETE /api/inventory/:id` - Delete inventory record (admin)
+- `POST /api/inventory/batches` - Create inventory batch (atomic transaction)
 - `GET /api/inventory/batches` - Get batch history
 - `GET /api/inventory/batches/:id` - Get batch details
 
 ### Sales
-- `POST /api/sales` - Create new sale
+- `POST /api/sales` - Create new sale (fails safely when stock is insufficient)
 - `GET /api/sales` - Get sales history
 - `GET /api/sales/:id` - Get sale details
 
@@ -165,14 +181,21 @@ npm run client
 
 ### Reports
 - `GET /api/reports/daily` - Daily summary report
-- `GET /api/reports/weekly` - Weekly summary report
+- `GET /api/reports/weekly` - Weekly summary report (includes categories + payment methods)
+- `GET /api/reports/weekly/export` - Weekly CSV export
 - `GET /api/reports/monthly` - Monthly summary report
 - `GET /api/reports/products/profitability` - Product profitability analysis
+- `GET /api/reports/branches/summary` - Multi-branch daily snapshot (admin)
+- `GET /api/reports/kpis` - KPI summary aligned to success criteria (admin)
 
 ### Notifications
 - `GET /api/notifications` - Get user notifications
+- `GET /api/notifications/rules` - List alert rules (admin)
+- `POST /api/notifications/rules` - Create alert rule (admin)
+- `PUT /api/notifications/rules/:id` - Update alert rule (admin)
 - `PUT /api/notifications/:id/read` - Mark notification as read
 - `PUT /api/notifications/read-all` - Mark all as read
+- `PUT /api/notifications/mark-all-read` - Backward-compatible mark-all endpoint
 - `GET /api/notifications/unread/count` - Get unread count
 
 ### Activity Log
@@ -195,6 +218,23 @@ The application uses PostgreSQL with the following main tables:
 - `notifications` - User notifications
 - `activity_log` - Audit trail
 - `sync_queue` - Offline sync queue
+- `idempotency_keys` - Deduplicate retried writes from offline queue
+- `inventory_movements` - Inventory ledger for traceable stock movements
+- `kpi_events` - KPI telemetry events (sales, batches, expenses)
+- `alert_rules` - Threshold rules for low stock and sales anomalies
+- `user_locations` - Explicit branch access map for users with multi-branch permissions
+
+## Recent Reliability Improvements
+
+- Refactored critical write flows (`/api/sales`, `/api/inventory/batches`) to use real PostgreSQL transactions with commit/rollback behavior.
+- Added strict stock validation during checkout so sales cannot finalize when inventory is insufficient.
+- Added `GET /api/locations` endpoint to support branch-aware UI flows.
+- Updated weekly reporting endpoint to honor optional `start_date` for custom date ranges.
+- Added Offline Queue v2 (IndexedDB-backed) with periodic/online retry sync, retry history, and conflict visibility.
+- Added inventory movement ledger, idempotency keys, KPI events, and alert-rule management.
+- Added multi-branch branch selector context in frontend and branch summary reporting endpoint.
+- Added branch-access enforcement helper and tests for admin branch authorization.
+- Upgraded offline queue to IndexedDB with retry/conflict history support.
 
 ## Technology Stack
 

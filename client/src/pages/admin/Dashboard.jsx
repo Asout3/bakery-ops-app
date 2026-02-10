@@ -7,6 +7,8 @@ import './Dashboard.css';
 export default function Dashboard() {
   const [dailyReport, setDailyReport] = useState(null);
   const [weeklyReport, setWeeklyReport] = useState(null);
+  const [branchSummary, setBranchSummary] = useState([]);
+  const [kpis, setKpis] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -15,12 +17,16 @@ export default function Dashboard() {
 
   const fetchReports = async () => {
     try {
-      const [daily, weekly] = await Promise.all([
+      const [daily, weekly, branches, kpiRes] = await Promise.all([
         api.get('/reports/daily'),
-        api.get('/reports/weekly')
+        api.get('/reports/weekly'),
+        api.get('/reports/branches/summary').catch(() => ({ data: [] })),
+        api.get('/reports/kpis').catch(() => ({ data: null }))
       ]);
       setDailyReport(daily.data);
       setWeeklyReport(weekly.data);
+      setBranchSummary(branches.data || []);
+      setKpis(kpiRes.data);
     } catch (err) {
       console.error('Failed to fetch reports:', err);
     } finally {
@@ -96,6 +102,33 @@ export default function Dashboard() {
         ))}
       </div>
 
+
+      {kpis && (
+        <div className="stats-grid" style={{ marginTop: '1rem' }}>
+          <div className="stat-card card">
+            <div className="stat-content">
+              <div className="stat-label">Cashier Avg Order Time</div>
+              <div className="stat-value">{Number(kpis.avg_cashier_order_seconds || 0).toFixed(1)}s</div>
+              <div className="stat-subtext">Target: &lt; {kpis.goals.cashier_order_target_seconds}s</div>
+            </div>
+          </div>
+          <div className="stat-card card">
+            <div className="stat-content">
+              <div className="stat-label">Batch Zero-Retry Rate</div>
+              <div className="stat-value">{Number(kpis.batch_zero_retry_rate_percent || 0).toFixed(1)}%</div>
+              <div className="stat-subtext">Target: {kpis.goals.batch_zero_retry_target_percent}%</div>
+            </div>
+          </div>
+          <div className="stat-card card">
+            <div className="stat-content">
+              <div className="stat-label">Owner Report Views (7d)</div>
+              <div className="stat-value">{Number(kpis.owner_report_views_weekly || 0)}</div>
+              <div className="stat-subtext">Target: {kpis.goals.owner_views_target_weekly}/week</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="charts-grid">
         <div className="card">
           <div className="card-header">
@@ -145,6 +178,30 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+
+      {branchSummary.length > 0 && (
+        <div className="card mb-4">
+          <div className="card-header"><h3>Multi-Branch Snapshot (Today)</h3></div>
+          <div className="card-body">
+            <div className="table-responsive">
+              <table className="table table-hover">
+                <thead><tr><th>Branch</th><th>Sales</th><th>Transactions</th><th>Expenses</th></tr></thead>
+                <tbody>
+                  {branchSummary.map((b) => (
+                    <tr key={b.location_id}>
+                      <td>{b.location_name}</td>
+                      <td>${Number(b.today_sales).toFixed(2)}</td>
+                      <td>{Number(b.today_transactions)}</td>
+                      <td>${Number(b.today_expenses).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="details-grid">
         <div className="card">

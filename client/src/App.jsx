@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { BranchProvider } from './context/BranchContext';
+import { useOfflineSync } from './hooks/useOfflineSync';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -13,6 +15,7 @@ import ExpensesPage from './pages/admin/Expenses';
 import StaffPaymentsPage from './pages/admin/StaffPayments';
 import ReportsPage from './pages/admin/Reports';
 import NotificationsPage from './pages/admin/Notifications';
+import SyncQueuePage from './pages/admin/SyncQueue';
 
 // Manager pages
 import ManagerInventory from './pages/manager/Inventory';
@@ -24,7 +27,9 @@ import ManagerNotifications from './pages/admin/Notifications'; // Reuse admin c
 import CashierSales from './pages/cashier/Sales';
 import CashierHistory from './pages/cashier/History';
 
-function App() {
+function AppInner() {
+  useOfflineSync();
+
   return (
     <BrowserRouter>
       <AuthProvider>
@@ -45,6 +50,7 @@ function App() {
             <Route path="staff-payments" element={<StaffPaymentsPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="sync" element={<SyncQueuePage />} />
           </Route>
 
           {/* Manager Routes */}
@@ -79,6 +85,14 @@ function App() {
         </Routes>
       </AuthProvider>
     </BrowserRouter>
+  );
+}
+
+function App() {
+  return (
+    <BranchProvider>
+      <AppInner />
+    </BranchProvider>
   );
 }
 

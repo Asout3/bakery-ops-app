@@ -8,6 +8,20 @@ const api = axios.create({
   },
 });
 
+
+const attachLocationContext = (config) => {
+  const selectedLocationId = localStorage.getItem('selectedLocationId');
+  if (!selectedLocationId) return config;
+
+  config.headers['X-Location-Id'] = selectedLocationId;
+
+  if ((config.method || 'get').toLowerCase() === 'get') {
+    config.params = { ...(config.params || {}), location_id: selectedLocationId };
+  }
+
+  return config;
+};
+
 // Request interceptor to add token
 api.interceptors.request.use(
   (config) => {
@@ -15,7 +29,7 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    return config;
+    return attachLocationContext(config);
   },
   (error) => {
     return Promise.reject(error);
