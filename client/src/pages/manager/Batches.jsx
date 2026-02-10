@@ -1,123 +1,50 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import api from '../../api/axios';
-import { Package, Plus, Edit, Trash2, TrendingUp, TrendingDown } from 'lucide-react';
+import { Package, Clock, User, Eye } from 'lucide-react';
 
-export default function ManagerInventory() {
-  const [inventory, setInventory] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [locations, setLocations] = useState([]);
+export default function ManagerBatches() {
+  const [batches, setBatches] = useState([]);
+  const [selectedBatch, setSelectedBatch] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [editingItem, setEditingItem] = useState(null);
-  const [formData, setFormData] = useState({
-    product_id: '',
-    location_id: '',
-    quantity: ''
-  });
 
   useEffect(() => {
-    fetchData();
+    fetchBatches();
   }, []);
 
-  const fetchData = async () => {
+  const fetchBatches = async () => {
     try {
-      const [inventoryRes, productsRes, locationsRes] = await Promise.all([
-        api.get('/inventory'),
-        api.get('/products'),
-        api.get('/locations')
-      ]);
-      
-      setInventory(inventoryRes.data);
-      setProducts(productsRes.data);
-      setLocations(locationsRes.data);
+      const response = await api.get('/inventory/batches?limit=100');
+      setBatches(response.data);
     } catch (err) {
-      console.error('Failed to fetch data:', err);
+      console.error('Failed to fetch batches:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const fetchBatchDetails = async (batchId) => {
     try {
-      if (editingItem) {
-        await api.put(`/inventory/${editingItem.id}`, formData);
-      } else {
-        await api.post('/inventory', formData);
-      }
-      fetchData();
-      setShowForm(false);
-      setEditingItem(null);
-      setFormData({ product_id: '', location_id: '', quantity: '' });
+      const response = await api.get(`/inventory/batches/${batchId}`);
+      setSelectedBatch(response.data);
     } catch (err) {
-      console.error('Failed to save inventory:', err);
-    }
-  };
-
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this inventory item?')) {
-      try {
-        await api.delete(`/inventory/${id}`);
-        fetchData();
-      } catch (err) {
-        console.error('Failed to delete inventory:', err);
-      }
+      console.error('Failed to fetch batch details:', err);
     }
   };
 
   if (loading) {
-    return (
-      <div className="loading-container">
-        <div className="spinner"></div>
-      </div>
-    );
+    return <div className="loading-container"><div className="spinner"></div></div>;
   }
 
   return (
     <div className="inventory-page">
       <div className="page-header">
-        <h2>Inventory Management</h2>
-        <button 
-          className="btn btn-primary" 
-          onClick={() => {
-            setEditingItem(null);
-            setFormData({ product_id: '', location_id: '', quantity: '' });
-            setShowForm(true);
-          }}
-        >
-          <Plus size={18} /> Add Item
-        </button>
+        <h2>Batch History</h2>
       </div>
 
       <div className="stats-grid mb-4">
         <div className="stat-card card bg-light">
-          <div className="stat-icon bg-primary text-white">
-            <Package size={24} />
-          </div>
-          <div className="stat-content">
-            <h3>{inventory.reduce((sum, item) => sum + parseInt(item.quantity || 0), 0)}</h3>
-            <p>Total Items</p>
-          </div>
-        </div>
-        
-        <div className="stat-card card bg-light">
-          <div className="stat-icon bg-success text-white">
-            <TrendingUp size={24} />
-          </div>
-          <div className="stat-content">
-            <h3>{inventory.filter(item => parseInt(item.quantity || 0) > 10).length}</h3>
-            <p>In Stock</p>
-          </div>
-        </div>
-        
-        <div className="stat-card card bg-light">
-          <div className="stat-icon bg-warning text-white">
-            <TrendingDown size={24} />
-          </div>
-          <div className="stat-content">
-            <h3>{inventory.filter(item => parseInt(item.quantity || 0) <= 5).length}</h3>
-            <p>Low Stock</p>
-          </div>
+          <div className="stat-icon bg-primary text-white"><Package size={24} /></div>
+          <div className="stat-content"><h3>{batches.length}</h3><p>Total Batches</p></div>
         </div>
       </div>
 
@@ -127,52 +54,25 @@ export default function ManagerInventory() {
             <table className="table table-hover">
               <thead>
                 <tr>
-                  <th>ID</th>
-                  <th>Product</th>
-                  <th>Location</th>
-                  <th>Quantity</th>
-                  <th>Last Updated</th>
-                  <th>Source</th>
+                  <th>Batch ID</th>
+                  <th>Date</th>
+                  <th>Status</th>
+                  <th>Items</th>
+                  <th>Created By</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {inventory.map(item => (
-                  <tr key={item.id}>
-                    <td>{item.id}</td>
-                    <td>{products.find(p => p.id === item.product_id)?.name || item.product_id}</td>
-                    <td>{locations.find(l => l.id === item.location_id)?.name || item.location_id}</td>
+                {batches.map((batch) => (
+                  <tr key={batch.id}>
+                    <td>#{batch.id}</td>
+                    <td>{new Date(batch.created_at).toLocaleString()}</td>
+                    <td><span className="badge badge-success">{batch.status}</span></td>
+                    <td>{batch.items_count}</td>
+                    <td>{batch.created_by_name}</td>
                     <td>
-                      <span className={`badge ${parseInt(item.quantity) <= 5 ? 'badge-warning' : 'badge-success'}`}>
-                        {item.quantity}
-                      </span>
-                    </td>
-                    <td>{new Date(item.last_updated).toLocaleDateString()}</td>
-                    <td>
-                      <span className={`badge ${item.source === 'baked' ? 'badge-info' : 'badge-secondary'}`}>
-                        {item.source}
-                      </span>
-                    </td>
-                    <td>
-                      <button 
-                        className="btn btn-sm btn-outline-primary me-2"
-                        onClick={() => {
-                          setEditingItem(item);
-                          setFormData({
-                            product_id: item.product_id,
-                            location_id: item.location_id,
-                            quantity: item.quantity
-                          });
-                          setShowForm(true);
-                        }}
-                      >
-                        <Edit size={14} />
-                      </button>
-                      <button 
-                        className="btn btn-sm btn-outline-danger"
-                        onClick={() => handleDelete(item.id)}
-                      >
-                        <Trash2 size={14} />
+                      <button className="btn btn-sm btn-outline-primary" onClick={() => fetchBatchDetails(batch.id)}>
+                        <Eye size={14} /> View
                       </button>
                     </td>
                   </tr>
@@ -183,60 +83,27 @@ export default function ManagerInventory() {
         </div>
       </div>
 
-      {showForm && (
-        <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
+      {selectedBatch && (
+        <div className="modal-overlay" onClick={() => setSelectedBatch(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>{editingItem ? 'Edit Inventory Item' : 'Add New Inventory Item'}</h3>
-              <button className="close-btn" onClick={() => setShowForm(false)}>×</button>
+              <h3>Batch #{selectedBatch.id}</h3>
+              <button className="close-btn" onClick={() => setSelectedBatch(null)}>×</button>
             </div>
-            <form onSubmit={handleSubmit} className="modal-body">
-              <div className="mb-3">
-                <label className="form-label">Product *</label>
-                <select
-                  className="form-select"
-                  value={formData.product_id}
-                  onChange={(e) => setFormData({...formData, product_id: e.target.value})}
-                  required
-                >
-                  <option value="">Select Product</option>
-                  {products.map(product => (
-                    <option key={product.id} value={product.id}>{product.name}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div className="mb-3">
-                <label className="form-label">Location *</label>
-                <select
-                  className="form-select"
-                  value={formData.location_id}
-                  onChange={(e) => setFormData({...formData, location_id: e.target.value})}
-                  required
-                >
-                  <option value="">Select Location</option>
-                  {locations.map(location => (
-                    <option key={location.id} value={location.id}>{location.name}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div className="mb-3">
-                <label className="form-label">Quantity *</label>
-                <input
-                  type="number"
-                  className="form-control"
-                  value={formData.quantity}
-                  onChange={(e) => setFormData({...formData, quantity: e.target.value})}
-                  required
-                />
-              </div>
-              
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">{editingItem ? 'Update' : 'Add'} Item</button>
-              </div>
-            </form>
+            <div className="modal-body">
+              <p><Clock size={14} /> {new Date(selectedBatch.created_at).toLocaleString()}</p>
+              <p><User size={14} /> {selectedBatch.created_by_name}</p>
+              <p>Status: <strong>{selectedBatch.status}</strong></p>
+              <hr />
+              <h4>Items</h4>
+              <ul>
+                {selectedBatch.items?.map((item) => (
+                  <li key={item.id}>
+                    {item.product_name} — {item.quantity} {item.unit} ({item.source})
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
       )}

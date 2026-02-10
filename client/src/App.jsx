@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { BranchProvider } from './context/BranchContext';
+import { useOfflineSync } from './hooks/useOfflineSync';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -24,7 +26,9 @@ import ManagerNotifications from './pages/admin/Notifications'; // Reuse admin c
 import CashierSales from './pages/cashier/Sales';
 import CashierHistory from './pages/cashier/History';
 
-function App() {
+function AppInner() {
+  useOfflineSync();
+
   return (
     <BrowserRouter>
       <AuthProvider>
@@ -79,6 +83,14 @@ function App() {
         </Routes>
       </AuthProvider>
     </BrowserRouter>
+  );
+}
+
+function App() {
+  return (
+    <BranchProvider>
+      <AppInner />
+    </BranchProvider>
   );
 }
 

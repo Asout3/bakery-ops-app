@@ -1,14 +1,15 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
-import { query } from '../db.js';
+import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
+import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
 
 // Get expenses
 router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
-    const locationId = req.user.location_id || req.query.location_id;
+    const locationId = getTargetLocationId(req);
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
     const category = req.query.category;
@@ -61,29 +62,62 @@ router.post('/',
     }
 
     const { category, description, amount, expense_date } = req.body;
-    const locationId = req.user.location_id;
+    const locationId = getTargetLocationId(req);
+
+    const idempotencyKey = req.headers['x-idempotency-key'];
 
     try {
-      const result = await query(
-        `INSERT INTO expenses (location_id, category, description, amount, expense_date, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING *`,
-        [locationId, category, description || null, amount, expense_date, req.user.id]
-      );
+      const expense = await withTransaction(async (tx) => {
+        if (idempotencyKey) {
+          const existing = await tx.query(
+            `SELECT response_payload FROM idempotency_keys
+             WHERE user_id = $1 AND idempotency_key = $2`,
+            [req.user.id, idempotencyKey]
+          );
 
-      await query(
-        `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata) 
-         VALUES ($1, $2, $3, $4, $5)`,
-        [
-          req.user.id,
-          locationId,
-          'expense_created',
-          `Created expense: ${category} - ${amount}`,
-          JSON.stringify({ expense_id: result.rows[0].id, category, amount })
-        ]
-      );
+          if (existing.rows.length > 0) {
+            return existing.rows[0].response_payload;
+          }
+        }
 
-      res.status(201).json(result.rows[0]);
+        const result = await tx.query(
+          `INSERT INTO expenses (location_id, category, description, amount, expense_date, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING *`,
+          [locationId, category, description || null, amount, expense_date, req.user.id]
+        );
+
+        await tx.query(
+          `INSERT INTO kpi_events (location_id, user_id, event_type, event_value, metadata)
+           VALUES ($1, $2, 'expense_created', $3, $4)`,
+          [locationId, req.user.id, amount, JSON.stringify({ expense_id: result.rows[0].id, category })]
+        );
+
+        await tx.query(
+          `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            req.user.id,
+            locationId,
+            'expense_created',
+            `Created expense: ${category} - ${amount}`,
+            JSON.stringify({ expense_id: result.rows[0].id, category, amount })
+          ]
+        );
+
+        if (idempotencyKey) {
+          await tx.query(
+            `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
+            [req.user.id, locationId, idempotencyKey, '/api/expenses', JSON.stringify(result.rows[0])]
+          );
+        }
+
+        return result.rows[0];
+      });
+
+      res.status(201).json(expense);
     } catch (err) {
       console.error('Create expense error:', err);
       res.status(500).json({ error: 'Internal server error' });
@@ -148,7 +182,7 @@ router.delete('/:id',
 // Get expense categories summary
 router.get('/summary/categories', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
-    const locationId = req.user.location_id || req.query.location_id;
+    const locationId = getTargetLocationId(req);
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
 

@@ -9,6 +9,7 @@ A comprehensive, role-based web application designed to streamline daily operati
 
 ### Core Functionality
 - **Role-Based Access Control**: Separate interfaces for Admin, Manager, and Cashier roles
+- **Multi-Branch Switching**: Admin can switch active branch context from the top bar
 - **Inventory Management**: Track baked and purchased items with real-time stock levels
 - **Batch Tracking**: Ground managers can log and send inventory batches
 - **Point of Sale**: Fast, intuitive sales interface for cashiers with cart functionality
@@ -16,6 +17,9 @@ A comprehensive, role-based web application designed to streamline daily operati
 - **Reporting & Analytics**: Daily, weekly, and monthly reports with visual charts
 - **Notifications**: Low stock alerts and system notifications
 - **Activity Logging**: Complete audit trail of all operations
+- **Transactional Integrity**: Atomic sale/batch operations with rollback on failure
+- **Inventory Protection**: Sales are blocked when stock is insufficient to prevent silent oversell
+- **Offline Queue v1**: Sales, batches, and expenses can be queued when offline and auto-synced
 - **Offline-First Design**: Local storage with background sync capability
 
 ### Technical Highlights
@@ -54,6 +58,8 @@ GRANT ALL ON SCHEMA public TO bakery_user;
 
 # Run database schema
 PGPASSWORD=bakery_pass psql -U bakery_user -d bakery_ops -f database/schema.sql
+# Apply hardening migration for idempotency, inventory ledger, KPI events, and alert rules
+PGPASSWORD=bakery_pass psql -U bakery_user -d bakery_ops -f database/migrations/001_ops_hardening.sql
 ```
 
 3. **Install dependencies**
@@ -132,6 +138,9 @@ npm run client
 - `POST /api/auth/login` - User login
 - `GET /api/auth/me` - Get current user
 
+### Locations
+- `GET /api/locations` - List active bakery locations/branches
+
 ### Products
 - `GET /api/products` - List all products
 - `GET /api/products/:id` - Get single product
@@ -142,12 +151,12 @@ npm run client
 ### Inventory
 - `GET /api/inventory` - Get inventory for location
 - `PUT /api/inventory/:productId` - Update inventory quantity
-- `POST /api/inventory/batches` - Create inventory batch
+- `POST /api/inventory/batches` - Create inventory batch (atomic transaction)
 - `GET /api/inventory/batches` - Get batch history
 - `GET /api/inventory/batches/:id` - Get batch details
 
 ### Sales
-- `POST /api/sales` - Create new sale
+- `POST /api/sales` - Create new sale (fails safely when stock is insufficient)
 - `GET /api/sales` - Get sales history
 - `GET /api/sales/:id` - Get sale details
 
@@ -165,12 +174,17 @@ npm run client
 
 ### Reports
 - `GET /api/reports/daily` - Daily summary report
-- `GET /api/reports/weekly` - Weekly summary report
+- `GET /api/reports/weekly` - Weekly summary report (includes categories + payment methods)
+- `GET /api/reports/weekly/export` - Weekly CSV export
 - `GET /api/reports/monthly` - Monthly summary report
 - `GET /api/reports/products/profitability` - Product profitability analysis
+- `GET /api/reports/branches/summary` - Multi-branch daily snapshot (admin)
 
 ### Notifications
 - `GET /api/notifications` - Get user notifications
+- `GET /api/notifications/rules` - List alert rules (admin)
+- `POST /api/notifications/rules` - Create alert rule (admin)
+- `PUT /api/notifications/rules/:id` - Update alert rule (admin)
 - `PUT /api/notifications/:id/read` - Mark notification as read
 - `PUT /api/notifications/read-all` - Mark all as read
 - `GET /api/notifications/unread/count` - Get unread count
@@ -195,6 +209,20 @@ The application uses PostgreSQL with the following main tables:
 - `notifications` - User notifications
 - `activity_log` - Audit trail
 - `sync_queue` - Offline sync queue
+- `idempotency_keys` - Deduplicate retried writes from offline queue
+- `inventory_movements` - Inventory ledger for traceable stock movements
+- `kpi_events` - KPI telemetry events (sales, batches, expenses)
+- `alert_rules` - Threshold rules for low stock and sales anomalies
+
+## Recent Reliability Improvements
+
+- Refactored critical write flows (`/api/sales`, `/api/inventory/batches`) to use real PostgreSQL transactions with commit/rollback behavior.
+- Added strict stock validation during checkout so sales cannot finalize when inventory is insufficient.
+- Added `GET /api/locations` endpoint to support branch-aware UI flows.
+- Updated weekly reporting endpoint to honor optional `start_date` for custom date ranges.
+- Added Offline Queue v1 with periodic/online retry sync for sales, batches, and expenses.
+- Added inventory movement ledger, idempotency keys, KPI events, and alert-rule management.
+- Added multi-branch branch selector context in frontend and branch summary reporting endpoint.
 
 ## Technology Stack
 

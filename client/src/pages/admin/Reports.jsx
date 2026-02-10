@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
-import { Download, Calendar, TrendingUp, TrendingDown, DollarSign, ShoppingCart } from 'lucide-react';
+import { Download, TrendingUp, TrendingDown, DollarSign, ShoppingCart } from 'lucide-react';
 
 export default function ReportsPage() {
   const [reportData, setReportData] = useState(null);
@@ -25,9 +25,9 @@ export default function ReportsPage() {
       setReportData({
         summary: response.data.summary,
         daily_sales: response.data.sales_by_day,
-        sales_by_category: [], // Would need a separate endpoint for this
-        top_products: response.data.top_products,
-        payment_methods: [] // Would need to derive from sales data
+        sales_by_category: response.data.sales_by_category || [],
+        top_products: response.data.top_products || [],
+        payment_methods: response.data.payment_methods || []
       });
     } catch (err) {
       console.error('Failed to fetch reports:', err);
@@ -48,12 +48,26 @@ export default function ReportsPage() {
   
   const salesByCategory = reportData?.sales_by_category || [];
   const dailySales = reportData?.daily_sales || [];
-  // Extract payment methods from sales data if not directly available
-  const paymentMethods = reportData?.sales_by_day ? 
-    reportData.sales_by_day.reduce((acc, day) => {
-      // This is a simplified aggregation - actual implementation would depend on the data structure
-      return acc; // Placeholder since sales_by_day may not contain payment method breakdown
-    }, []) : [];
+  const paymentMethods = reportData?.payment_methods || [];
+
+
+  const exportWeeklyCsv = async () => {
+    try {
+      const response = await api.get(
+        `/reports/weekly/export?start_date=${dateRange.startDate}&end_date=${dateRange.endDate}`,
+        { responseType: 'blob' }
+      );
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `weekly-report-${dateRange.startDate}-to-${dateRange.endDate}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      console.error('Failed to export report:', err);
+    }
+  };
 
   const stats = [
     {
@@ -255,8 +269,8 @@ export default function ReportsPage() {
               </button>
             </div>
             <div className="col-md-3">
-              <button className="btn btn-outline-success w-100">
-                <Download size={16} /> Weekly Report
+              <button className="btn btn-outline-success w-100" onClick={exportWeeklyCsv}>
+                <Download size={16} /> Weekly Report (CSV)
               </button>
             </div>
             <div className="col-md-3">

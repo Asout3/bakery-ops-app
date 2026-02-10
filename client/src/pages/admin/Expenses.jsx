@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
-import { Search, Plus, Edit, Trash2, TrendingDown, DollarSign, Calendar } from 'lucide-react';
+import { Plus, Edit, Trash2, TrendingDown, DollarSign, Calendar } from 'lucide-react';
+import { enqueueOperation } from '../../utils/offlineQueue';
 
 export default function ExpensesPage() {
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [message, setMessage] = useState(null);
   const [editingExpense, setEditingExpense] = useState(null);
   const [formData, setFormData] = useState({
     category: '',
@@ -49,7 +51,14 @@ export default function ExpensesPage() {
         location_id: ''
       });
     } catch (err) {
-      console.error('Failed to save expense:', err);
+      if (!editingExpense && !err.response) {
+        const idempotencyKey = `expense-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        enqueueOperation({ url: '/expenses', method: 'post', data: formData, idempotencyKey });
+        setMessage({ type: 'warning', text: 'Offline: expense queued for sync.' });
+        setShowForm(false);
+      } else {
+        console.error('Failed to save expense:', err);
+      }
     }
   };
 
@@ -81,6 +90,7 @@ export default function ExpensesPage() {
     <div className="expenses-page">
       <div className="page-header">
         <h2>Expenses Management</h2>
+        {message && <div className={`alert alert-${message.type}`}>{message.text}</div>}
         <button 
           className="btn btn-primary" 
           onClick={() => {

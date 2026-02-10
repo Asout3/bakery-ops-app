@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { Plus, Minus, ShoppingCart, Trash2, Search } from 'lucide-react';
 import './Sales.css';
+import { enqueueOperation } from '../../utils/offlineQueue';
 
 export default function Sales() {
   const [products, setProducts] = useState([]);
@@ -88,10 +89,21 @@ export default function Sales() {
       
       setTimeout(() => setMessage(null), 5000);
     } catch (err) {
-      setMessage({ 
-        type: 'danger', 
-        text: err.response?.data?.error || 'Failed to process sale' 
-      });
+      if (!err.response) {
+        const payload = {
+          items: cart.map(item => ({ product_id: item.product_id, quantity: item.quantity })),
+          payment_method: 'cash'
+        };
+        const idempotencyKey = `sale-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        enqueueOperation({ url: '/sales', method: 'post', data: payload, idempotencyKey });
+        setMessage({ type: 'warning', text: 'Offline: sale queued for sync.' });
+        setCart([]);
+      } else {
+        setMessage({ 
+          type: 'danger', 
+          text: err.response?.data?.error || 'Failed to process sale' 
+        });
+      }
     } finally {
       setLoading(false);
     }

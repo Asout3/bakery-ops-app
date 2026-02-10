@@ -12,18 +12,40 @@ import {
   Menu,
   X
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import api from '../api/axios';
+import { useBranch } from '../context/BranchContext';
 import './Layout.css';
 
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [locations, setLocations] = useState([]);
+  const { selectedLocationId, setLocation } = useBranch();
 
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
+
+
+  useEffect(() => {
+    const fetchLocations = async () => {
+      if (user?.role !== 'admin') return;
+      try {
+        const response = await api.get('/locations');
+        setLocations(response.data);
+        if (!selectedLocationId && response.data.length > 0) {
+          setLocation(response.data[0].id);
+        }
+      } catch (err) {
+        console.error('Failed to fetch locations:', err);
+      }
+    };
+
+    fetchLocations();
+  }, [user?.role, selectedLocationId, setLocation]);
 
   const getNavItems = () => {
     const role = user?.role;
@@ -112,8 +134,22 @@ export default function Layout() {
           >
             <Menu size={24} />
           </button>
-          <div className="top-bar-content">
+          <div className="top-bar-content" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <h1 className="page-title">Bakery Operations System</h1>
+            {user?.role === 'admin' && (
+              <select
+                className="form-select"
+                style={{ maxWidth: '240px' }}
+                value={selectedLocationId || ''}
+                onChange={(e) => setLocation(e.target.value)}
+              >
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </header>
 
