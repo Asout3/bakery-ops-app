@@ -61,6 +61,7 @@ export default function Layout() {
         { to: '/admin/reports', icon: BarChart3, label: 'Reports' },
         { to: '/admin/notifications', icon: Bell, label: 'Notifications' },
         { to: '/admin/sync', icon: BarChart3, label: 'Sync Queue' },
+        { to: '/admin/team', icon: Users, label: 'Branches & Staff' },
       ];
     } else if (role === 'manager') {
       return [

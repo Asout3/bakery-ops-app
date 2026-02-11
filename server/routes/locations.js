@@ -20,4 +20,31 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+
+router.post('/', authenticateToken, async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: 'Insufficient permissions' });
+  }
+
+  const { name, address, phone } = req.body;
+
+  if (!name || typeof name !== 'string' || name.trim().length < 2) {
+    return res.status(400).json({ error: 'Location name is required' });
+  }
+
+  try {
+    const result = await query(
+      `INSERT INTO locations (name, address, phone)
+       VALUES ($1, $2, $3)
+       RETURNING id, name, address, phone, is_active, created_at`,
+      [name.trim(), address?.trim() || null, phone?.trim() || null]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Create location error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default router;
