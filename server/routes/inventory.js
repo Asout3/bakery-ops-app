@@ -23,7 +23,7 @@ router.get('/', authenticateToken, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('Get inventory error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
   }
 });
 
@@ -76,9 +76,9 @@ router.put(
 
     const { productId } = req.params;
     const { quantity, source } = req.body;
-    const locationId = await getTargetLocationId(req, query);
 
     try {
+      const locationId = await getTargetLocationId(req, query);
       const result = await query(
         `INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)
          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
@@ -110,7 +110,7 @@ router.put(
       res.json(result.rows[0]);
     } catch (err) {
       console.error('Update inventory error:', err);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
     }
   }
 );
@@ -131,10 +131,10 @@ router.post(
 
     const { items, notes } = req.body;
     const retryCount = Number(req.headers['x-retry-count'] || 0);
-    const locationId = await getTargetLocationId(req, query);
     const idempotencyKey = req.headers['x-idempotency-key'];
 
     try {
+      const locationId = await getTargetLocationId(req, query);
       const batch = await withTransaction(async (tx) => {
         if (idempotencyKey) {
           const existing = await tx.query(
@@ -215,7 +215,7 @@ router.post(
       res.status(201).json(batch);
     } catch (err) {
       console.error('Create batch error:', err);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
     }
   }
 );

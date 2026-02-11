@@ -21,11 +21,11 @@ router.post(
     }
 
     const { items, payment_method, cashier_timing_ms } = req.body;
-    const locationId = await getTargetLocationId(req, query);
     const cashierId = req.user.id;
     const idempotencyKey = req.headers['x-idempotency-key'];
 
     try {
+      const locationId = await getTargetLocationId(req, query);
       const sale = await withTransaction(async (tx) => {
         if (idempotencyKey) {
           const existing = await tx.query(
@@ -223,7 +223,7 @@ router.get('/', authenticateToken, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('Get sales error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
   }
 });
 

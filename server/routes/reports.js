@@ -90,7 +90,7 @@ router.get('/daily', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error('Daily report error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
   }
 });
 
@@ -197,7 +197,7 @@ router.get('/weekly', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error('Weekly report error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
   }
 });
 
@@ -345,7 +345,7 @@ router.get('/monthly', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error('Monthly report error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
   }
 });
 
@@ -368,7 +368,7 @@ router.get('/branches/summary', authenticateToken, authorizeRoles('admin'), asyn
     res.json(result.rows);
   } catch (err) {
     console.error('Branch summary error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
   }
 });
 

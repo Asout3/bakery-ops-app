@@ -44,7 +44,7 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (re
     res.json(result.rows);
   } catch (err) {
     console.error('Get expenses error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
   }
 });
 
@@ -62,11 +62,10 @@ router.post('/',
     }
 
     const { category, description, amount, expense_date } = req.body;
-    const locationId = await getTargetLocationId(req, query);
-
     const idempotencyKey = req.headers['x-idempotency-key'];
 
     try {
+      const locationId = await getTargetLocationId(req, query);
       const expense = await withTransaction(async (tx) => {
         if (idempotencyKey) {
           const existing = await tx.query(
@@ -120,7 +119,7 @@ router.post('/',
       res.status(201).json(expense);
     } catch (err) {
       console.error('Create expense error:', err);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
     }
   }
 );
@@ -212,7 +211,7 @@ router.get('/summary/categories', authenticateToken, authorizeRoles('admin', 'ma
     res.json(result.rows);
   } catch (err) {
     console.error('Get expense summary error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
   }
 });
 

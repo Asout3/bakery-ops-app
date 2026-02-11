@@ -61,9 +61,9 @@ router.post('/',
     }
 
     const { user_id, amount, payment_date, payment_type, notes, location_id } = req.body;
-    const locationId = await getTargetLocationId({ ...req, query: { ...req.query, location_id } }, query);
 
     try {
+      const locationId = await getTargetLocationId({ ...req, query: { ...req.query, location_id } }, query);
       const result = await query(
         `INSERT INTO staff_payments (user_id, location_id, amount, payment_date, payment_type, notes, created_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
