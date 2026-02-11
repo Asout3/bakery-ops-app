@@ -4,483 +4,404 @@ ASout3
 
 # Bakery Operations Web App
 
-A comprehensive, role-based web application designed to streamline daily operations for small-to-mid bakeries. Manage inventory, sales, expenses, staff payments, and generate actionable reports - all from one modern, intuitive interface.
-
-![Bakery Operations](https://img.shields.io/badge/Status-Production%20Ready-success)
-![License](https://img.shields.io/badge/License-MIT-blue)
-
-## Features
-
-### Core Functionality
-- **Role-Based Access Control**: Separate interfaces for Admin, Manager, and Cashier roles
-- **Multi-Branch Switching**: Admin can switch active branch context from the top bar
-- **Inventory Management**: Track baked and purchased items with real-time stock levels
-- **Batch Tracking**: Ground managers can log and send inventory batches
-- **Point of Sale**: Fast, intuitive sales interface for cashiers with cart functionality
-- **Expense Tracking**: Comprehensive expense and staff payment management
-- **Reporting & Analytics**: Daily, weekly, and monthly reports with visual charts
-- **Notifications**: Low stock alerts and system notifications
-- **Sync Queue Monitor**: Admin page for queued operations and retry/conflict history (`/admin/sync`)
-- **Activity Logging**: Complete audit trail of all operations
-- **Transactional Integrity**: Atomic sale/batch operations with rollback on failure
-- **Inventory Protection**: Sales are blocked when stock is insufficient to prevent silent oversell
-- **Offline Queue v2 (IndexedDB)**: Sales, batches, and expenses are queued in IndexedDB with retry/conflict history UI
-- **Offline-First Design**: Local storage with background sync capability
-
-### Technical Highlights
-- **Modern Tech Stack**: React 18, Vite, Node.js, Express, PostgreSQL
-- **Responsive Design**: Works seamlessly on desktop, tablet, and mobile devices
-- **RESTful API**: Clean, documented API endpoints
-- **JWT Authentication**: Secure token-based authentication
-- **Database Schema**: Optimized PostgreSQL schema with proper indexing
-- **Beautiful UI**: Modern, professional interface with charts and visualizations
-
-## Quick Start
-
-## Supabase Quick Connect (recommended for free development)
-
-If you are using Supabase, use this fast path:
-
-1. Set `DATABASE_URL` in `.env` to your Supabase **Connection Pooler** URL (recommended, port `6543`) and set `DB_IP_FAMILY=4` for IPv4-only development environments.
-2. Run the schema + migrations:
-   ```bash
-   npm run setup-db
-   psql "$DATABASE_URL" -f database/migrations/001_ops_hardening.sql
-   psql "$DATABASE_URL" -f database/migrations/002_branch_access_and_kpi.sql
-   ```
-3. Start the app with `npm run dev`.
-
-Detailed walkthrough: [`SUPABASE-SETUP.md`](./SUPABASE-SETUP.md).
-
-### Prerequisites
-- Node.js (v16 or higher)
-- PostgreSQL (v12 or higher)
-- npm or yarn
-
-### Installation
-
-1. **Clone the repository**
-```bash
-git clone <repository-url>
-cd bakery-ops-app
-```
-
-2. **Set up the database**
-```bash
-# Create database and user
-sudo -u postgres psql
-CREATE DATABASE bakery_ops;
-CREATE USER bakery_user WITH ENCRYPTED PASSWORD 'bakery_pass';
-GRANT ALL PRIVILEGES ON DATABASE bakery_ops TO bakery_user;
-\c bakery_ops
-GRANT ALL ON SCHEMA public TO bakery_user;
-\q
-
-# Run database schema
-PGPASSWORD=bakery_pass psql -U bakery_user -d bakery_ops -f database/schema.sql
-# Apply hardening migration for idempotency, inventory ledger, KPI events, and alert rules
-PGPASSWORD=bakery_pass psql -U bakery_user -d bakery_ops -f database/migrations/001_ops_hardening.sql
-# Apply branch-access and KPI extension migration
-PGPASSWORD=bakery_pass psql -U bakery_user -d bakery_ops -f database/migrations/002_branch_access_and_kpi.sql
-```
-
-3. **Install dependencies**
-```bash
-# Backend dependencies
-npm install
-
-# Frontend dependencies
-cd client && npm install && cd ..
-```
-
-4. **Configure environment variables**
-```bash
-# Copy the example env file
-cp .env.example .env
-
-# Edit .env with your configuration
-# Update DATABASE_URL and JWT_SECRET
-```
-
-5. **Start the application**
-```bash
-# Development mode (runs both frontend and backend)
-npm run dev
-
-# Or run separately:
-# Backend only
-npm run server
-
-# Frontend only (in another terminal)
-npm run client
-```
-
-6. **Access the application**
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:5000
-
-
-### Common Local Dev Error: `ECONNREFUSED 127.0.0.1:5432`
-
-### Supabase Error: `ENETUNREACH ... supabase.co:5432`
-
-This usually means your dev environment cannot route to that Supabase DB endpoint (often IPv6 path).
-
-1. In Supabase, copy the **Connection Pooler** string (transaction mode, usually port `6543`).
-2. Use it in `.env` as `DATABASE_URL` and ensure it includes `sslmode=require`.
-3. Keep `DB_IP_FAMILY=4` in `.env`.
-4. Restart with `npm run dev`.
-
-
-If you see login errors like `connect ECONNREFUSED 127.0.0.1:5432`, your API cannot reach PostgreSQL.
-
-1. Copy env file and set DB values:
-```bash
-cp .env.example .env
-```
-
-2. Start PostgreSQL locally (example with Docker):
-```bash
-docker run --name bakery-postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=bakery_ops \
-  -p 5432:5432 -d postgres:16
-```
-
-3. Apply schema/migrations:
-```bash
-npm run setup-db
-PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d bakery_ops -f database/migrations/001_ops_hardening.sql
-PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d bakery_ops -f database/migrations/002_branch_access_and_kpi.sql
-```
-
-4. Start app:
-```bash
-npm run dev
-```
-
-### Default Login Credentials
-- **Username**: admin
-- **Password**: admin123
-- **Role**: Admin (full access)
-
-## User Roles & Features
-
-### Admin
-- Full system access
-- Dashboard with analytics and charts
-- Product management (create, edit, delete)
-- Inventory overview
-- Sales history and reports
-- Expense tracking and categorization
-- Staff payment management
-- Daily/weekly/monthly reports
-- Notifications management
-
-### Manager (Ground Manager)
-- Inventory management
-- Add baked or purchased items
-- Create and send inventory batches
-- Product catalog access
-- View notifications
-- Activity history
-
-### Cashier
-- Point of Sale interface
-- Fast product search and selection
-- Shopping cart management
-- Complete sales transactions
-- Print/view receipts
-- Sales history
-
-## API Endpoints
-
-### Authentication
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - User login
-- `GET /api/auth/me` - Get current user
-
-### Locations
-- `GET /api/locations` - List active bakery locations/branches
-
-### Products
-- `GET /api/products` - List all products
-- `GET /api/products/:id` - Get single product
-- `POST /api/products` - Create product (admin/manager)
-- `PUT /api/products/:id` - Update product (admin/manager)
-- `DELETE /api/products/:id` - Delete product (admin)
-
-### Inventory
-- `GET /api/inventory` - Get inventory for location
-- `POST /api/inventory` - Create inventory record (admin/manager)
-- `PUT /api/inventory/:productId` - Update inventory quantity
-- `DELETE /api/inventory/:id` - Delete inventory record (admin)
-- `POST /api/inventory/batches` - Create inventory batch (atomic transaction)
-- `GET /api/inventory/batches` - Get batch history
-- `GET /api/inventory/batches/:id` - Get batch details
-
-### Sales
-- `POST /api/sales` - Create new sale (fails safely when stock is insufficient)
-- `GET /api/sales` - Get sales history
-- `GET /api/sales/:id` - Get sale details
-
-### Expenses
-- `GET /api/expenses` - List expenses
-- `POST /api/expenses` - Create expense (admin/manager)
-- `PUT /api/expenses/:id` - Update expense (admin)
-- `DELETE /api/expenses/:id` - Delete expense (admin)
-- `GET /api/expenses/summary/categories` - Expense summary by category
-
-### Staff Payments
-- `GET /api/payments` - List staff payments (admin)
-- `POST /api/payments` - Create payment (admin)
-- `GET /api/payments/summary` - Payment summary (admin)
-
-### Reports
-- `GET /api/reports/daily` - Daily summary report
-- `GET /api/reports/weekly` - Weekly summary report (includes categories + payment methods)
-- `GET /api/reports/weekly/export` - Weekly CSV export
-- `GET /api/reports/monthly` - Monthly summary report
-- `GET /api/reports/products/profitability` - Product profitability analysis
-- `GET /api/reports/branches/summary` - Multi-branch daily snapshot (admin)
-- `GET /api/reports/kpis` - KPI summary aligned to success criteria (admin)
-
-### Notifications
-- `GET /api/notifications` - Get user notifications
-- `GET /api/notifications/rules` - List alert rules (admin)
-- `POST /api/notifications/rules` - Create alert rule (admin)
-- `PUT /api/notifications/rules/:id` - Update alert rule (admin)
-- `PUT /api/notifications/:id/read` - Mark notification as read
-- `PUT /api/notifications/read-all` - Mark all as read
-- `PUT /api/notifications/mark-all-read` - Backward-compatible mark-all endpoint
-- `GET /api/notifications/unread/count` - Get unread count
-
-### Activity Log
-- `GET /api/activity` - Get activity log
-
-## Database Schema
-
-The application uses PostgreSQL with the following main tables:
-- `users` - User accounts and authentication
-- `locations` - Bakery locations/branches
-- `categories` - Product categories
-- `products` - Product catalog
-- `inventory` - Current stock levels
-- `inventory_batches` - Batch tracking
-- `batch_items` - Items in each batch
-- `sales` - Sales transactions
-- `sale_items` - Items in each sale
-- `expenses` - Business expenses
-- `staff_payments` - Staff salary/payments
-- `notifications` - User notifications
-- `activity_log` - Audit trail
-- `sync_queue` - Offline sync queue
-- `idempotency_keys` - Deduplicate retried writes from offline queue
-- `inventory_movements` - Inventory ledger for traceable stock movements
-- `kpi_events` - KPI telemetry events (sales, batches, expenses)
-- `alert_rules` - Threshold rules for low stock and sales anomalies
-- `user_locations` - Explicit branch access map for users with multi-branch permissions
-
-## Recent Reliability Improvements
-
-- Refactored critical write flows (`/api/sales`, `/api/inventory/batches`) to use real PostgreSQL transactions with commit/rollback behavior.
-- Added strict stock validation during checkout so sales cannot finalize when inventory is insufficient.
-- Added `GET /api/locations` endpoint to support branch-aware UI flows.
-- Updated weekly reporting endpoint to honor optional `start_date` for custom date ranges.
-- Added Offline Queue v2 (IndexedDB-backed) with periodic/online retry sync, retry history, and conflict visibility.
-- Added inventory movement ledger, idempotency keys, KPI events, and alert-rule management.
-- Added multi-branch branch selector context in frontend and branch summary reporting endpoint.
-- Added branch-access enforcement helper and tests for admin branch authorization.
-- Upgraded offline queue to IndexedDB with retry/conflict history support.
-
-## Technology Stack
-
-### Frontend
-- **React 18** - UI library
-- **Vite** - Build tool and dev server
-- **React Router** - Client-side routing
-- **Axios** - HTTP client
-- **Recharts** - Charts and visualizations
-- **Lucide React** - Icons
-- **Date-fns** - Date utilities
-
-### Backend
-- **Node.js** - Runtime environment
-- **Express** - Web framework
-- **PostgreSQL** - Database
-- **pg** - PostgreSQL client
-- **JWT** - Authentication tokens
-- **bcryptjs** - Password hashing
-- **express-validator** - Input validation
-- **CORS** - Cross-origin support
-- **Morgan** - HTTP request logger
-
-## Project Structure
-
-```
-bakery-ops-app/
-├── client/                 # Frontend application
-│   ├── src/
-│   │   ├── api/           # API client
-│   │   ├── components/    # Reusable components
-│   │   ├── context/       # React context providers
-│   │   ├── pages/         # Page components
-│   │   │   ├── admin/    # Admin pages
-│   │   │   ├── manager/  # Manager pages
-│   │   │   └── cashier/  # Cashier pages
-│   │   ├── App.jsx       # Main app component
-│   │   └── main.jsx      # Entry point
-│   ├── public/           # Static assets
-│   └── package.json      # Frontend dependencies
-├── server/               # Backend application
-│   ├── routes/          # API route handlers
-│   │   ├── auth.js
-│   │   ├── products.js
-│   │   ├── inventory.js
-│   │   ├── sales.js
-│   │   ├── expenses.js
-│   │   ├── payments.js
-│   │   ├── reports.js
-│   │   ├── notifications.js
-│   │   └── activity.js
-│   ├── middleware/      # Express middleware
-│   │   └── auth.js
-│   ├── db.js           # Database connection
-│   └── index.js        # Server entry point
-├── database/           # Database files
-│   └── schema.sql     # Database schema
-├── .env               # Environment variables
-├── .gitignore        # Git ignore rules
-├── package.json      # Backend dependencies
-└── README.md         # This file
-```
-
-## Configuration
-
-### Environment Variables
-Create a `.env` file in the root directory:
-
-```env
-PORT=5000
-DATABASE_URL=postgresql://bakery_user:bakery_pass@localhost:5432/bakery_ops
-JWT_SECRET=your_super_secret_jwt_key_change_in_production
-NODE_ENV=development
-```
-
-### Database Configuration
-Update the `DATABASE_URL` in `.env` with your PostgreSQL credentials:
-```
-postgresql://username:password@host:port/database
-```
-
-## Development
-
-### Running in Development Mode
-```bash
-# Run both frontend and backend
-npm run dev
-
-# Backend will run on http://localhost:5000
-# Frontend will run on http://localhost:3000
-```
-
-### Code Structure Guidelines
-- Keep components focused and reusable
-- Use role-based access control for all protected routes
-- Follow REST API conventions
-- Maintain database transaction integrity
-- Log all important activities
-
-## Building for Production
-
-### Build Frontend
-```bash
-cd client
-npm run build
-```
-
-The built files will be in `client/dist/`
-
-### Production Deployment
-1. Set `NODE_ENV=production` in `.env`
-2. Update `JWT_SECRET` with a strong secret key
-3. Configure production database URL
-4. Build the frontend
-5. Serve frontend static files from Express
-6. Use a process manager like PM2
-
-## Testing
-
-### Manual Testing Checklist
-- [ ] User authentication (login/logout)
-- [ ] Admin dashboard loads with correct data
-- [ ] Manager can add inventory and send batches
-- [ ] Cashier can create sales
-- [ ] Products CRUD operations
-- [ ] Reports generation (daily/weekly/monthly)
-- [ ] Notifications system
-- [ ] Role-based access control
-- [ ] Mobile responsiveness
-
-## Troubleshooting
-
-### Database Connection Issues
-- Verify PostgreSQL is running: `sudo systemctl status postgresql`
-- Check database credentials in `.env`
-- Ensure database exists: `psql -U postgres -l`
-
-### Port Already in Use
-```bash
-# Find and kill process on port 5000
-lsof -ti:5000 | xargs kill -9
-
-# Or change PORT in .env
-```
-
-### Frontend Build Errors
-```bash
-# Clear cache and reinstall
-cd client
-rm -rf node_modules package-lock.json
-npm install
-```
-
-## Future Enhancements
-
-- Multi-branch dashboard with consolidated reporting
-- Advanced role-based notifications
-- Budget alerts and expense categorization
-- Export to accounting software (CSV/Excel)
-- Barcode/label printing for batches
-- Mobile app version
-- Advanced analytics with ML predictions
-- Recipe management
-- Supplier management
-- Customer loyalty program
-
-## Contributing
-
-Contributions are welcome! Please follow these steps:
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License.
-
-## Support
-
-For support, please open an issue in the GitHub repository or contact the development team.
-
-## Acknowledgments
-
-- Built with modern web technologies
-- Designed for real-world bakery operations
-- Optimized for performance and usability
+A role-based bakery management platform for day-to-day operations across one or many branches.
+
+It includes:
+- real-time inventory tracking,
+- POS sales,
+- expenses and staff payments,
+- operational reports,
+- branch-level controls,
+- offline queue/retry logic,
+- idempotent write handling,
+- alert rules and KPI telemetry.
 
 ---
 
-**Made with care for bakery owners and operators worldwide.**
+## 1) What this app solves
+
+This project is designed for bakeries that need a **single operations system** across admin, manager, and cashier workflows.
+
+### Core operational goals
+- Prevent silent inventory drift and overselling.
+- Keep sales/expense/batch writes reliable even on unstable internet.
+- Give admins branch-level visibility and control.
+- Provide simple, understandable screens for non-technical staff.
+
+### Reliability goals
+- Transaction-safe critical writes.
+- Retry-safe writes through idempotency keys.
+- Visible offline queue + retry/conflict history.
+- Branch-aware access checks to avoid cross-branch leakage.
+
+---
+
+## 2) Feature overview
+
+### 2.1 Role-based product experience
+- **Admin**: full platform access, branch switching, reporting, staff/branch setup, notifications rules, sync monitor.
+- **Manager**: product + inventory + batches + expenses at branch scope.
+- **Cashier**: POS sales + sales history at branch scope.
+
+### 2.2 Branch-aware operations
+- Frontend stores selected branch context.
+- Requests include branch context (`X-Location-Id` + query usage where needed).
+- Backend validates branch access using `getTargetLocationId` + `user_locations` when available.
+
+### 2.3 Inventory and batch flow
+- Add/update inventory per product per branch.
+- Send inventory batches atomically.
+- Track ledger entries in `inventory_movements`.
+
+### 2.4 Sales and oversell protection
+- Sale creation validates stock before deducting quantity.
+- If stock is insufficient, sale fails safely with clear error.
+- Sale + sale-items + inventory deduction run transactionally.
+
+### 2.5 Expenses and staff payments
+- Expense create/update/delete and category summary.
+- Staff payments with branch context and staff selection.
+
+### 2.6 Reporting and export
+- Daily/weekly/monthly summaries.
+- Weekly CSV export.
+- Branch summary and KPI summary endpoints.
+
+### 2.7 Notifications and alerts
+- Per-user notifications.
+- Mark single/all as read.
+- Admin alert rules for events (e.g., low stock/high sale).
+
+### 2.8 Offline and retry resilience
+- IndexedDB queue for critical write operations.
+- Background sync hook.
+- Retry/conflict history available in admin sync UI.
+- Backend deduplication via `idempotency_keys`.
+
+---
+
+## 3) Tech stack
+
+### Frontend
+- React 18
+- Vite
+- React Router
+- Axios
+- Recharts
+- Lucide React
+
+### Backend
+- Node.js + Express
+- PostgreSQL (`pg`)
+- JWT auth
+- bcryptjs
+- express-validator
+- Morgan + CORS
+
+---
+
+## 4) Project structure
+
+```txt
+client/
+  src/
+    api/
+    components/
+    context/
+    hooks/
+    pages/
+      admin/
+      manager/
+      cashier/
+    utils/
+server/
+  middleware/
+  routes/
+  utils/
+database/
+  migrations/
+  schema.sql
+scripts/
+```
+
+---
+
+## 5) Quick start (local PostgreSQL)
+
+## 5.1 Prerequisites
+- Node.js 18+ recommended
+- PostgreSQL 12+
+- npm
+
+## 5.2 Install dependencies
+```bash
+npm install
+cd client && npm install && cd ..
+```
+
+## 5.3 Create local env
+```bash
+cp .env.example .env
+```
+
+Set at minimum:
+- `PORT=5000`
+- `JWT_SECRET=...`
+- either `DATABASE_URL=...` OR PG fallback vars (`PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE`)
+
+## 5.4 Initialize database
+```bash
+npm run setup-db
+psql "$DATABASE_URL" -f database/migrations/001_ops_hardening.sql
+psql "$DATABASE_URL" -f database/migrations/002_branch_access_and_kpi.sql
+```
+
+## 5.5 Start app
+```bash
+npm run dev
+```
+
+Access:
+- Frontend: `http://localhost:3000`
+- Backend: `http://localhost:5000`
+
+Default seeded login:
+- username: `admin`
+- password: `admin123`
+
+---
+
+## 6) Supabase quick connect (recommended free hosted DB)
+
+Use Supabase **Connection Pooler** URL (transaction mode, usually port `6543`) and include `sslmode=require`.
+
+Example `.env` essentials:
+```env
+PORT=5000
+NODE_ENV=development
+JWT_SECRET=your_super_secret_jwt_key
+DB_IP_FAMILY=4
+DATABASE_URL=postgresql://postgres.<ref>:<password>@<region>.pooler.supabase.com:6543/postgres?sslmode=require
+```
+
+Then run:
+```bash
+npm run setup-db
+psql "$DATABASE_URL" -f database/migrations/001_ops_hardening.sql
+psql "$DATABASE_URL" -f database/migrations/002_branch_access_and_kpi.sql
+npm run dev
+```
+
+Detailed guide: [`SUPABASE-SETUP.md`](./SUPABASE-SETUP.md).
+
+---
+
+## 7) Environment variables reference
+
+### Server
+- `PORT` — API port.
+- `NODE_ENV` — `development` / `production`.
+- `JWT_SECRET` — token signing secret.
+- `DATABASE_URL` — preferred full DB connection string.
+- `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` — fallback PG config if `DATABASE_URL` is absent.
+- `DB_IP_FAMILY` — set to `4` for IPv4-only environments.
+- `DB_CONNECTION_TIMEOUT_MS` — DB connect timeout.
+- `DB_IDLE_TIMEOUT_MS` — idle client timeout.
+
+### Client
+- `VITE_API_URL` — optional override for API base.
+
+---
+
+## 8) API overview
+
+### Authentication
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+
+### Locations / branches
+- `GET /api/locations`
+- `POST /api/locations` (admin)
+
+### Admin management
+- `GET /api/admin/users`
+- `POST /api/admin/users`
+- `PATCH /api/admin/users/:id/status`
+
+### Products
+- `GET /api/products`
+- `GET /api/products/:id`
+- `POST /api/products`
+- `PUT /api/products/:id`
+- `DELETE /api/products/:id`
+
+### Inventory / batches
+- `GET /api/inventory`
+- `POST /api/inventory`
+- `PUT /api/inventory/:productId`
+- `DELETE /api/inventory/:id`
+- `POST /api/inventory/batches`
+- `GET /api/inventory/batches`
+- `GET /api/inventory/batches/:id`
+
+### Sales
+- `POST /api/sales`
+- `GET /api/sales`
+- `GET /api/sales/:id`
+
+### Expenses
+- `GET /api/expenses`
+- `POST /api/expenses`
+- `PUT /api/expenses/:id`
+- `DELETE /api/expenses/:id`
+- `GET /api/expenses/summary/categories`
+
+### Staff payments
+- `GET /api/payments`
+- `POST /api/payments`
+- `PUT /api/payments/:id`
+- `DELETE /api/payments/:id`
+- `GET /api/payments/summary`
+
+### Reports
+- `GET /api/reports/daily`
+- `GET /api/reports/weekly`
+- `GET /api/reports/weekly/export`
+- `GET /api/reports/monthly`
+- `GET /api/reports/products/profitability`
+- `GET /api/reports/branches/summary`
+- `GET /api/reports/kpis`
+
+### Notifications
+- `GET /api/notifications`
+- `GET /api/notifications/rules` (admin)
+- `POST /api/notifications/rules` (admin)
+- `PUT /api/notifications/rules/:id` (admin)
+- `PUT /api/notifications/:id/read`
+- `PUT /api/notifications/:id`
+- `PUT /api/notifications/read-all`
+- `PUT /api/notifications/mark-all-read`
+- `GET /api/notifications/unread/count`
+- `DELETE /api/notifications/:id`
+
+### Activity
+- `GET /api/activity`
+
+---
+
+## 9) Database schema highlights
+
+Primary entities:
+- `users`
+- `locations`
+- `products`, `categories`
+- `inventory`, `inventory_batches`, `batch_items`
+- `sales`, `sale_items`
+- `expenses`, `staff_payments`
+- `notifications`, `activity_log`
+
+Reliability/observability entities:
+- `idempotency_keys`
+- `inventory_movements`
+- `kpi_events`
+- `alert_rules`
+- `user_locations`
+
+See full schema in `database/schema.sql` and changes in `database/migrations/`.
+
+---
+
+## 10) Reliability and data consistency model
+
+### 10.1 Transactions
+Critical write workflows run in DB transactions to guarantee all-or-nothing behavior.
+
+### 10.2 Idempotency
+For retry/offline scenarios, endpoints can use `x-idempotency-key` to avoid duplicate writes.
+
+### 10.3 Inventory safety
+Sales cannot reduce stock below zero. If insufficient stock exists, the sale fails with an explicit error.
+
+### 10.4 Branch access enforcement
+Branch target resolution validates access by role and mapping. Legacy admin behavior is preserved where no explicit branch assignments exist.
+
+### 10.5 Offline queue
+Client stores queued operations in IndexedDB and retries via background sync logic.
+
+---
+
+## 11) Troubleshooting
+
+### 11.1 `ECONNREFUSED 127.0.0.1:5432`
+Your API cannot reach local PostgreSQL.
+
+Actions:
+1. Verify `.env` DB settings.
+2. Start Postgres locally (or use Supabase).
+3. Re-run setup + migrations.
+4. Restart `npm run dev`.
+
+### 11.2 `ENETUNREACH ... supabase.co:5432`
+Usually an IPv6/routing limitation in dev environment.
+
+Actions:
+1. Use Supabase Connection Pooler URL (`:6543`).
+2. Ensure `sslmode=require` in `DATABASE_URL`.
+3. Set `DB_IP_FAMILY=4`.
+4. Restart app.
+
+### 11.3 Branch 403 errors (`You do not have access to this branch`)
+- Ensure selected branch is valid for logged-in user.
+- For admins with explicit branch mappings, requested branch must be assigned.
+- Check `user_locations` and `users.location_id` records.
+
+### 11.4 Sales blocked with insufficient stock
+This is expected data safety behavior.
+- Refill inventory first (manual adjustment or batch flow), then retry sale.
+
+---
+
+## 12) Operational notes
+
+- Use admin **Branches & Staff** page to create branches and cashier/manager accounts.
+- Use admin **Sync Queue** page to inspect offline retries/conflicts.
+- Use branch selector in the top bar for admin branch context.
+- For reports/KPIs, verify selected branch context before validating totals.
+
+---
+
+## 13) Security and production guidance
+
+Before production:
+- Set strong `JWT_SECRET`.
+- Restrict DB credentials and rotate periodically.
+- Use HTTPS.
+- Apply least-privilege branch/user assignments.
+- Configure backups for DB.
+- Add API rate limiting + centralized logging/monitoring.
+
+---
+
+## 14) Scripts
+
+Root scripts:
+- `npm run dev` — run backend + frontend concurrently.
+- `npm run server` — backend only.
+- `npm run client` — frontend only.
+- `npm run build` — frontend production build.
+- `npm run setup-db` — initialize DB schema and seed defaults.
+
+---
+
+## 15) Current status
+
+- Multi-branch, offline queue, idempotency, KPI, and alert-rule foundations are implemented.
+- Admin branch/staff setup screens are implemented.
+- Major recent stability fixes include branch-access fallback handling and payments route location-resolution fixes.
+
+If you want, next pass can include:
+- end-to-end tests for critical write flows,
+- stricter API error contracts,
+- UI notification/toast system standardization across all screens,
+- dashboard caching and report query performance tuning.
