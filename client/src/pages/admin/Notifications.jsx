@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { useAuth } from '../../context/AuthContext';
 import { Bell, Check, X, Search } from 'lucide-react';
 
 export default function NotificationsPage() {
+  const { user } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [rules, setRules] = useState([]);
@@ -15,13 +17,13 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     fetchNotifications();
-  }, []);
+  }, [user?.role]);
 
   const fetchNotifications = async () => {
     try {
       const [notifRes, rulesRes] = await Promise.all([
         api.get('/notifications'),
-        api.get('/notifications/rules').catch(() => ({ data: [] }))
+        user?.role === 'admin' ? api.get('/notifications/rules').catch(() => ({ data: [] })) : Promise.resolve({ data: [] })
       ]);
       setNotifications(notifRes.data);
       setRules(rulesRes.data || []);
@@ -167,6 +169,7 @@ export default function NotificationsPage() {
       </div>
 
 
+      {user?.role === 'admin' && (
       <div className="card mb-4">
         <div className="card-header">
           <h4>Alert Rules</h4>
@@ -198,6 +201,7 @@ export default function NotificationsPage() {
           </div>
         </div>
       </div>
+      )}
 
       <div className="notifications-list">
         {filteredNotifications.length === 0 ? (

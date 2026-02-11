@@ -63,7 +63,7 @@ router.post('/',
     const { user_id, amount, payment_date, payment_type, notes, location_id } = req.body;
 
     try {
-      const locationId = await getTargetLocationId({ ...req, query: { ...req.query, location_id } }, query);
+      const locationId = await getTargetLocationId({ headers: req.headers, query: { ...req.query, location_id }, user: req.user }, query);
       const result = await query(
         `INSERT INTO staff_payments (user_id, location_id, amount, payment_date, payment_type, notes, created_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -112,7 +112,7 @@ router.put('/:id',
     const { user_id, amount, payment_date, payment_type, notes, location_id } = req.body;
 
     try {
-      const targetLocationId = await getTargetLocationId({ ...req, query: { ...req.query, location_id } }, query);
+      const targetLocationId = await getTargetLocationId({ headers: req.headers, query: { ...req.query, location_id }, user: req.user }, query);
       const result = await query(
         `UPDATE staff_payments
          SET user_id = COALESCE($1, user_id),
