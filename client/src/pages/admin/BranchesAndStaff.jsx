@@ -19,6 +19,7 @@ export default function BranchesAndStaff() {
   const [staffForm, setStaffForm] = useState(emptyStaff);
   const [savingBranch, setSavingBranch] = useState(false);
   const [savingStaff, setSavingStaff] = useState(false);
+  const [feedback, setFeedback] = useState(null);
 
   const activeStaff = useMemo(() => staff.filter((u) => u.is_active), [staff]);
 
@@ -32,7 +33,7 @@ export default function BranchesAndStaff() {
       setStaff(staffRes.data || []);
     } catch (err) {
       console.error('Failed to load branch/staff data', err);
-      window.alert(err.response?.data?.error || 'Failed to load branch/staff data');
+      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Failed to load branch/staff data' });
     } finally {
       setLoading(false);
     }
@@ -50,11 +51,12 @@ export default function BranchesAndStaff() {
       const nextLocations = [...locations, response.data].sort((a, b) => a.name.localeCompare(b.name));
       setLocations(nextLocations);
       setBranchForm(emptyBranch);
+      setFeedback({ type: 'success', message: 'Branch created successfully.' });
       if (!staffForm.location_id && response.data?.id) {
         setStaffForm((prev) => ({ ...prev, location_id: String(response.data.id) }));
       }
     } catch (err) {
-      window.alert(err.response?.data?.error || 'Could not create branch');
+      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not create branch' });
     } finally {
       setSavingBranch(false);
     }
@@ -67,9 +69,10 @@ export default function BranchesAndStaff() {
       const payload = { ...staffForm, location_id: Number(staffForm.location_id) };
       const response = await api.post('/admin/users', payload);
       setStaff([response.data, ...staff]);
+      setFeedback({ type: 'success', message: 'Staff account created successfully.' });
       setStaffForm({ ...emptyStaff, location_id: staffForm.location_id });
     } catch (err) {
-      window.alert(err.response?.data?.error || 'Could not create staff member');
+      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not create staff member' });
     } finally {
       setSavingStaff(false);
     }
@@ -82,7 +85,7 @@ export default function BranchesAndStaff() {
       });
       setStaff((current) => current.map((entry) => (entry.id === user.id ? { ...entry, ...response.data } : entry)));
     } catch (err) {
-      window.alert(err.response?.data?.error || 'Could not update staff status');
+      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not update staff status' });
     }
   };
 
@@ -99,6 +102,12 @@ export default function BranchesAndStaff() {
       <div className="page-header">
         <h2>Branches & Staff Setup</h2>
       </div>
+
+      {feedback && (
+        <div className={`alert alert-${feedback.type} mb-4`} role="alert">
+          {feedback.message}
+        </div>
+      )}
 
       <div className="stats-grid mb-4">
         <div className="stat-card card bg-light">
