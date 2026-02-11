@@ -1,5 +1,26 @@
 # Supabase Setup Guide for Bakery Operations App
 
+## TL;DR (what you do vs what to run locally)
+
+### What you do in Supabase web UI
+1. Create a project.
+2. Go to **Project Settings → Database** and copy the connection string.
+3. Make sure the DB password in that string is correct.
+4. (If SQL Editor is easier for you) you can run schema/migrations there instead of terminal `psql`.
+
+### What to run in this repository
+1. Put that string in `.env` as `DATABASE_URL=...` and add `DB_IP_FAMILY=4` (helps in IPv4-only dev environments like some Codespaces).
+2. Run:
+   ```bash
+   npm run setup-db
+   psql "$DATABASE_URL" -f database/migrations/001_ops_hardening.sql
+   psql "$DATABASE_URL" -f database/migrations/002_branch_access_and_kpi.sql
+   npm run dev
+   ```
+3. Login with default seed user:
+   - username: `admin`
+   - password: `admin123`
+
 ## Why Supabase?
 - ✅ FREE PostgreSQL database (500MB storage)
 - ✅ Works PERFECTLY with GitHub Codespaces (no port blocking!)
@@ -60,7 +81,7 @@ postgresql://postgres.xxx:BakeryOps2024!Secure@xxx.supabase.co:5432/postgres
 5. Click **"Run"** (or Ctrl+Enter)
 6. You should see "Success. No rows returned"
 
-**Option B: Using Terminal**
+**Option B: Using Terminal (recommended for repeatability)**
 
 In your Codespace:
 ```bash
@@ -68,6 +89,10 @@ cd /workspaces/bakery-ops-app
 
 # Set your Supabase connection string (replace with yours)
 DATABASE_URL="postgresql://postgres.xxx:BakeryOps2024!Secure@xxx.supabase.co:5432/postgres" npm run setup-db
+
+# Apply post-schema migrations used by this project
+psql "$DATABASE_URL" -f database/migrations/001_ops_hardening.sql
+psql "$DATABASE_URL" -f database/migrations/002_branch_access_and_kpi.sql
 ```
 
 You should see:
@@ -89,6 +114,7 @@ cd /workspaces/bakery-ops-app
 cat > .env << 'EOF'
 PORT=5000
 DATABASE_URL=YOUR_SUPABASE_CONNECTION_STRING_HERE
+DB_IP_FAMILY=4
 JWT_SECRET=super_secret_jwt_key_for_bakery_ops_2024_change_in_production
 NODE_ENV=development
 EOF

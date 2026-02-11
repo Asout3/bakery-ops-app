@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
-import { Bell, Mail, Check, X, Search, Filter } from 'lucide-react';
+import { Bell, Check, X, Search } from 'lucide-react';
 
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [rules, setRules] = useState([]);
+  const [newRule, setNewRule] = useState({ event_type: 'high_sale', threshold: '' });
   const [filters, setFilters] = useState({
     type: '',
     status: '',
@@ -17,8 +19,12 @@ export default function NotificationsPage() {
 
   const fetchNotifications = async () => {
     try {
-      const response = await api.get('/notifications');
-      setNotifications(response.data);
+      const [notifRes, rulesRes] = await Promise.all([
+        api.get('/notifications'),
+        api.get('/notifications/rules').catch(() => ({ data: [] }))
+      ]);
+      setNotifications(notifRes.data);
+      setRules(rulesRes.data || []);
     } catch (err) {
       console.error('Failed to fetch notifications:', err);
     } finally {
@@ -54,6 +60,32 @@ export default function NotificationsPage() {
       } catch (err) {
         console.error('Failed to delete notification:', err);
       }
+    }
+  };
+
+
+  const createRule = async () => {
+    try {
+      const response = await api.post('/notifications/rules', {
+        event_type: newRule.event_type,
+        threshold: Number(newRule.threshold),
+        enabled: true,
+      });
+      setRules([...rules, response.data]);
+      setNewRule({ event_type: 'high_sale', threshold: '' });
+    } catch (err) {
+      console.error('Failed to create rule:', err);
+    }
+  };
+
+  const toggleRule = async (rule) => {
+    try {
+      const response = await api.put(`/notifications/rules/${rule.id}`, {
+        enabled: !rule.enabled,
+      });
+      setRules(rules.map((r) => (r.id === rule.id ? response.data : r)));
+    } catch (err) {
+      console.error('Failed to update rule:', err);
     }
   };
 
@@ -130,6 +162,39 @@ export default function NotificationsPage() {
                 <option value="read">Read</option>
               </select>
             </div>
+          </div>
+        </div>
+      </div>
+
+
+      <div className="card mb-4">
+        <div className="card-header">
+          <h4>Alert Rules</h4>
+        </div>
+        <div className="card-body">
+          <div className="row g-2 mb-3">
+            <div className="col-md-4">
+              <select className="form-select" value={newRule.event_type} onChange={(e) => setNewRule({ ...newRule, event_type: e.target.value })}>
+                <option value="high_sale">High Sale</option>
+                <option value="low_stock">Low Stock</option>
+              </select>
+            </div>
+            <div className="col-md-4">
+              <input className="form-control" type="number" placeholder="Threshold" value={newRule.threshold} onChange={(e) => setNewRule({ ...newRule, threshold: e.target.value })} />
+            </div>
+            <div className="col-md-4">
+              <button className="btn btn-primary" onClick={createRule}>Add Rule</button>
+            </div>
+          </div>
+          <div>
+            {rules.map((rule) => (
+              <div key={rule.id} className="d-flex justify-content-between align-items-center mb-2">
+                <span>{rule.event_type} ≥ {rule.threshold}</span>
+                <button className={`btn btn-sm ${rule.enabled ? 'btn-success' : 'btn-secondary'}`} onClick={() => toggleRule(rule)}>
+                  {rule.enabled ? 'Enabled' : 'Disabled'}
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       </div>

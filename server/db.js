@@ -1,47 +1,62 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
 
-// Load environment variables
 dotenv.config();
-
-console.log('=== DB MODULE LOADED ===');
-console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
-console.log('NODE_ENV:', process.env.NODE_ENV || 'not set');
-console.log('========================');
 
 const { Pool } = pg;
 
-// Create pool with explicit configuration
-const poolConfig = {
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
-};
+const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
+const dbIpFamily = Number(process.env.DB_IP_FAMILY || 4);
 
-console.log('Pool config created with:', {
-  hasConnectionString: !!process.env.DATABASE_URL,
-  sslEnabled: !!process.env.DATABASE_URL
+const poolConfig = hasDatabaseUrl
+  ? {
+      connectionString: process.env.DATABASE_URL,
+      ssl: {
+        rejectUnauthorized: false,
+      },
+      family: dbIpFamily,
+    }
+  : {
+      host: process.env.PGHOST || '127.0.0.1',
+      port: Number(process.env.PGPORT || 5432),
+      user: process.env.PGUSER || 'postgres',
+      password: process.env.PGPASSWORD || 'postgres',
+      database: process.env.PGDATABASE || 'bakery_ops',
+      ssl: false,
+      family: dbIpFamily,
+    };
+
+if (!hasDatabaseUrl) {
+  console.warn(
+    '[db] DATABASE_URL is not set. Using PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE for local development.'
+  );
+}
+
+const pool = new Pool({
+  ...poolConfig,
+  connectionTimeoutMillis: Number(process.env.DB_CONNECTION_TIMEOUT_MS || 4000),
+  idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS || 30000),
 });
-
-const pool = new Pool(poolConfig);
 
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
-  console.error('This could indicate a connection issue to the database');
+  console.error('Unexpected error on idle database client', err);
 });
 
-// Enhanced query function with better error handling
-export const query = async (text, params) => {
-  console.log(`Executing query: ${text.substring(0, 50)}${text.length > 50 ? '...' : ''}`);
+export const query = (text, params) => pool.query(text, params);
+
+export const withTransaction = async (callback) => {
+  const client = await pool.connect();
+
   try {
-    const result = await pool.query(text, params);
-    console.log(`Query successful, rows returned: ${result.rowCount}`);
+    await client.query('BEGIN');
+    const result = await callback(client);
+    await client.query('COMMIT');
     return result;
-  } catch (err) {
-    console.error('Query failed:', err.message);
-    console.error('Error code:', err.code);
-    throw err;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
 };
 

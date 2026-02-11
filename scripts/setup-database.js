@@ -9,9 +9,17 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
+const dbIpFamily = Number(process.env.DB_IP_FAMILY || 4);
+
 async function setupDatabase() {
   const client = new pg.Client({
     connectionString: process.env.DATABASE_URL,
+    ssl: process.env.DATABASE_URL
+      ? {
+          rejectUnauthorized: false,
+        }
+      : false,
+    family: dbIpFamily,
   });
 
   try {

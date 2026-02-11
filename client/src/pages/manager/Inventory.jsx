@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { Package, Send, Plus, Minus } from 'lucide-react';
 import './Inventory.css';
+import { enqueueOperation } from '../../utils/offlineQueue';
 
 export default function Inventory() {
   const [products, setProducts] = useState([]);
@@ -104,10 +105,18 @@ export default function Inventory() {
 
       setTimeout(() => setMessage(null), 5000);
     } catch (err) {
-      setMessage({
-        type: 'danger',
-        text: err.response?.data?.error || 'Failed to send batch',
-      });
+      if (!err.response) {
+        const payload = { items: cart, notes: 'Batch sent from manager' };
+        const idempotencyKey = `batch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        await enqueueOperation({ url: '/inventory/batches', method: 'post', data: payload, idempotencyKey });
+        setMessage({ type: 'warning', text: 'Offline: batch queued for sync.' });
+        setCart([]);
+      } else {
+        setMessage({
+          type: 'danger',
+          text: err.response?.data?.error || 'Failed to send batch',
+        });
+      }
     } finally {
       setLoading(false);
     }
