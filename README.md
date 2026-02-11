@@ -41,7 +41,7 @@ A comprehensive, role-based web application designed to streamline daily operati
 
 If you are using Supabase, use this fast path:
 
-1. Set `DATABASE_URL` in `.env` to your Supabase connection string, and set `DB_IP_FAMILY=4` for IPv4-only development environments.
+1. Set `DATABASE_URL` in `.env` to your Supabase **Connection Pooler** URL (recommended, port `6543`) and set `DB_IP_FAMILY=4` for IPv4-only development environments.
 2. Run the schema + migrations:
    ```bash
    npm run setup-db
@@ -121,6 +121,16 @@ npm run client
 
 
 ### Common Local Dev Error: `ECONNREFUSED 127.0.0.1:5432`
+
+### Supabase Error: `ENETUNREACH ... supabase.co:5432`
+
+This usually means your dev environment cannot route to that Supabase DB endpoint (often IPv6 path).
+
+1. In Supabase, copy the **Connection Pooler** string (transaction mode, usually port `6543`).
+2. Use it in `.env` as `DATABASE_URL` and ensure it includes `sslmode=require`.
+3. Keep `DB_IP_FAMILY=4` in `.env`.
+4. Restart with `npm run dev`.
+
 
 If you see login errors like `connect ECONNREFUSED 127.0.0.1:5432`, your API cannot reach PostgreSQL.
 

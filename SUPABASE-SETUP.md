@@ -4,8 +4,8 @@
 
 ### What you do in Supabase web UI
 1. Create a project.
-2. Go to **Project Settings → Database** and copy the connection string.
-3. Make sure the DB password in that string is correct.
+2. Go to **Project Settings → Database** and copy the connection string (prefer **Connection pooling / Transaction mode** URL on port `6543` for Codespaces).
+3. Make sure the DB password in that string is correct and append `?sslmode=require` if it is not already included.
 4. (If SQL Editor is easier for you) you can run schema/migrations there instead of terminal `psql`.
 
 ### What to run in this repository
@@ -239,3 +239,9 @@ Should return:
 ---
 
 Let me know when you've created your Supabase project and I'll help you get the connection string set up correctly! 🚀
+
+
+### If you see `ENETUNREACH ... supabase.co:5432`
+- Your environment cannot route to the DB endpoint (often IPv6-only path).
+- Fix: switch to the **Supabase Connection Pooler** URL (`*.pooler.supabase.com:6543`) and keep `DB_IP_FAMILY=4` in `.env`.
+- Then restart the app: `npm run dev`.
