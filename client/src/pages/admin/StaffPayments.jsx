@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { useBranch } from '../../context/BranchContext';
 import { Plus, Edit, Trash2, DollarSign, Calendar, User, X } from 'lucide-react';
 
 const initialForm = {
@@ -12,6 +13,7 @@ const initialForm = {
 };
 
 export default function StaffPaymentsPage() {
+  const { selectedLocationId } = useBranch();
   const [payments, setPayments] = useState([]);
   const [locations, setLocations] = useState([]);
   const [staffMembers, setStaffMembers] = useState([]);
@@ -24,7 +26,7 @@ export default function StaffPaymentsPage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [selectedLocationId]);
 
   const fetchData = async () => {
     try {

@@ -15,6 +15,7 @@ import {
 import { useEffect, useState } from 'react';
 import api from '../api/axios';
 import { useBranch } from '../context/BranchContext';
+import { useLanguage } from '../context/LanguageContext';
 import './Layout.css';
 
 export default function Layout() {
@@ -23,6 +24,7 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [locations, setLocations] = useState([]);
   const { selectedLocationId, setLocation } = useBranch();
+  const { language, setLang, t } = useLanguage();
 
   const handleLogout = () => {
     logout();
@@ -32,12 +34,14 @@ export default function Layout() {
 
   useEffect(() => {
     const fetchLocations = async () => {
-      if (user?.role !== 'admin') return;
+      if (!user) return;
       try {
         const response = await api.get('/locations');
-        setLocations(response.data);
-        if (!selectedLocationId && response.data.length > 0) {
-          setLocation(response.data[0].id);
+        const raw = response.data || [];
+        const scoped = user?.role === 'admin' ? raw : raw.filter((loc) => Number(loc.id) === Number(user?.location_id));
+        setLocations(scoped);
+        if (!selectedLocationId && scoped.length > 0) {
+          setLocation(scoped[0].id);
         }
       } catch (err) {
         console.error('Failed to fetch locations:', err);
@@ -137,21 +141,28 @@ export default function Layout() {
             <Menu size={24} />
           </button>
           <div className="top-bar-content" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <h1 className="page-title">Bakery Operations System</h1>
-            {user?.role === 'admin' && (
-              <select
-                className="form-select"
-                style={{ maxWidth: '240px' }}
-                value={selectedLocationId || ''}
-                onChange={(e) => setLocation(e.target.value)}
-              >
-                {locations.map((loc) => (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.name}
-                  </option>
-                ))}
-              </select>
-            )}
+            <h1 className="page-title">{t('appTitle')}</h1>
+            <select
+              className="form-select"
+              style={{ maxWidth: '220px' }}
+              value={selectedLocationId || ''}
+              onChange={(e) => setLocation(e.target.value)}
+            >
+              {locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {t('branch')}: {loc.name}
+                </option>
+              ))}
+            </select>
+            <select
+              className="form-select"
+              style={{ maxWidth: '140px' }}
+              value={language}
+              onChange={(e) => setLang(e.target.value)}
+            >
+              <option value="en">English</option>
+              <option value="am">አማርኛ</option>
+            </select>
           </div>
         </header>
 

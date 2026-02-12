@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import './Login.css';
 
 export default function Login() {
@@ -9,6 +10,7 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
+  const { t } = useLanguage();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -48,7 +50,7 @@ export default function Login() {
           )}
 
           <div className="form-group">
-            <label className="label" htmlFor="username">Username</label>
+            <label className="label" htmlFor="username">{t('username')}</label>
             <input
               id="username"
               type="text"
@@ -61,7 +63,7 @@ export default function Login() {
           </div>
 
           <div className="form-group">
-            <label className="label" htmlFor="password">Password</label>
+            <label className="label" htmlFor="password">{t('password')}</label>
             <input
               id="password"
               type="password"
@@ -77,12 +79,12 @@ export default function Login() {
             className="btn btn-primary btn-lg"
             disabled={loading}
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? t('signingIn') : t('signIn')}
           </button>
         </form>
 
         <div className="login-footer">
-          <p className="demo-info">Demo credentials:</p>
+          <p className="demo-info">{t('demo')}</p>
           <div className="demo-creds">
             <div>Admin: admin / admin123</div>
           </div>

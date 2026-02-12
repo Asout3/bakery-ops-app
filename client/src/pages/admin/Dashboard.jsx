@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { useBranch } from '../../context/BranchContext';
 import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Users } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import './Dashboard.css';
 
 export default function Dashboard() {
+  const { selectedLocationId } = useBranch();
   const [dailyReport, setDailyReport] = useState(null);
   const [weeklyReport, setWeeklyReport] = useState(null);
   const [branchSummary, setBranchSummary] = useState([]);
@@ -13,7 +15,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [selectedLocationId]);
 
   const fetchReports = async () => {
     try {

@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { useBranch } from '../../context/BranchContext';
 import { Search, Plus, Eye, DollarSign, CreditCard, Calendar } from 'lucide-react';
 
 export default function SalesPage() {
+  const { selectedLocationId } = useBranch();
   const [sales, setSales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedSale, setSelectedSale] = useState(null);
@@ -14,7 +16,7 @@ export default function SalesPage() {
 
   useEffect(() => {
     fetchSales();
-  }, []);
+  }, [selectedLocationId]);
 
   const fetchSales = async () => {
     try {

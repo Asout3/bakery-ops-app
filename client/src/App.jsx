@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { BranchProvider } from './context/BranchContext';
+import { LanguageProvider } from './context/LanguageContext';
 import { useOfflineSync } from './hooks/useOfflineSync';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import Layout from './components/Layout';
@@ -92,9 +93,11 @@ function AppInner() {
 
 function App() {
   return (
-    <BranchProvider>
-      <AppInner />
-    </BranchProvider>
+    <LanguageProvider>
+      <BranchProvider>
+        <AppInner />
+      </BranchProvider>
+    </LanguageProvider>
   );
 }
 

@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { useBranch } from '../../context/BranchContext';
 import { Plus, Minus, ShoppingCart, Trash2, Search } from 'lucide-react';
 import './Sales.css';
 import { enqueueOperation } from '../../utils/offlineQueue';
 
 export default function Sales() {
+  const { selectedLocationId } = useBranch();
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -14,12 +16,13 @@ export default function Sales() {
 
   useEffect(() => {
     fetchProducts();
-  }, []);
+  }, [selectedLocationId]);
 
   const fetchProducts = async () => {
     try {
-      const response = await api.get('/products');
-      setProducts(response.data);
+      const [productsRes, inventoryRes] = await Promise.all([api.get('/products'), api.get('/inventory')]);
+      const availableIds = new Set((inventoryRes.data || []).filter((it) => Number(it.quantity) > 0).map((it) => Number(it.product_id)));
+      setProducts((productsRes.data || []).filter((p) => availableIds.has(Number(p.id))));
     } catch (err) {
       console.error('Failed to fetch products:', err);
     }

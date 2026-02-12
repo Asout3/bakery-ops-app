@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Building2, UserPlus, Users } from 'lucide-react';
 import api from '../../api/axios';
+import { useBranch } from '../../context/BranchContext';
 
 const emptyBranch = { name: '', address: '', phone: '' };
 const emptyStaff = {
   username: '',
-  email: '',
+  phone_number: '',
   password: '',
   role: 'cashier',
   location_id: '',
 };
 
 export default function BranchesAndStaff() {
+  const { selectedLocationId } = useBranch();
   const [locations, setLocations] = useState([]);
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -41,7 +43,7 @@ export default function BranchesAndStaff() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [selectedLocationId]);
 
   const createBranch = async (e) => {
     e.preventDefault();
@@ -187,13 +189,14 @@ export default function BranchesAndStaff() {
                   />
                 </div>
                 <div className="mb-3">
-                  <label className="form-label">Email</label>
+                  <label className="form-label">Phone Number</label>
                   <input
-                    type="email"
+                    type="text"
                     className="form-control"
                     required
-                    value={staffForm.email}
-                    onChange={(e) => setStaffForm((p) => ({ ...p, email: e.target.value }))}
+                    value={staffForm.phone_number}
+                    onChange={(e) => setStaffForm((p) => ({ ...p, phone_number: e.target.value }))}
+                    placeholder="+2519..."
                   />
                 </div>
                 <div className="row g-2">

@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { useBranch } from '../../context/BranchContext';
 import { Search, Clock, DollarSign, Receipt } from 'lucide-react';
 
 export default function CashierHistory() {
+  const { selectedLocationId } = useBranch();
   const [sales, setSales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedSale, setSelectedSale] = useState(null);
@@ -14,7 +16,7 @@ export default function CashierHistory() {
 
   useEffect(() => {
     fetchSales();
-  }, []);
+  }, [selectedLocationId]);
 
   const fetchSales = async () => {
     try {

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { useBranch } from '../../context/BranchContext';
 import { useAuth } from '../../context/AuthContext';
 import { Bell, Check, X, Search } from 'lucide-react';
 
 export default function NotificationsPage() {
+  const { selectedLocationId } = useBranch();
   const { user } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);

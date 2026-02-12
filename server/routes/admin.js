@@ -28,7 +28,8 @@ router.post(
   authenticateToken,
   authorizeRoles('admin'),
   body('username').trim().isLength({ min: 3 }),
-  body('email').isEmail().normalizeEmail(),
+  body('email').optional().isEmail().normalizeEmail(),
+  body('phone_number').optional().trim().isLength({ min: 8 }),
   body('password').isLength({ min: 6 }),
   body('role').isIn(['manager', 'cashier']),
   body('location_id').isInt({ min: 1 }),
@@ -38,12 +39,17 @@ router.post(
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { username, email, password, role, location_id } = req.body;
+    const { username, email, phone_number, password, role, location_id } = req.body;
 
     try {
+      const resolvedEmail = email || (phone_number ? `${phone_number.replace(/[^0-9+]/g, '') || 'user'}@phone.local` : null);
+      if (!resolvedEmail) {
+        return res.status(400).json({ error: 'Email or phone number is required' });
+      }
+
       const exists = await query(
         'SELECT id FROM users WHERE username = $1 OR email = $2',
-        [username, email]
+        [username, resolvedEmail]
       );
 
       if (exists.rows.length > 0) {
@@ -65,7 +71,7 @@ router.post(
         `INSERT INTO users (username, email, password_hash, role, location_id)
          VALUES ($1, $2, $3, $4, $5)
          RETURNING id, username, email, role, location_id, is_active, created_at`,
-        [username, email, password_hash, role, location_id]
+        [username, resolvedEmail, password_hash, role, location_id]
       );
 
       await query(

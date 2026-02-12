@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { useBranch } from '../../context/BranchContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import { Download, TrendingUp, TrendingDown, DollarSign, ShoppingCart } from 'lucide-react';
 
 export default function ReportsPage() {
+  const { selectedLocationId } = useBranch();
   const [reportData, setReportData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState({
@@ -13,7 +15,7 @@ export default function ReportsPage() {
 
   useEffect(() => {
     fetchReports();
-  }, [dateRange]);
+  }, [dateRange, selectedLocationId]);
 
   const fetchReports = async () => {
     try {

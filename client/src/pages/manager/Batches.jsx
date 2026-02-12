@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
+import { useBranch } from '../../context/BranchContext';
 import { Package, Clock, User, Eye } from 'lucide-react';
 
 export default function ManagerBatches() {
+  const { selectedLocationId } = useBranch();
   const [batches, setBatches] = useState([]);
   const [selectedBatch, setSelectedBatch] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchBatches();
-  }, []);
+  }, [selectedLocationId]);
 
   const fetchBatches = async () => {
     try {

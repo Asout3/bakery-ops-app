@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { useBranch } from '../../context/BranchContext';
 import { Plus, Edit, Trash2, TrendingDown, DollarSign, Calendar } from 'lucide-react';
 import { enqueueOperation } from '../../utils/offlineQueue';
 
 export default function ExpensesPage() {
+  const { selectedLocationId } = useBranch();
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -19,7 +21,7 @@ export default function ExpensesPage() {
 
   useEffect(() => {
     fetchExpenses();
-  }, []);
+  }, [selectedLocationId]);
 
   const fetchExpenses = async () => {
     try {

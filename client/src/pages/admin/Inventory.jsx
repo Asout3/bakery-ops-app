@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { useBranch } from '../../context/BranchContext';
 import { Search, Plus, Edit, Trash2, Package, TrendingUp, TrendingDown } from 'lucide-react';
 
 export default function AdminInventory() {
+  const { selectedLocationId } = useBranch();
   const [inventory, setInventory] = useState([]);
   const [products, setProducts] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -18,7 +20,7 @@ export default function AdminInventory() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [selectedLocationId]);
 
   const fetchData = async () => {
     try {
