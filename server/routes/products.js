@@ -2,23 +2,38 @@ import express from 'express';
 import { body, validationResult } from 'express-validator';
 import { query } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
+import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
 
 // Get all products
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const result = await query(
-      `SELECT p.*, c.name as category_name 
-       FROM products p 
-       LEFT JOIN categories c ON p.category_id = c.id 
-       WHERE p.is_active = true 
-       ORDER BY c.name, p.name`
-    );
+    const locationId = await getTargetLocationId(req, query);
+    const role = req.user?.role;
+
+    const result = role === 'admin'
+      ? await query(
+          `SELECT p.*, c.name as category_name
+           FROM products p
+           LEFT JOIN categories c ON p.category_id = c.id
+           WHERE p.is_active = true
+           ORDER BY c.name, p.name`
+        )
+      : await query(
+          `SELECT DISTINCT p.*, c.name as category_name
+           FROM products p
+           LEFT JOIN categories c ON p.category_id = c.id
+           JOIN inventory i ON i.product_id = p.id AND i.location_id = $1
+           WHERE p.is_active = true
+           ORDER BY c.name, p.name`,
+          [locationId]
+        );
+
     res.json(result.rows);
   } catch (err) {
     console.error('Get products error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
   }
 });
 

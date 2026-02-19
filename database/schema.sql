@@ -7,6 +7,14 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(100) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'manager', 'cashier')),
+    full_name VARCHAR(120),
+    national_id VARCHAR(50),
+    phone_number VARCHAR(30),
+    age INTEGER,
+    monthly_salary NUMERIC(12,2) DEFAULT 0,
+    job_title VARCHAR(80),
+    hire_date DATE DEFAULT CURRENT_DATE,
+    termination_date DATE,
     location_id INTEGER,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -254,3 +262,5 @@ ALTER TABLE kpi_events ADD COLUMN IF NOT EXISTS duration_ms INTEGER;
 CREATE INDEX IF NOT EXISTS idx_user_locations_user ON user_locations(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_locations_location ON user_locations(location_id);
 CREATE INDEX IF NOT EXISTS idx_kpi_events_metric_key ON kpi_events(metric_key, created_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_national_id_unique ON users (national_id) WHERE national_id IS NOT NULL;

@@ -13,6 +13,7 @@ export default function Sales() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
   const [orderStartedAt, setOrderStartedAt] = useState(Date.now());
+  const [receiptData, setReceiptData] = useState(null);
 
   useEffect(() => {
     fetchProducts();
@@ -89,10 +90,8 @@ export default function Sales() {
         cashier_timing_ms: Date.now() - orderStartedAt
       });
 
-      setMessage({ 
-        type: 'success', 
-        text: `Sale completed! Receipt: ${response.data.receipt_number}` 
-      });
+      setMessage({ type: 'success', text: `Sale completed! Receipt: ${response.data.receipt_number}` });
+      setReceiptData(response.data);
       setCart([]);
       setOrderStartedAt(Date.now());
       
@@ -235,6 +234,27 @@ export default function Sales() {
           </div>
         </div>
       </div>
+      {receiptData && (
+        <div className="modal-overlay" onClick={() => setReceiptData(null)}>
+          <div className="modal-content modal-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Receipt</h3><button className="close-btn" onClick={() => setReceiptData(null)}>×</button></div>
+            <div className="modal-body">
+              <p><strong>Receipt #:</strong> {receiptData.receipt_number}</p>
+              <p><strong>Date:</strong> {new Date(receiptData.sale_date || Date.now()).toLocaleString()}</p>
+              <p><strong>Total:</strong> ${Number(receiptData.total_amount || 0).toFixed(2)}</p>
+              <hr />
+              <div>
+                {(receiptData.items || []).map((item, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                    <span>{item.product_name} × {item.quantity}</span>
+                    <span>${Number(item.subtotal).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

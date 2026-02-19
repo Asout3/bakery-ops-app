@@ -7,7 +7,6 @@ import './Dashboard.css';
 
 export default function Dashboard() {
   const { selectedLocationId } = useBranch();
-  const [dailyReport, setDailyReport] = useState(null);
   const [weeklyReport, setWeeklyReport] = useState(null);
   const [branchSummary, setBranchSummary] = useState([]);
   const [kpis, setKpis] = useState(null);
@@ -19,14 +18,13 @@ export default function Dashboard() {
 
   const fetchReports = async () => {
     try {
-      const [daily, weekly, branches, kpiRes] = await Promise.all([
-        api.get('/reports/daily'),
+      const [weekly, monthly, branches, kpiRes] = await Promise.all([
         api.get('/reports/weekly'),
+        api.get('/reports/monthly').catch(() => ({ data: null })),
         api.get('/reports/branches/summary').catch(() => ({ data: [] })),
         api.get('/reports/kpis').catch(() => ({ data: null }))
       ]);
-      setDailyReport(daily.data);
-      setWeeklyReport(weekly.data);
+      setWeeklyReport({ ...weekly.data, monthly: monthly.data });
       setBranchSummary(branches.data || []);
       setKpis(kpiRes.data);
     } catch (err) {
@@ -50,7 +48,7 @@ export default function Dashboard() {
       value: `$${dailyReport?.sales?.total_sales?.toFixed(2) || '0.00'}`,
       icon: DollarSign,
       color: 'primary',
-      subtext: `${dailyReport?.sales?.total_transactions || 0} transactions`
+      subtext: `${weeklyReport?.summary?.total_transactions || 0} transactions`
     },
     {
       title: 'Daily Expenses',
@@ -104,6 +102,10 @@ export default function Dashboard() {
         ))}
       </div>
 
+
+      <div className="alert alert-info mb-4">
+        <strong>Active Branch Context:</strong> Dashboard values reflect the selected branch from the top selector.
+      </div>
 
       {kpis && (
         <div className="stats-grid" style={{ marginTop: '1rem' }}>
@@ -164,11 +166,11 @@ export default function Dashboard() {
 
         <div className="card">
           <div className="card-header">
-            <h3>Top Products Today</h3>
+            <h3>Top Products (Weekly)</h3>
           </div>
           <div className="card-body">
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={dailyReport?.top_products?.slice(0, 5) || []}>
+              <BarChart data={weeklyReport?.top_products?.slice(0, 5) || []}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" />
                 <YAxis />
@@ -212,7 +214,7 @@ export default function Dashboard() {
           </div>
           <div className="card-body">
             <div className="payment-methods">
-              {dailyReport?.payment_methods?.map((method, idx) => (
+              {weeklyReport?.payment_methods?.map((method, idx) => (
                 <div key={idx} className="payment-method-item">
                   <div className="payment-method-label">{method.payment_method}</div>
                   <div className="payment-method-stats">
