@@ -18,6 +18,7 @@ import ReportsPage from './pages/admin/Reports';
 import NotificationsPage from './pages/admin/Notifications';
 import SyncQueuePage from './pages/admin/SyncQueue';
 import BranchesAndStaffPage from './pages/admin/BranchesAndStaff';
+import StaffManagementPage from './pages/admin/StaffManagement';
 
 // Manager pages
 import ManagerInventory from './pages/manager/Inventory';
@@ -54,6 +55,7 @@ function AppInner() {
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="sync" element={<SyncQueuePage />} />
             <Route path="team" element={<BranchesAndStaffPage />} />
+            <Route path="staff" element={<StaffManagementPage />} />
           </Route>
 
           {/* Manager Routes */}

@@ -65,7 +65,8 @@ export default function Layout() {
         { to: '/admin/reports', icon: BarChart3, label: 'Reports' },
         { to: '/admin/notifications', icon: Bell, label: 'Notifications' },
         { to: '/admin/sync', icon: BarChart3, label: 'Sync Queue' },
-        { to: '/admin/team', icon: Users, label: 'Branches & Staff' },
+        { to: '/admin/team', icon: Users, label: 'Branch & Accounts' },
+        { to: '/admin/staff', icon: Users, label: 'Staff Management' },
       ];
     } else if (role === 'manager') {
       return [

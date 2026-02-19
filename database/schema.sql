@@ -31,6 +31,25 @@ CREATE TABLE IF NOT EXISTS locations (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Staff profiles (HR records without requiring login credentials)
+CREATE TABLE IF NOT EXISTS staff_profiles (
+    id SERIAL PRIMARY KEY,
+    full_name VARCHAR(120) NOT NULL,
+    national_id VARCHAR(60) UNIQUE,
+    phone_number VARCHAR(30) NOT NULL,
+    age INTEGER,
+    monthly_salary NUMERIC(12,2) NOT NULL DEFAULT 0,
+    role_preference VARCHAR(30) NOT NULL DEFAULT 'cashier',
+    job_title VARCHAR(80),
+    location_id INTEGER REFERENCES locations(id) ON DELETE SET NULL,
+    is_active BOOLEAN DEFAULT true,
+    hire_date DATE DEFAULT CURRENT_DATE,
+    termination_date DATE,
+    linked_user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Categories table
 CREATE TABLE IF NOT EXISTS categories (
     id SERIAL PRIMARY KEY,
