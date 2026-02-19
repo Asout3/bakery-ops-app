@@ -21,6 +21,8 @@ export default function BranchesAndStaff() {
   const [savingBranch, setSavingBranch] = useState(false);
   const [savingAccount, setSavingAccount] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [editBranchModel, setEditBranchModel] = useState(null);
+  const [editAccountModel, setEditAccountModel] = useState(null);
 
   const loadData = async () => {
     try {
@@ -62,6 +64,10 @@ export default function BranchesAndStaff() {
     e.preventDefault();
     setSavingAccount(true);
     try {
+      if (!accountForm.staff_profile_id || !accountForm.location_id || !accountForm.username || !accountForm.password) {
+        setFeedback({ type: 'danger', message: 'Please fill all required account fields.' });
+        return;
+      }
       await api.post('/admin/users', {
         ...accountForm,
         location_id: Number(accountForm.location_id),
@@ -71,7 +77,8 @@ export default function BranchesAndStaff() {
       setAccountForm(emptyAccount);
       loadData();
     } catch (err) {
-      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not create staff account' });
+      const validationText = err.response?.data?.errors?.map((x) => x.msg).join(', ');
+      setFeedback({ type: 'danger', message: validationText || err.response?.data?.error || 'Could not create staff account' });
     } finally {
       setSavingAccount(false);
     }
@@ -97,13 +104,14 @@ export default function BranchesAndStaff() {
   };
 
   const editBranch = async (branch) => {
-    const name = window.prompt('Branch name', branch.name);
-    if (!name) return;
-    const address = window.prompt('Address', branch.address || '');
-    const phone = window.prompt('Phone', branch.phone || '');
+    setEditBranchModel({ ...branch });
+  };
+
+  const saveBranchEdit = async () => {
     try {
-      await api.put(`/locations/${branch.id}`, { name, address, phone, is_active: branch.is_active });
+      await api.put(`/locations/${editBranchModel.id}`, editBranchModel);
       setFeedback({ type: 'success', message: 'Branch updated.' });
+      setEditBranchModel(null);
       loadData();
     } catch (err) {
       setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not update branch' });
@@ -122,14 +130,19 @@ export default function BranchesAndStaff() {
   };
 
   const editAccount = async (user) => {
-    const username = window.prompt('Username', user.username);
-    if (!username) return;
-    const role = window.prompt('Role (cashier or manager)', user.role) || user.role;
-    const location_id = Number(window.prompt('Branch id', String(user.location_id || '')) || user.location_id);
-    const password = window.prompt('New password (leave blank to keep current)', '');
+    setEditAccountModel({ ...user, password: '' });
+  };
+
+  const saveAccountEdit = async () => {
     try {
-      await api.put(`/admin/users/${user.id}`, { username, role, location_id, ...(password ? { password } : {}) });
+      await api.put(`/admin/users/${editAccountModel.id}`, {
+        username: editAccountModel.username,
+        role: editAccountModel.role,
+        location_id: Number(editAccountModel.location_id),
+        ...(editAccountModel.password ? { password: editAccountModel.password } : {}),
+      });
       setFeedback({ type: 'success', message: 'Account updated.' });
+      setEditAccountModel(null);
       loadData();
     } catch (err) {
       setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not update account' });
@@ -198,6 +211,35 @@ export default function BranchesAndStaff() {
           {accounts.map((user) => <tr key={user.id}><td>{user.full_name || user.username}</td><td>{user.username}</td><td>{user.job_title || user.role}</td><td>{user.location_name || user.location_id}</td><td><span className={`badge ${user.is_active ? 'badge-success':'badge-warning'}`}>{user.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editAccount(user)}>Edit</button><button className={`btn btn-sm ${user.is_active ? 'btn-danger':'btn-success'}`} onClick={()=>toggleAccountStatus(user)}>{user.is_active ? 'Disable':'Enable'}</button><button className="btn btn-sm btn-danger" onClick={()=>deleteAccount(user)}>Delete</button></td></tr>)}
         </tbody></table>
       </div></div>
+
+      {editBranchModel && (
+        <div className="modal-overlay" onClick={() => setEditBranchModel(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Edit Branch</h3><button className="close-btn" onClick={() => setEditBranchModel(null)}>×</button></div>
+            <div className="modal-body">
+              <div className="mb-3"><label className="form-label">Name</label><input className="form-control" value={editBranchModel.name || ''} onChange={(e)=>setEditBranchModel((p)=>({...p,name:e.target.value}))} /></div>
+              <div className="mb-3"><label className="form-label">Address</label><input className="form-control" value={editBranchModel.address || ''} onChange={(e)=>setEditBranchModel((p)=>({...p,address:e.target.value}))} /></div>
+              <div className="mb-3"><label className="form-label">Phone</label><input className="form-control" value={editBranchModel.phone || ''} onChange={(e)=>setEditBranchModel((p)=>({...p,phone:e.target.value}))} /></div>
+              <button className="btn btn-primary" onClick={saveBranchEdit}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editAccountModel && (
+        <div className="modal-overlay" onClick={() => setEditAccountModel(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>View / Edit Account</h3><button className="close-btn" onClick={() => setEditAccountModel(null)}>×</button></div>
+            <div className="modal-body">
+              <div className="mb-3"><label className="form-label">Username</label><input className="form-control" value={editAccountModel.username || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,username:e.target.value}))} /></div>
+              <div className="mb-3"><label className="form-label">Role</label><select className="form-select" value={editAccountModel.role} onChange={(e)=>setEditAccountModel((p)=>({...p,role:e.target.value}))}><option value="cashier">Cashier</option><option value="manager">Ground Manager</option></select></div>
+              <div className="mb-3"><label className="form-label">Branch</label><select className="form-select" value={editAccountModel.location_id || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,location_id:e.target.value}))}>{locations.map((l)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
+              <div className="mb-3"><label className="form-label">New Password (optional)</label><input type="password" className="form-control" value={editAccountModel.password || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,password:e.target.value}))} /></div>
+              <button className="btn btn-primary" onClick={saveAccountEdit}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

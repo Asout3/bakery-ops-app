@@ -191,12 +191,12 @@ router.patch('/staff/:id/status', authenticateToken, authorizeRoles('admin'), as
       const termDate = new Date();
       const daysSinceHire = Math.max(0, Math.floor((termDate - hireDate) / (1000 * 60 * 60 * 24)));
       const workedInCycle = (daysSinceHire % 30) + 1;
-      if (workedInCycle < 30 && Number(staff.monthly_salary || 0) > 0) {
+      if (workedInCycle < 30 && Number(staff.monthly_salary || 0) > 0 && staff.linked_user_id) {
         const proratedAmount = (Number(staff.monthly_salary) / 30) * workedInCycle;
         await query(
           `INSERT INTO staff_payments (user_id, location_id, amount, payment_date, payment_type, notes, created_by)
            VALUES ($1, $2, $3, CURRENT_DATE, 'prorated_exit', $4, $5)`,
-          [staff.linked_user_id || req.user.id, staff.location_id, proratedAmount, `Auto prorated payout for ${workedInCycle} day(s) worked in current cycle`, req.user.id]
+          [staff.linked_user_id, staff.location_id, proratedAmount, `Auto prorated payout for ${workedInCycle} day(s) worked in current cycle`, req.user.id]
         );
       }
     }

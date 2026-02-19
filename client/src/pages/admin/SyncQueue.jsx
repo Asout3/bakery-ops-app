@@ -6,6 +6,7 @@ export default function SyncQueuePage() {
   const [queued, setQueued] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [syncResult, setSyncResult] = useState(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -23,7 +24,8 @@ export default function SyncQueuePage() {
   }, []);
 
   const handleSyncNow = async () => {
-    await flushQueue(api);
+    const result = await flushQueue(api);
+    setSyncResult(result);
     await refresh();
   };
 
@@ -37,6 +39,12 @@ export default function SyncQueuePage() {
         <h2>Offline Sync & Conflict Log</h2>
         <button className="btn btn-primary" onClick={handleSyncNow}>Sync Now</button>
       </div>
+
+      {syncResult && (
+        <div className="alert alert-info mb-3">
+          Last sync: {syncResult.synced || 0} synced, {syncResult.failed || 0} failed.
+        </div>
+      )}
 
       <div className="card mb-4">
         <div className="card-header"><h3>Queued Operations ({queued.length})</h3></div>

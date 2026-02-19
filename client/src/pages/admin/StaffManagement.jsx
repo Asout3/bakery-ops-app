@@ -21,6 +21,7 @@ export default function StaffManagement() {
   const [expenseSummary, setExpenseSummary] = useState(null);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [profile, setProfile] = useState(null);
 
   const activeStaff = useMemo(() => staff.filter((u) => u.is_active), [staff]);
 
@@ -59,7 +60,8 @@ export default function StaffManagement() {
       setStaffForm({ ...emptyStaff, location_id: staffForm.location_id });
       load();
     } catch (err) {
-      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not create staff profile' });
+      const validationText = err.response?.data?.errors?.map((x) => x.msg).join(', ');
+      setFeedback({ type: 'danger', message: validationText || err.response?.data?.error || 'Could not create staff profile' });
     } finally {
       setSaving(false);
     }
@@ -75,14 +77,22 @@ export default function StaffManagement() {
   };
 
   const editStaff = async (row) => {
-    const full_name = window.prompt('Full name', row.full_name);
-    if (!full_name) return;
-    const phone_number = window.prompt('Phone', row.phone_number || '');
-    const monthly_salary = Number(window.prompt('Monthly salary', String(row.monthly_salary || 0)) || row.monthly_salary || 0);
-    const role_preference = window.prompt('Role (cashier|manager|other)', row.role_preference || 'cashier') || row.role_preference;
-    const location_id = Number(window.prompt('Branch id', String(row.location_id || '')) || row.location_id);
+    const full_name = row.full_name;
+    const phone_number = row.phone_number || '';
+    const monthly_salary = Number(row.monthly_salary || 0);
+    const role_preference = row.role_preference || 'cashier';
+    const location_id = Number(row.location_id);
     try {
-      await api.put(`/admin/staff/${row.id}`, { full_name, phone_number, monthly_salary, role_preference, location_id });
+      await api.put(`/admin/staff/${row.id}`, {
+        full_name,
+        phone_number,
+        monthly_salary,
+        role_preference,
+        location_id,
+        national_id: row.national_id || null,
+        age: row.age || null,
+        other_role_title: role_preference === 'other' ? (row.job_title || 'Other Staff') : undefined,
+      });
       setFeedback({ type: 'success', message: 'Staff profile updated.' });
       load();
     } catch (err) {
@@ -145,9 +155,34 @@ export default function StaffManagement() {
 
       <div className="card"><div className="card-header"><h4>Staff Directory</h4></div><div className="card-body table-container">
         <table className="table"><thead><tr><th>Name</th><th>Role</th><th>Branch</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {staff.map((row) => <tr key={row.id}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{row.location_name || row.location_id}</td><td>${Number(row.monthly_salary || 0).toFixed(2)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className={`badge ${row.is_active ? 'badge-success':'badge-warning'}`}>{row.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editStaff(row)}>Edit</button><button className={`btn btn-sm ${row.is_active ? 'btn-danger':'btn-success'}`} onClick={()=>toggleStatus(row)}>{row.is_active ? 'Disable':'Enable'}</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}
+          {staff.map((row) => <tr key={row.id}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{row.location_name || row.location_id}</td><td>${Number(row.monthly_salary || 0).toFixed(2)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className={`badge ${row.is_active ? 'badge-success':'badge-warning'}`}>{row.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-secondary" onClick={()=>editStaff(row)}>Quick Save</button><button className={`btn btn-sm ${row.is_active ? 'btn-danger':'btn-success'}`} onClick={()=>toggleStatus(row)}>{row.is_active ? 'Disable':'Enable'}</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}
         </tbody></table>
       </div></div>
+
+      {profile && (
+        <div className="modal-overlay" onClick={() => setProfile(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Staff Profile</h3><button className="close-btn" onClick={() => setProfile(null)}>×</button></div>
+            <div className="modal-body">
+              <div className="row g-2">
+                <div className="col-md-6 mb-3"><label className="form-label">Full Name</label><input className="form-control" value={profile.full_name || ''} onChange={(e)=>setProfile((p)=>({...p,full_name:e.target.value}))} /></div>
+                <div className="col-md-6 mb-3"><label className="form-label">Phone</label><input className="form-control" value={profile.phone_number || ''} onChange={(e)=>setProfile((p)=>({...p,phone_number:e.target.value}))} /></div>
+              </div>
+              <div className="row g-2">
+                <div className="col-md-4 mb-3"><label className="form-label">National ID</label><input className="form-control" value={profile.national_id || ''} onChange={(e)=>setProfile((p)=>({...p,national_id:e.target.value}))} /></div>
+                <div className="col-md-4 mb-3"><label className="form-label">Age</label><input type="number" className="form-control" value={profile.age || ''} onChange={(e)=>setProfile((p)=>({...p,age:e.target.value}))} /></div>
+                <div className="col-md-4 mb-3"><label className="form-label">Monthly Salary</label><input type="number" className="form-control" value={profile.monthly_salary || ''} onChange={(e)=>setProfile((p)=>({...p,monthly_salary:e.target.value}))} /></div>
+              </div>
+              <div className="row g-2">
+                <div className="col-md-4 mb-3"><label className="form-label">Role</label><select className="form-select" value={profile.role_preference || 'cashier'} onChange={(e)=>setProfile((p)=>({...p,role_preference:e.target.value}))}><option value="cashier">Cashier</option><option value="manager">Ground Manager</option><option value="other">Other</option></select></div>
+                <div className="col-md-4 mb-3"><label className="form-label">Branch</label><select className="form-select" value={profile.location_id || ''} onChange={(e)=>setProfile((p)=>({...p,location_id:e.target.value}))}>{locations.map((l)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
+                {profile.role_preference === 'other' && <div className="col-md-4 mb-3"><label className="form-label">Other Title</label><input className="form-control" value={profile.job_title || ''} onChange={(e)=>setProfile((p)=>({...p,job_title:e.target.value}))} /></div>}
+              </div>
+              <button className="btn btn-primary" onClick={async()=>{await editStaff(profile); setProfile(null);}}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

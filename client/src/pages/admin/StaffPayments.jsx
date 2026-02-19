@@ -38,7 +38,7 @@ export default function StaffPaymentsPage() {
 
       setPayments(paymentsRes.data || []);
       setLocations(locationsRes.data || []);
-      setStaffMembers((staffRes.data || []).filter((user) => ['cashier', 'manager'].includes(user.role)));
+      setStaffMembers((staffRes.data || []).filter((user) => user.is_active));
     } catch (err) {
       console.error('Failed to fetch data:', err);
       setFeedback({ type: 'danger', message: err.response?.data?.error || 'Failed to load payments data.' });

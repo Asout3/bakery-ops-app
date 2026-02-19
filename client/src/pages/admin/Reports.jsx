@@ -71,6 +71,28 @@ export default function ReportsPage() {
     }
   };
 
+  const exportCurrentReportCsv = () => {
+    const rows = [
+      ['Metric', 'Value'],
+      ['Total Sales', Number(reportData?.summary?.total_sales || 0).toFixed(2)],
+      ['Total Expenses', Number(reportData?.summary?.total_expenses || 0).toFixed(2)],
+      ['Net Profit', Number(reportData?.summary?.net_profit || 0).toFixed(2)],
+      ['Avg Transaction', Number(reportData?.summary?.avg_transaction || 0).toFixed(2)],
+      [],
+      ['Date', 'Daily Sales'],
+      ...dailySales.map((item) => [item.date, Number(item.total_sales || 0).toFixed(2)]),
+    ];
+    const csv = rows.map((r) => r.map((v) => `"${String(v ?? '').replaceAll('"', '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `report-${dateRange.startDate}-to-${dateRange.endDate}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
   const stats = [
     {
       title: 'Total Sales',
@@ -266,7 +288,7 @@ export default function ReportsPage() {
         <div className="card-body">
           <div className="row">
             <div className="col-md-3">
-              <button className="btn btn-outline-primary w-100">
+              <button className="btn btn-outline-primary w-100" onClick={exportCurrentReportCsv}>
                 <Download size={16} /> Daily Report
               </button>
             </div>
@@ -276,12 +298,12 @@ export default function ReportsPage() {
               </button>
             </div>
             <div className="col-md-3">
-              <button className="btn btn-outline-info w-100">
+              <button className="btn btn-outline-info w-100" onClick={exportCurrentReportCsv}>
                 <Download size={16} /> Monthly Report
               </button>
             </div>
             <div className="col-md-3">
-              <button className="btn btn-outline-warning w-100">
+              <button className="btn btn-outline-warning w-100" onClick={exportCurrentReportCsv}>
                 <Download size={16} /> Custom Report
               </button>
             </div>

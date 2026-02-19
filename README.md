@@ -405,3 +405,36 @@ If you want, next pass can include:
 - stricter API error contracts,
 - UI notification/toast system standardization across all screens,
 - dashboard caching and report query performance tuning.
+
+---
+
+## 16) Architecture diagram (Mermaid)
+
+```mermaid
+flowchart TD
+  U[Users: Admin / Manager / Cashier] --> FE[React Frontend]
+  FE -->|JWT + Branch Context| API[Express API]
+  FE -->|Offline queue + retry| OQ[IndexedDB Offline Queue]
+  OQ -->|flush when online| API
+
+  API --> AUTH[Auth + RBAC + Branch Resolver]
+  API --> OPS[Sales / Inventory / Expenses / Payments]
+  API --> HR[Staff Profiles + Account Provisioning]
+  API --> RPT[Reports + KPI + Export]
+  API --> NTF[Notifications + Alert Rules]
+
+  OPS --> TX[Transactional Service Layer]
+  TX --> DB[(PostgreSQL)]
+  AUTH --> DB
+  HR --> DB
+  RPT --> DB
+  NTF --> DB
+
+  DB --> LEDGER[Inventory Movements / Activity Log / KPI Events]
+```
+
+### Offline sync behavior (production intent)
+- Cashier can sell while offline using locally cached product catalog for selected branch.
+- Writes are queued with idempotency keys in IndexedDB.
+- Background sync retries automatically and moves hard 4xx failures to conflict log for admin review.
+- Admin can trigger manual sync from **Sync Queue** page and inspect sync/failure history.

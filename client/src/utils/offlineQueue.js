@@ -134,10 +134,12 @@ export async function flushQueue(api) {
       });
     } catch (error) {
       failed += 1;
+      const status = error?.response?.status;
+      const isBusinessConflict = Number.isInteger(status) && status >= 400 && status < 500;
       const retries = (op.retries || 0) + 1;
       const db = await openDb();
       const tx = db.transaction(OPS_STORE, 'readwrite');
-      if (retries >= 5) {
+      if (isBusinessConflict || retries >= 5) {
         tx.objectStore(OPS_STORE).delete(op.id);
       } else {
         tx.objectStore(OPS_STORE).put({ ...op, retries, last_error: error.message || 'Sync failed' });
@@ -148,8 +150,8 @@ export async function flushQueue(api) {
       await appendHistory({
         id: `${op.id}-failed-${Date.now()}`,
         operation_id: op.id,
-        status: retries >= 5 ? 'conflict' : 'retrying',
-        message: `${error.message || 'Sync failed'}${retries >= 5 ? ' (moved to conflict log)' : ''}`,
+        status: (isBusinessConflict || retries >= 5) ? 'conflict' : 'retrying',
+        message: `${error.message || 'Sync failed'}${(isBusinessConflict || retries >= 5) ? ' (moved to conflict log)' : ''}`,
         created_at: new Date().toISOString(),
       });
     }
