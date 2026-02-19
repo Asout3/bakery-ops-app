@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Users } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Package } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import './Dashboard.css';
 
 export default function Dashboard() {
   const { selectedLocationId } = useBranch();
   const [weeklyReport, setWeeklyReport] = useState(null);
+  const [monthlyReport, setMonthlyReport] = useState(null);
   const [branchSummary, setBranchSummary] = useState([]);
   const [kpis, setKpis] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -24,7 +25,8 @@ export default function Dashboard() {
         api.get('/reports/branches/summary').catch(() => ({ data: [] })),
         api.get('/reports/kpis').catch(() => ({ data: null }))
       ]);
-      setWeeklyReport({ ...weekly.data, monthly: monthly.data });
+      setWeeklyReport(weekly.data);
+      setMonthlyReport(monthly.data);
       setBranchSummary(branches.data || []);
       setKpis(kpiRes.data);
     } catch (err) {
@@ -45,31 +47,31 @@ export default function Dashboard() {
   const stats = [
     {
       title: 'Daily Sales',
-      value: `$${dailyReport?.sales?.total_sales?.toFixed(2) || '0.00'}`,
+      value: `$${Number(weeklyReport?.summary?.total_sales || 0).toFixed(2)}`,
       icon: DollarSign,
       color: 'primary',
-      subtext: `${weeklyReport?.summary?.total_transactions || 0} transactions`
+      subtext: `Weekly • ${weeklyReport?.summary?.total_transactions || 0} transactions`
     },
     {
-      title: 'Daily Expenses',
-      value: `$${dailyReport?.expenses?.total_expenses?.toFixed(2) || '0.00'}`,
+      title: 'Weekly Expenses',
+      value: `$${Number(weeklyReport?.summary?.total_expenses || 0).toFixed(2)}`,
       icon: TrendingDown,
       color: 'danger',
-      subtext: `${dailyReport?.expenses?.expense_count || 0} expenses`
+      subtext: `${weeklyReport?.summary?.expense_count || 0} expense entries`
     },
     {
-      title: 'Daily Profit',
-      value: `$${dailyReport?.profit?.gross_profit?.toFixed(2) || '0.00'}`,
+      title: 'Weekly Profit',
+      value: `$${Number(weeklyReport?.summary?.net_profit || 0).toFixed(2)}`,
       icon: TrendingUp,
       color: 'success',
-      subtext: 'Gross profit'
+      subtext: 'Revenue - expenses'
     },
     {
-      title: 'Avg Transaction',
-      value: `$${dailyReport?.sales?.avg_transaction?.toFixed(2) || '0.00'}`,
-      icon: ShoppingCart,
+      title: 'Monthly Net Flow',
+      value: `$${Number(monthlyReport?.summary?.net_profit || 0).toFixed(2)}`,
+      icon: Package,
       color: 'info',
-      subtext: 'Per sale'
+      subtext: `${monthlyReport?.summary?.total_transactions || 0} monthly transactions`
     }
   ];
 
@@ -113,21 +115,21 @@ export default function Dashboard() {
             <div className="stat-content">
               <div className="stat-label">Cashier Avg Order Time</div>
               <div className="stat-value">{Number(kpis.avg_cashier_order_seconds || 0).toFixed(1)}s</div>
-              <div className="stat-subtext">Target: &lt; {kpis.goals.cashier_order_target_seconds}s</div>
+              <div className="stat-subtext">Target: &lt; {kpis?.goals?.cashier_order_target_seconds || 0}s</div>
             </div>
           </div>
           <div className="stat-card card">
             <div className="stat-content">
               <div className="stat-label">Batch Zero-Retry Rate</div>
               <div className="stat-value">{Number(kpis.batch_zero_retry_rate_percent || 0).toFixed(1)}%</div>
-              <div className="stat-subtext">Target: {kpis.goals.batch_zero_retry_target_percent}%</div>
+              <div className="stat-subtext">Target: {kpis?.goals?.batch_zero_retry_target_percent || 0}%</div>
             </div>
           </div>
           <div className="stat-card card">
             <div className="stat-content">
               <div className="stat-label">Owner Report Views (7d)</div>
               <div className="stat-value">{Number(kpis.owner_report_views_weekly || 0)}</div>
-              <div className="stat-subtext">Target: {kpis.goals.owner_views_target_weekly}/week</div>
+              <div className="stat-subtext">Target: {kpis?.goals?.owner_views_target_weekly || 0}/week</div>
             </div>
           </div>
         </div>
