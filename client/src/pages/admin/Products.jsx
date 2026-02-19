@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { Search, Plus, Edit, Trash2, AlertCircle } from 'lucide-react';
+import { useLanguage } from '../../context/LanguageContext';
 
 export default function ProductsPage() {
+  const { t } = useLanguage();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -77,7 +79,7 @@ export default function ProductsPage() {
   return (
     <div className="products-page">
       <div className="page-header">
-        <h2>Products Management</h2>
+        <h2>{t('products')}</h2>
         <button 
           className="btn btn-primary" 
           onClick={() => {
@@ -86,7 +88,7 @@ export default function ProductsPage() {
             setShowForm(true);
           }}
         >
-          <Plus size={18} /> Add Product
+          <Plus size={18} /> {t('addProduct')}
         </button>
       </div>
 

@@ -14,6 +14,7 @@ const emptyStaff = {
 };
 
 export default function StaffManagement() {
+  const [loading, setLoading] = useState(true);
   const [locations, setLocations] = useState([]);
   const [staff, setStaff] = useState([]);
   const [staffForm, setStaffForm] = useState(emptyStaff);
@@ -35,6 +36,8 @@ export default function StaffManagement() {
       setExpenseSummary(expenseRes.data || null);
     } catch (err) {
       setFeedback({ type: 'danger', message: err.response?.data?.error || 'Failed to load staff management data' });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -70,6 +73,35 @@ export default function StaffManagement() {
       setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not update status' });
     }
   };
+
+  const editStaff = async (row) => {
+    const full_name = window.prompt('Full name', row.full_name);
+    if (!full_name) return;
+    const phone_number = window.prompt('Phone', row.phone_number || '');
+    const monthly_salary = Number(window.prompt('Monthly salary', String(row.monthly_salary || 0)) || row.monthly_salary || 0);
+    const role_preference = window.prompt('Role (cashier|manager|other)', row.role_preference || 'cashier') || row.role_preference;
+    const location_id = Number(window.prompt('Branch id', String(row.location_id || '')) || row.location_id);
+    try {
+      await api.put(`/admin/staff/${row.id}`, { full_name, phone_number, monthly_salary, role_preference, location_id });
+      setFeedback({ type: 'success', message: 'Staff profile updated.' });
+      load();
+    } catch (err) {
+      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not update staff profile' });
+    }
+  };
+
+  const deleteStaff = async (row) => {
+    if (!window.confirm(`Delete staff profile ${row.full_name}?`)) return;
+    try {
+      await api.delete(`/admin/staff/${row.id}`);
+      setFeedback({ type: 'success', message: 'Staff profile deleted.' });
+      load();
+    } catch (err) {
+      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not delete staff profile' });
+    }
+  };
+
+  if (loading) return <div className="loading-container"><div className="spinner"></div></div>;
 
   return (
     <div>
@@ -113,7 +145,7 @@ export default function StaffManagement() {
 
       <div className="card"><div className="card-header"><h4>Staff Directory</h4></div><div className="card-body table-container">
         <table className="table"><thead><tr><th>Name</th><th>Role</th><th>Branch</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {staff.map((row) => <tr key={row.id}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{row.location_name || row.location_id}</td><td>${Number(row.monthly_salary || 0).toFixed(2)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className={`badge ${row.is_active ? 'badge-success':'badge-warning'}`}>{row.is_active ? 'Active':'Inactive'}</span></td><td><button className={`btn btn-sm ${row.is_active ? 'btn-danger':'btn-success'}`} onClick={()=>toggleStatus(row)}>{row.is_active ? 'Disable':'Enable'}</button></td></tr>)}
+          {staff.map((row) => <tr key={row.id}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{row.location_name || row.location_id}</td><td>${Number(row.monthly_salary || 0).toFixed(2)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className={`badge ${row.is_active ? 'badge-success':'badge-warning'}`}>{row.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editStaff(row)}>Edit</button><button className={`btn btn-sm ${row.is_active ? 'btn-danger':'btn-success'}`} onClick={()=>toggleStatus(row)}>{row.is_active ? 'Disable':'Enable'}</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}
         </tbody></table>
       </div></div>
     </div>

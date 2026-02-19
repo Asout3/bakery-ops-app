@@ -208,6 +208,80 @@ router.patch('/staff/:id/status', authenticateToken, authorizeRoles('admin'), as
   }
 });
 
+router.put('/staff/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    await ensureSchemaReady();
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid staff id' });
+
+    const {
+      full_name,
+      national_id,
+      phone_number,
+      age,
+      monthly_salary,
+      role_preference,
+      other_role_title,
+      location_id,
+      hire_date,
+    } = req.body;
+
+    const updated = await query(
+      `UPDATE staff_profiles
+       SET full_name = COALESCE($1, full_name),
+           national_id = $2,
+           phone_number = COALESCE($3, phone_number),
+           age = $4,
+           monthly_salary = COALESCE($5, monthly_salary),
+           role_preference = COALESCE($6, role_preference),
+           job_title = COALESCE($7, job_title),
+           location_id = COALESCE($8, location_id),
+           hire_date = COALESCE($9, hire_date),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $10
+       RETURNING *`,
+      [
+        full_name || null,
+        national_id || null,
+        phone_number || null,
+        age ?? null,
+        monthly_salary ?? null,
+        role_preference || null,
+        role_preference === 'other' ? (other_role_title || null) : role_preference || null,
+        location_id ?? null,
+        hire_date || null,
+        id,
+      ]
+    );
+
+    if (!updated.rows.length) return res.status(404).json({ error: 'Staff member not found' });
+    res.json(updated.rows[0]);
+  } catch (err) {
+    console.error('Update staff profile error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.delete('/staff/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    await ensureSchemaReady();
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid staff id' });
+
+    const current = await query('SELECT id, linked_user_id FROM staff_profiles WHERE id = $1', [id]);
+    if (!current.rows.length) return res.status(404).json({ error: 'Staff member not found' });
+    if (current.rows[0].linked_user_id) {
+      return res.status(400).json({ error: 'Cannot delete staff with active account. Delete account first.' });
+    }
+
+    await query('DELETE FROM staff_profiles WHERE id = $1', [id]);
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('Delete staff profile error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.get('/users', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     await ensureSchemaReady();
@@ -415,6 +489,55 @@ router.patch('/users/:id/status', authenticateToken, authorizeRoles('admin'), as
     res.json(updated.rows[0]);
   } catch (err) {
     console.error('Update user status error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.put('/users/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    await ensureSchemaReady();
+    const id = Number(req.params.id);
+    const { username, password, role, location_id } = req.body;
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id' });
+
+    let passwordClause = '';
+    const params = [username || null, role || null, location_id ?? null, id];
+    if (password) {
+      const password_hash = await bcrypt.hash(password, 10);
+      passwordClause = ', password_hash = $5';
+      params.splice(3, 0, password_hash);
+    }
+
+    const sql = password
+      ? `UPDATE users SET username = COALESCE($1, username), role = COALESCE($2, role), location_id = COALESCE($3, location_id)${passwordClause}, updated_at = CURRENT_TIMESTAMP WHERE id = $6 RETURNING id, username, role, location_id, is_active`
+      : `UPDATE users SET username = COALESCE($1, username), role = COALESCE($2, role), location_id = COALESCE($3, location_id), updated_at = CURRENT_TIMESTAMP WHERE id = $4 RETURNING id, username, role, location_id, is_active`;
+
+    const updated = await query(sql, params);
+    if (!updated.rows.length) return res.status(404).json({ error: 'Account not found' });
+    res.json(updated.rows[0]);
+  } catch (err) {
+    console.error('Update account error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.delete('/users/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    await ensureSchemaReady();
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id' });
+
+    const userRow = await query('SELECT id, role FROM users WHERE id = $1', [id]);
+    if (!userRow.rows.length) return res.status(404).json({ error: 'Account not found' });
+    if (userRow.rows[0].role === 'admin') return res.status(400).json({ error: 'Cannot delete admin account' });
+
+    await query('UPDATE staff_profiles SET linked_user_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE linked_user_id = $1', [id]);
+    await query('DELETE FROM user_locations WHERE user_id = $1', [id]);
+    await query('DELETE FROM users WHERE id = $1', [id]);
+
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('Delete account error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

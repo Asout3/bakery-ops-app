@@ -15,12 +15,17 @@ export function useOfflineSync() {
     };
 
     runSync();
-    const interval = setInterval(runSync, 15000);
+    const interval = setInterval(runSync, 7000);
     window.addEventListener('online', runSync);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') runSync();
+    };
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       clearInterval(interval);
       window.removeEventListener('online', runSync);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
 }

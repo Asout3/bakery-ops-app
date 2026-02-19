@@ -4,9 +4,11 @@ import { useBranch } from '../../context/BranchContext';
 import { TrendingUp, TrendingDown, DollarSign, Package } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import './Dashboard.css';
+import { useLanguage } from '../../context/LanguageContext';
 
 export default function Dashboard() {
   const { selectedLocationId } = useBranch();
+  const { t } = useLanguage();
   const [weeklyReport, setWeeklyReport] = useState(null);
   const [monthlyReport, setMonthlyReport] = useState(null);
   const [branchSummary, setBranchSummary] = useState([]);
@@ -78,7 +80,7 @@ export default function Dashboard() {
   return (
     <div className="dashboard-page">
       <div className="dashboard-header">
-        <h2>Admin Dashboard</h2>
+        <h2>{t('dashboard')}</h2>
         <p className="dashboard-date">
           {new Date().toLocaleDateString('en-US', { 
             weekday: 'long', 

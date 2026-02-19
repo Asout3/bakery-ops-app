@@ -4,9 +4,11 @@ import { useBranch } from '../../context/BranchContext';
 import { Plus, Minus, ShoppingCart, Trash2, Search } from 'lucide-react';
 import './Sales.css';
 import { enqueueOperation } from '../../utils/offlineQueue';
+import { useLanguage } from '../../context/LanguageContext';
 
 export default function Sales() {
   const { selectedLocationId } = useBranch();
+  const { t } = useLanguage();
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -14,18 +16,40 @@ export default function Sales() {
   const [message, setMessage] = useState(null);
   const [orderStartedAt, setOrderStartedAt] = useState(Date.now());
   const [receiptData, setReceiptData] = useState(null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useEffect(() => {
     fetchProducts();
   }, [selectedLocationId]);
 
+  useEffect(() => {
+    const onOnline = () => {
+      setIsOnline(true);
+      fetchProducts();
+    };
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
+
   const fetchProducts = async () => {
     try {
       const [productsRes, inventoryRes] = await Promise.all([api.get('/products'), api.get('/inventory')]);
       const availableIds = new Set((inventoryRes.data || []).filter((it) => Number(it.quantity) > 0).map((it) => Number(it.product_id)));
-      setProducts((productsRes.data || []).filter((p) => availableIds.has(Number(p.id))));
+      const available = (productsRes.data || []).filter((p) => availableIds.has(Number(p.id)));
+      setProducts(available);
+      localStorage.setItem(`cashier_products_cache_${selectedLocationId || 'default'}`, JSON.stringify(available));
     } catch (err) {
       console.error('Failed to fetch products:', err);
+      const cached = localStorage.getItem(`cashier_products_cache_${selectedLocationId || 'default'}`);
+      if (cached) {
+        setProducts(JSON.parse(cached));
+        setMessage({ type: 'warning', text: 'Offline mode: using cached products.' });
+      }
     }
   };
 
@@ -122,7 +146,8 @@ export default function Sales() {
   return (
     <div className="sales-page">
       <div className="sales-header">
-        <h2>New Sale</h2>
+        <h2>{t('newSale')}</h2>
+        {!isOnline && <div className="alert alert-warning">You are offline. Sales will be queued and synced automatically.</div>}
         {message && (
           <div className={`alert alert-${message.type}`}>
             {message.text}
@@ -171,7 +196,7 @@ export default function Sales() {
               {cart.length === 0 ? (
                 <div className="empty-cart">
                   <ShoppingCart size={48} />
-                  <p>Cart is empty</p>
+                  <p>{t('cartEmpty')}</p>
                 </div>
               ) : (
                 <div className="cart-items">
@@ -228,7 +253,7 @@ export default function Sales() {
                 disabled={loading || cart.length === 0}
                 style={{ width: '100%', marginTop: '1rem' }}
               >
-                {loading ? 'Processing...' : 'Complete Sale'}
+                {loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}
               </button>
             </div>
           </div>

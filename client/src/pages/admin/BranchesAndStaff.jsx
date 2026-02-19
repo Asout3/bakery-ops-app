@@ -12,6 +12,7 @@ const emptyAccount = {
 };
 
 export default function BranchesAndStaff() {
+  const [loading, setLoading] = useState(true);
   const [locations, setLocations] = useState([]);
   const [staffProfiles, setStaffProfiles] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -33,6 +34,8 @@ export default function BranchesAndStaff() {
       setAccounts(accountsRes.data || []);
     } catch (err) {
       setFeedback({ type: 'danger', message: err.response?.data?.error || 'Failed to load branch/account data' });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -93,7 +96,60 @@ export default function BranchesAndStaff() {
     }
   };
 
+  const editBranch = async (branch) => {
+    const name = window.prompt('Branch name', branch.name);
+    if (!name) return;
+    const address = window.prompt('Address', branch.address || '');
+    const phone = window.prompt('Phone', branch.phone || '');
+    try {
+      await api.put(`/locations/${branch.id}`, { name, address, phone, is_active: branch.is_active });
+      setFeedback({ type: 'success', message: 'Branch updated.' });
+      loadData();
+    } catch (err) {
+      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not update branch' });
+    }
+  };
+
+  const deleteBranch = async (branch) => {
+    if (!window.confirm(`Delete/disable branch "${branch.name}"?`)) return;
+    try {
+      const res = await api.delete(`/locations/${branch.id}`);
+      setFeedback({ type: 'success', message: res.data?.message || 'Branch removed.' });
+      loadData();
+    } catch (err) {
+      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not remove branch' });
+    }
+  };
+
+  const editAccount = async (user) => {
+    const username = window.prompt('Username', user.username);
+    if (!username) return;
+    const role = window.prompt('Role (cashier or manager)', user.role) || user.role;
+    const location_id = Number(window.prompt('Branch id', String(user.location_id || '')) || user.location_id);
+    const password = window.prompt('New password (leave blank to keep current)', '');
+    try {
+      await api.put(`/admin/users/${user.id}`, { username, role, location_id, ...(password ? { password } : {}) });
+      setFeedback({ type: 'success', message: 'Account updated.' });
+      loadData();
+    } catch (err) {
+      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not update account' });
+    }
+  };
+
+  const deleteAccount = async (user) => {
+    if (!window.confirm(`Delete account ${user.username}?`)) return;
+    try {
+      await api.delete(`/admin/users/${user.id}`);
+      setFeedback({ type: 'success', message: 'Account deleted.' });
+      loadData();
+    } catch (err) {
+      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not delete account' });
+    }
+  };
+
   const availableStaff = staffProfiles.filter((s) => s.is_active && !s.linked_user_id);
+
+  if (loading) return <div className="loading-container"><div className="spinner"></div></div>;
 
   return (
     <div>
@@ -131,9 +187,15 @@ export default function BranchesAndStaff() {
         </div></div></div>
       </div>
 
+      <div className="card mb-4"><div className="card-header"><h4>Branches</h4></div><div className="card-body table-container">
+        <table className="table"><thead><tr><th>Name</th><th>Address</th><th>Phone</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+          {locations.map((b) => <tr key={b.id}><td>{b.name}</td><td>{b.address || '—'}</td><td>{b.phone || '—'}</td><td><span className={`badge ${b.is_active ? 'badge-success':'badge-warning'}`}>{b.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editBranch(b)}>Edit</button><button className="btn btn-sm btn-danger" onClick={()=>deleteBranch(b)}>Delete</button></td></tr>)}
+        </tbody></table>
+      </div></div>
+
       <div className="card"><div className="card-header"><h4>Account Directory</h4></div><div className="card-body table-container">
         <table className="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Branch</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {accounts.map((user) => <tr key={user.id}><td>{user.full_name || user.username}</td><td>{user.username}</td><td>{user.job_title || user.role}</td><td>{user.location_name || user.location_id}</td><td><span className={`badge ${user.is_active ? 'badge-success':'badge-warning'}`}>{user.is_active ? 'Active':'Inactive'}</span></td><td><button className={`btn btn-sm ${user.is_active ? 'btn-danger':'btn-success'}`} onClick={()=>toggleAccountStatus(user)}>{user.is_active ? 'Disable':'Enable'}</button></td></tr>)}
+          {accounts.map((user) => <tr key={user.id}><td>{user.full_name || user.username}</td><td>{user.username}</td><td>{user.job_title || user.role}</td><td>{user.location_name || user.location_id}</td><td><span className={`badge ${user.is_active ? 'badge-success':'badge-warning'}`}>{user.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editAccount(user)}>Edit</button><button className={`btn btn-sm ${user.is_active ? 'btn-danger':'btn-success'}`} onClick={()=>toggleAccountStatus(user)}>{user.is_active ? 'Disable':'Enable'}</button><button className="btn btn-sm btn-danger" onClick={()=>deleteAccount(user)}>Delete</button></td></tr>)}
         </tbody></table>
       </div></div>
     </div>
