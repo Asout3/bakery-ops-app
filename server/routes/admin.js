@@ -393,7 +393,7 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
     await ensureSchemaReady();
     const locationId = req.query.location_id ? Number(req.query.location_id) : null;
     
-    let query = `
+    let queryText = `
       SELECT 
         sp.id,
         sp.full_name,
@@ -418,12 +418,12 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
     const params = [];
     if (locationId) {
       params.push(locationId);
-      query += ` AND sp.location_id = $${params.length}`;
+      queryText += ` AND sp.location_id = $${params.length}`;
     }
     
-    query += ` ORDER BY sp.full_name ASC`;
+    queryText += ` ORDER BY sp.full_name ASC`;
     
-    const result = await query(query, params);
+    const result = await query(queryText, params);
     
     res.json(result.rows);
   } catch (err) {
@@ -709,20 +709,21 @@ router.delete('/users/:id', authenticateToken, authorizeRoles('admin'), async (r
   try {
     await ensureSchemaReady();
     const id = Number(req.params.id);
-    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id' });
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id', code: 'INVALID_USER_ID', requestId: req.requestId });
 
-    const userRow = await query('SELECT id, role FROM users WHERE id = $1', [id]);
-    if (!userRow.rows.length) return res.status(404).json({ error: 'Account not found' });
-    if (userRow.rows[0].role === 'admin') return res.status(400).json({ error: 'Cannot delete admin account' });
+    const userRow = await query('SELECT id, role, is_active FROM users WHERE id = $1', [id]);
+    if (!userRow.rows.length) return res.status(404).json({ error: 'Account not found', code: 'ACCOUNT_NOT_FOUND', requestId: req.requestId });
+    if (userRow.rows[0].role === 'admin') return res.status(400).json({ error: 'Cannot delete admin account', code: 'ADMIN_DELETE_FORBIDDEN', requestId: req.requestId });
+    if (!userRow.rows[0].is_active) return res.json({ archived: true, already_inactive: true });
 
+    await query('UPDATE users SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
     await query('UPDATE staff_profiles SET linked_user_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE linked_user_id = $1', [id]);
     await query('DELETE FROM user_locations WHERE user_id = $1', [id]);
-    await query('DELETE FROM users WHERE id = $1', [id]);
 
-    res.json({ deleted: true });
+    res.json({ archived: true });
   } catch (err) {
-    console.error('Delete account error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Archive account error:', err);
+    res.status(500).json({ error: 'Internal server error', code: 'ACCOUNT_ARCHIVE_ERROR', requestId: req.requestId });
   }
 });
 

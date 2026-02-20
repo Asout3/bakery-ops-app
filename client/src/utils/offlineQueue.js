@@ -7,6 +7,7 @@ const PAYLOAD_STORE = 'payloads';
 const MAX_RETRIES = 5;
 const BASE_RETRY_DELAY_MS = 1000;
 const MAX_BATCH_PER_FLUSH = 20;
+let flushInProgress = false;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -169,15 +170,23 @@ export async function getPendingCount() {
 }
 
 export async function flushQueue(api) {
+  if (flushInProgress) {
+    const queued = await getQueueSize();
+    return { synced: 0, failed: 0, pending: queued, skipped: true };
+  }
+
   if (!navigator.onLine) {
     const queued = await getQueueSize();
     return { synced: 0, failed: 0, pending: queued, offline: true };
   }
 
-  const queue = await listQueuedOperations();
-  if (!queue.length) return { synced: 0, failed: 0, pending: 0 };
+  flushInProgress = true;
 
-  const now = Date.now();
+  try {
+    const queue = await listQueuedOperations();
+    if (!queue.length) return { synced: 0, failed: 0, pending: 0 };
+
+    const now = Date.now();
   const readyToSync = queue
     .filter(op => op.nextRetry <= now && op.status !== 'conflict')
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
@@ -278,8 +287,11 @@ export async function flushQueue(api) {
     }
   }
 
-  const remaining = await getQueueSize();
-  return { synced, failed, pending: remaining };
+    const remaining = await getQueueSize();
+    return { synced, failed, pending: remaining };
+  } finally {
+    flushInProgress = false;
+  }
 }
 
 export async function retryOperation(operationId) {

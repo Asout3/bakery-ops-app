@@ -29,6 +29,7 @@ router.post(
       const locationId = await getTargetLocationId(req, query);
       const sale = await withTransaction(async (tx) => {
         if (idempotencyKey) {
+          await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`sales:${cashierId}:${idempotencyKey}`]);
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
              WHERE user_id = $1 AND idempotency_key = $2`,
