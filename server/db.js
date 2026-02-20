@@ -61,6 +61,37 @@ const MIN_POOL_SIZE = Number(process.env.DB_MIN_POOL_SIZE || 2);
 const CONNECTION_TIMEOUT = Number(process.env.DB_CONNECTION_TIMEOUT_MS || 10000);
 const IDLE_TIMEOUT = Number(process.env.DB_IDLE_TIMEOUT_MS || 30000);
 
+const TRANSIENT_DB_ERROR_CODES = new Set([
+  '57P01',
+  '57P02',
+  '57P03',
+  '08000',
+  '08003',
+  '08006',
+  '08001',
+  '08004',
+  '53300',
+]);
+
+export function isTransientDbError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  if (TRANSIENT_DB_ERROR_CODES.has(error?.code)) return true;
+  return message.includes('connection terminated')
+    || message.includes('connection timeout')
+    || message.includes('not queryable')
+    || message.includes('econnreset')
+    || message.includes('econnrefused')
+    || message.includes('terminating connection');
+}
+
+function annotateDatabaseError(error) {
+  if (isTransientDbError(error)) {
+    error.status = 503;
+    error.code = error.code || 'DB_UNAVAILABLE';
+  }
+  return error;
+}
+
 const pool = new Pool({
   ...poolConfig,
   max: MAX_POOL_SIZE,
@@ -103,13 +134,14 @@ export const query = async (text, params) => {
   } catch (error) {
     const duration = Date.now() - start;
     console.error(`[DB ERROR] Query failed after ${duration}ms:`, error.message);
-    throw error;
+    throw annotateDatabaseError(error);
   }
 };
 
 export const withTransaction = async (callback) => {
   const client = await pool.connect();
   const start = Date.now();
+  let shouldDestroyClient = false;
 
   try {
     await client.query('BEGIN');
@@ -125,12 +157,17 @@ export const withTransaction = async (callback) => {
     
     return result;
   } catch (error) {
-    await client.query('ROLLBACK');
+    shouldDestroyClient = true;
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      console.error('[DB TRANSACTION ERROR] Rollback failed:', rollbackError.message);
+    }
     const duration = Date.now() - start;
     console.error(`[DB TRANSACTION ERROR] Rolled back after ${duration}ms:`, error.message);
-    throw error;
+    throw annotateDatabaseError(error);
   } finally {
-    client.release();
+    client.release(shouldDestroyClient);
   }
 };
 

@@ -72,6 +72,14 @@ sequenceDiagram
 - SQL uses parameterized queries.
 - Idempotency for retry-safe writes.
 
+
+## DB Resilience Behavior
+
+- Transient PostgreSQL failures (connection timeout/termination) are classified as `DB_UNAVAILABLE` and surfaced as `503` responses.
+- Transaction rollback failures on broken DB sockets no longer crash request handling.
+- Process-level fatal handlers ignore transient DB connectivity errors so temporary DB drops do not kill the API process.
+- Offline sales queue keeps retrying failed writes when connectivity returns.
+
 ## Database and Migrations
 
 Schema evolution should be handled by SQL migrations under `database/migrations/`.

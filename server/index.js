@@ -3,7 +3,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
-import pool from './db.js';
+import pool, { isTransientDbError } from './db.js';
 import { apiLimiter, validateEnvironment, getCorsOptions } from './middleware/security.js';
 import { attachRequestContext } from './middleware/requestContext.js';
 import { errorHandler } from './utils/errors.js';
@@ -181,11 +181,19 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 process.on('uncaughtException', (err) => {
   console.error('[FATAL] Uncaught Exception:', err);
+  if (isTransientDbError(err)) {
+    console.error('[WARN] Ignoring transient DB exception to keep API process alive');
+    return;
+  }
   gracefulShutdown('uncaughtException');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[FATAL] Unhandled Rejection at:', promise, 'reason:', reason);
+  if (isTransientDbError(reason)) {
+    console.error('[WARN] Ignoring transient DB rejection to keep API process alive');
+    return;
+  }
   gracefulShutdown('unhandledRejection');
 });
 
