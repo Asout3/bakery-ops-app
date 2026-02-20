@@ -196,10 +196,13 @@ export async function flushQueue(api) {
 
   let synced = 0;
   let failed = 0;
+  let shouldPauseBatch = false;
 
   for (const op of readyToSync) {
+    if (shouldPauseBatch) break;
+
     const payload = await getPayload(op.id);
-    
+
     try {
       const response = await api.request({
         url: op.url,
@@ -284,6 +287,11 @@ export async function flushQueue(api) {
         retryCount: retries,
         statusCode: status,
       });
+
+      const isServerUnavailable = !status || status >= 500 || status === 429;
+      if (isServerUnavailable) {
+        shouldPauseBatch = true;
+      }
     }
   }
 

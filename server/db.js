@@ -139,35 +139,40 @@ export const query = async (text, params) => {
 };
 
 export const withTransaction = async (callback) => {
-  const client = await pool.connect();
   const start = Date.now();
+  let client = null;
   let shouldDestroyClient = false;
 
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     const result = await callback({
       query: (text, params) => client.query(text, params)
     });
     await client.query('COMMIT');
-    
+
     const duration = Date.now() - start;
     if (duration > 2000) {
       console.warn(`[DB SLOW TRANSACTION] ${duration}ms`);
     }
-    
+
     return result;
   } catch (error) {
     shouldDestroyClient = true;
-    try {
-      await client.query('ROLLBACK');
-    } catch (rollbackError) {
-      console.error('[DB TRANSACTION ERROR] Rollback failed:', rollbackError.message);
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('[DB TRANSACTION ERROR] Rollback failed:', rollbackError.message);
+      }
     }
     const duration = Date.now() - start;
     console.error(`[DB TRANSACTION ERROR] Rolled back after ${duration}ms:`, error.message);
     throw annotateDatabaseError(error);
   } finally {
-    client.release(shouldDestroyClient);
+    if (client) {
+      client.release(shouldDestroyClient);
+    }
   }
 };
 
