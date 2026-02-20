@@ -108,6 +108,7 @@ router.post(
   body('location_id').isInt({ min: 1 }),
   body('age').optional().isInt({ min: 15, max: 100 }),
   body('monthly_salary').optional().isFloat({ min: 0 }),
+  body('payment_due_date').optional().isInt({ min: 1, max: 28 }),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -124,6 +125,7 @@ router.post(
         location_id,
         other_role_title,
         hire_date,
+        payment_due_date,
       } = req.body;
 
       if (national_id) {
@@ -133,8 +135,8 @@ router.post(
 
       const inserted = await query(
         `INSERT INTO staff_profiles
-         (full_name, national_id, phone_number, age, monthly_salary, role_preference, job_title, location_id, hire_date, is_active)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,true)
+         (full_name, national_id, phone_number, age, monthly_salary, role_preference, job_title, location_id, hire_date, payment_due_date, is_active)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true)
          RETURNING *`,
         [
           full_name,
@@ -146,6 +148,7 @@ router.post(
           role_preference === 'other' ? (other_role_title || 'Other Staff') : role_preference,
           location_id,
           hire_date || new Date().toISOString().slice(0, 10),
+          payment_due_date || 25,
         ]
       );
 
@@ -227,6 +230,7 @@ router.put('/staff/:id', authenticateToken, authorizeRoles('admin'), async (req,
       other_role_title,
       location_id,
       hire_date,
+      payment_due_date,
     } = req.body;
 
     const updated = await query(
@@ -240,8 +244,9 @@ router.put('/staff/:id', authenticateToken, authorizeRoles('admin'), async (req,
            job_title = COALESCE($7, job_title),
            location_id = COALESCE($8, location_id),
            hire_date = COALESCE($9, hire_date),
+           payment_due_date = COALESCE($10, payment_due_date),
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $10
+       WHERE id = $11
        RETURNING *`,
       [
         full_name || null,
@@ -253,6 +258,7 @@ router.put('/staff/:id', authenticateToken, authorizeRoles('admin'), async (req,
         role_preference === 'other' ? (other_role_title || null) : role_preference || null,
         location_id ?? null,
         hire_date || null,
+        payment_due_date ?? null,
         id,
       ]
     );
@@ -378,6 +384,134 @@ router.get('/staff-expense-summary', authenticateToken, authorizeRoles('admin'),
     });
   } catch (err) {
     console.error('Get staff expense summary error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    await ensureSchemaReady();
+    const locationId = req.query.location_id ? Number(req.query.location_id) : null;
+    
+    let query = `
+      SELECT 
+        sp.id,
+        sp.full_name,
+        sp.phone_number,
+        sp.monthly_salary,
+        sp.role_preference,
+        sp.job_title,
+        sp.location_id,
+        sp.payment_due_date,
+        sp.is_active,
+        sp.hire_date,
+        sp.termination_date,
+        l.name as location_name,
+        u.username as account_username,
+        u.role as account_role
+      FROM staff_profiles sp
+      LEFT JOIN locations l ON l.id = sp.location_id
+      LEFT JOIN users u ON u.id = sp.linked_user_id
+      WHERE sp.is_active = true
+    `;
+    
+    const params = [];
+    if (locationId) {
+      params.push(locationId);
+      query += ` AND sp.location_id = $${params.length}`;
+    }
+    
+    query += ` ORDER BY sp.full_name ASC`;
+    
+    const result = await query(query, params);
+    
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get staff for payments error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/check-salary-due', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    await ensureSchemaReady();
+    
+    const today = new Date();
+    const currentDay = today.getDate();
+    const currentMonth = today.getMonth() + 1;
+    const currentYear = today.getFullYear();
+    
+    const staffDue = await query(`
+      SELECT 
+        sp.id,
+        sp.full_name,
+        sp.monthly_salary,
+        sp.payment_due_date,
+        sp.location_id,
+        l.name as location_name
+      FROM staff_profiles sp
+      LEFT JOIN locations l ON l.id = sp.location_id
+      WHERE sp.is_active = true 
+        AND sp.monthly_salary > 0
+        AND sp.payment_due_date BETWEEN $1 AND $2
+      ORDER BY sp.payment_due_date ASC
+    `, [currentDay, currentDay + 2]);
+    
+    const staffList = staffDue.rows.map(s => ({
+      id: s.id,
+      full_name: s.full_name,
+      monthly_salary: Number(s.monthly_salary || 0),
+      payment_due_date: s.payment_due_date,
+      days_until_due: s.payment_due_date - currentDay,
+      location_name: s.location_name
+    }));
+    
+    const notificationsCreated = [];
+    if (staffList.length > 0) {
+      const admins = await query(`SELECT id FROM users WHERE role = 'admin' AND is_active = true`);
+      
+      for (const admin of admins.rows) {
+        for (const staff of staffList) {
+          const daysText = staff.days_until_due === 0 ? 'today' : 
+                          staff.days_until_due === 1 ? 'tomorrow' : 
+                          `in ${staff.days_until_due} days`;
+          
+          const existingNotif = await query(`
+            SELECT id FROM notifications 
+            WHERE user_id = $1 
+              AND title LIKE '%Salary payment due%'
+              AND message LIKE '%${staff.full_name}%'
+              AND created_at >= CURRENT_DATE
+            LIMIT 1
+          `, [admin.id]);
+          
+          if (existingNotif.rows.length === 0) {
+            await query(`
+              INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+              VALUES ($1, $2, $3, $4, $5)
+            `, [
+              admin.id,
+              staff.location_id,
+              `💰 Salary payment due ${daysText}`,
+              `Staff member ${staff.full_name} (${staff.job_title || staff.role_preference}) salary of $${staff.monthly_salary.toFixed(2)} is due ${daysText}. Location: ${staff.location_name || 'N/A'}`,
+              'salary_due'
+            ]);
+            notificationsCreated.push(staff.full_name);
+          }
+        }
+      }
+    }
+    
+    res.json({
+      checked: true,
+      staff_due: staffList,
+      notifications_sent: notificationsCreated.length,
+      message: notificationsCreated.length > 0 
+        ? `Created notifications for ${notificationsCreated.length} staff members`
+        : 'No salary payments due within 2 days'
+    });
+  } catch (err) {
+    console.error('Check salary due error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

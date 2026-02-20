@@ -4,7 +4,7 @@ import { useBranch } from '../../context/BranchContext';
 import { Plus, Edit, Trash2, DollarSign, Calendar, User, X } from 'lucide-react';
 
 const initialForm = {
-  user_id: '',
+  staff_profile_id: '',
   location_id: '',
   amount: '',
   payment_date: new Date().toISOString().split('T')[0],
@@ -33,12 +33,12 @@ export default function StaffPaymentsPage() {
       const [paymentsRes, locationsRes, staffRes] = await Promise.all([
         api.get('/payments'),
         api.get('/locations'),
-        api.get('/admin/users'),
+        api.get('/admin/staff-for-payments'),
       ]);
 
       setPayments(paymentsRes.data || []);
       setLocations(locationsRes.data || []);
-      setStaffMembers((staffRes.data || []).filter((user) => user.is_active));
+      setStaffMembers((staffRes.data || []).filter((staff) => staff.is_active));
     } catch (err) {
       console.error('Failed to fetch data:', err);
       setFeedback({ type: 'danger', message: err.response?.data?.error || 'Failed to load payments data.' });
@@ -47,16 +47,23 @@ export default function StaffPaymentsPage() {
     }
   };
 
-  const openCreateModal = () => {
-    setEditingPayment(null);
-    setFormData(initialForm);
-    setShowForm(true);
+  const handleStaffSelect = (staffId) => {
+    const selected = staffMembers.find(s => Number(s.id) === Number(staffId));
+    if (selected) {
+      setFormData(prev => ({
+        ...prev,
+        staff_profile_id: staffId,
+        amount: selected.monthly_salary ? String(selected.monthly_salary) : prev.amount,
+        location_id: selected.location_id ? String(selected.location_id) : prev.location_id,
+      }));
+    }
   };
 
   const openEditModal = (payment) => {
     setEditingPayment(payment);
     setFormData({
-      user_id: String(payment.user_id),
+      staff_profile_id: payment.staff_profile_id ? String(payment.staff_profile_id) : '',
+      user_id: payment.user_id ? String(payment.user_id) : '',
       location_id: payment.location_id ? String(payment.location_id) : '',
       amount: String(payment.amount),
       payment_date: payment.payment_date,
@@ -70,10 +77,13 @@ export default function StaffPaymentsPage() {
     e.preventDefault();
 
     const payload = {
-      ...formData,
-      user_id: Number(formData.user_id),
+      staff_profile_id: formData.staff_profile_id ? Number(formData.staff_profile_id) : undefined,
+      user_id: formData.user_id ? Number(formData.user_id) : undefined,
       location_id: formData.location_id ? Number(formData.location_id) : undefined,
       amount: Number(formData.amount),
+      payment_date: formData.payment_date,
+      payment_type: formData.payment_type,
+      notes: formData.notes,
     };
 
     try {
@@ -244,16 +254,21 @@ export default function StaffPaymentsPage() {
                 <select
                   className="form-select"
                   value={formData.user_id}
-                  onChange={(e) => setFormData({ ...formData, user_id: e.target.value })}
+                  onChange={(e) => handleStaffSelect(e.target.value)}
                   required
                 >
                   <option value="">Select staff member</option>
                   {staffMembers.map((staff) => (
                     <option key={staff.id} value={staff.id}>
-                      {staff.username} ({staff.role})
+                      {staff.full_name} ({staff.job_title || staff.role_preference}) - Due: {staff.payment_due_date || 25}th
                     </option>
                   ))}
                 </select>
+                {formData.user_id && (
+                  <small className="text-muted">
+                    Monthly Salary: ${Number(staffMembers.find(s => s.id === Number(formData.user_id))?.monthly_salary || 0).toFixed(2)}
+                  </small>
+                )}
               </div>
 
               <div className="mb-3">

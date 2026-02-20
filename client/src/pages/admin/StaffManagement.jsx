@@ -11,6 +11,7 @@ const emptyStaff = {
   role_preference: 'cashier',
   other_role_title: '',
   location_id: '',
+  payment_due_date: '25',
 };
 
 export default function StaffManagement() {
@@ -59,6 +60,7 @@ export default function StaffManagement() {
         location_id: Number(staffForm.location_id),
         age: staffForm.age ? Number(staffForm.age) : undefined,
         monthly_salary: staffForm.monthly_salary ? Number(staffForm.monthly_salary) : 0,
+        payment_due_date: staffForm.payment_due_date ? Number(staffForm.payment_due_date) : 25,
       });
       setFeedback({ type: 'success', message: 'Staff profile created.' });
       setStaffForm({ ...emptyStaff, location_id: staffForm.location_id });
@@ -151,6 +153,7 @@ export default function StaffManagement() {
           <div className="row g-2">
             <div className="col-md-4 mb-3"><label className="form-label">Role</label><select className="form-select" value={staffForm.role_preference} onChange={(e)=>setStaffForm((p)=>({...p,role_preference:e.target.value}))}><option value="cashier">Cashier</option><option value="manager">Ground Manager</option><option value="other">Other</option></select></div>
             <div className="col-md-4 mb-3"><label className="form-label">Branch</label><select className="form-select" required value={staffForm.location_id} onChange={(e)=>setStaffForm((p)=>({...p,location_id:e.target.value}))}><option value="">Select branch</option>{locations.map((location)=><option key={location.id} value={location.id}>{location.name}</option>)}</select></div>
+            <div className="col-md-4 mb-3"><label className="form-label">Salary Due Day (1-28)</label><input type="number" min="1" max="28" className="form-control" value={staffForm.payment_due_date} onChange={(e)=>setStaffForm((p)=>({...p,payment_due_date:e.target.value}))} placeholder="25" /><small className="text-muted">Day of month to pay salary</small></div>
             {staffForm.role_preference === 'other' && <div className="col-md-4 mb-3"><label className="form-label">Other Role Title</label><input className="form-control" required value={staffForm.other_role_title} onChange={(e)=>setStaffForm((p)=>({...p,other_role_title:e.target.value}))} /></div>}
           </div>
           <button className="btn btn-success" disabled={saving}><UserPlus size={16} /> {saving ? 'Saving...' : 'Save Staff Profile'}</button>

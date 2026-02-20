@@ -160,13 +160,14 @@ export default function CashierHistory() {
                   <th>Amount</th>
                   <th>Payment</th>
                   <th>Status</th>
+                  <th>Sync</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredSales.length === 0 ? (
                   <tr>
-                    <td colSpan="6" className="text-center text-muted py-4">
+                    <td colSpan="7" className="text-center text-muted py-4">
                       No sales found
                     </td>
                   </tr>
@@ -207,6 +208,13 @@ export default function CashierHistory() {
                         )}
                         {!canVoidSale(sale) && sale.status !== 'voided' && (
                           <span className="badge badge-success">Completed</span>
+                        )}
+                      </td>
+                      <td>
+                        {sale.is_offline ? (
+                          <span className="badge badge-warning">Offline</span>
+                        ) : (
+                          <span className="badge badge-success">Online</span>
                         )}
                       </td>
                       <td>

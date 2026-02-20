@@ -23,6 +23,8 @@ router.post(
     const { items, payment_method, cashier_timing_ms } = req.body;
     const cashierId = req.user.id;
     const idempotencyKey = req.headers['x-idempotency-key'];
+    const isOfflineQueued = req.headers['x-queued-request'] === 'true' || 
+                           req.headers['x-retry-count'] !== undefined;
 
     try {
       const locationId = await getTargetLocationId(req, query);
@@ -65,10 +67,10 @@ router.post(
 
         const receiptNumber = `RCP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
         const saleResult = await tx.query(
-          `INSERT INTO sales (location_id, cashier_id, total_amount, payment_method, receipt_number)
-           VALUES ($1, $2, $3, $4, $5)
+          `INSERT INTO sales (location_id, cashier_id, total_amount, payment_method, receipt_number, is_offline)
+           VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING *`,
-          [locationId, cashierId, totalAmount, payment_method || 'cash', receiptNumber]
+          [locationId, cashierId, totalAmount, payment_method || 'cash', receiptNumber, isOfflineQueued]
         );
 
         const createdSale = saleResult.rows[0];

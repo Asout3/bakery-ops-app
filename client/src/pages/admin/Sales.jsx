@@ -130,6 +130,7 @@ export default function SalesPage() {
                   <th>Date</th>
                   <th>Amount</th>
                   <th>Payment Method</th>
+                  <th>Status</th>
                   <th>Location</th>
                   <th>Cashier</th>
                   <th>Actions</th>
@@ -145,6 +146,13 @@ export default function SalesPage() {
                       <span className={`badge ${sale.payment_method === 'cash' ? 'badge-success' : sale.payment_method === 'card' ? 'badge-primary' : 'badge-info'}`}>
                         {sale.payment_method}
                       </span>
+                    </td>
+                    <td>
+                      {sale.is_offline ? (
+                        <span className="badge badge-warning">Offline</span>
+                      ) : (
+                        <span className="badge badge-success">Online</span>
+                      )}
                     </td>
                     <td>{sale.location_id}</td>
                     <td>{sale.cashier_id}</td>

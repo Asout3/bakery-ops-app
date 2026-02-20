@@ -168,6 +168,7 @@ erDiagram
         string payment_method
         string receipt_number
         string status
+        boolean is_offline
         timestamp sale_date
     }
     
@@ -178,7 +179,18 @@ erDiagram
         decimal monthly_salary
         int location_id FK
         int linked_user_id FK
+        int payment_due_date
         boolean is_active
+    }
+    
+    staff_payments {
+        int id PK
+        int user_id FK
+        int staff_profile_id FK
+        int location_id FK
+        decimal amount
+        date payment_date
+        string payment_type
     }
 ```
 
