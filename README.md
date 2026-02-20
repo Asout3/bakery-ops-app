@@ -1,41 +1,111 @@
-# Bakery Operations Web App
+# Bakery Operations Platform
 
-Role-based bakery operations platform with branch-aware workflows, offline-safe sales sync, and production security controls.
+A production-oriented, role-based bakery management system with multi-branch operations, offline-safe sales replay, idempotent write protection, and hardened API/DB resilience.
 
-## System Architecture
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Core Reliability Design](#core-reliability-design)
+- [Security Controls](#security-controls)
+- [Project Structure](#project-structure)
+- [Environment Configuration](#environment-configuration)
+- [Development Workflow](#development-workflow)
+- [Testing and Quality Gates](#testing-and-quality-gates)
+- [Deployment Checklist](#deployment-checklist)
+
+## Overview
+
+The platform is designed for real bakery operations where intermittent connectivity and high checkout concurrency are normal. The current architecture emphasizes:
+
+- predictable sales processing under unstable networks,
+- replay-safe offline synchronization,
+- transaction-safe backend operations,
+- standardized API error responses with request tracing.
+
+## Architecture
+
+### High-Level System Diagram
 
 ```mermaid
 flowchart TB
   subgraph Frontend[Client - React + Vite]
-    UI[Role UI]
-    AX[Axios Client]
-    SYNC[Offline Sync Hook]
-    Q[IndexedDB Queue]
+    UI[Role-Based UI]
+    AX[Axios API Client]
+    SYNC[useOfflineSync Hook]
+    QUEUE[IndexedDB Offline Queue]
   end
 
   subgraph Backend[API - Express]
-    MW[Security/Auth Middleware]
-    RT[Route Handlers]
-    SV[Service Layer]
-    RP[Repository Layer]
-    EH[Central Error Handler]
+    SEC[Security Middleware]
+    CTX[Request Context Middleware]
+    ROUTES[Routes]
+    SERVICES[Service Layer]
+    REPOS[Repository Layer]
+    ERR[Central Error Handler]
   end
 
-  subgraph DB[PostgreSQL]
-    CORE[(users, staff_profiles, sales, inventory)]
+  subgraph Data[PostgreSQL]
+    CORE[(Operational Tables)]
     IDEM[(idempotency_keys)]
-    AUDIT[(activity_log, notifications, kpi_events)]
+    AUDIT[(activity_log + notifications + kpi_events)]
   end
 
-  UI --> AX --> MW --> RT --> SV --> RP --> DB
-  AX --> EH
-  UI --> SYNC --> Q --> AX
-  RP --> CORE
-  RP --> IDEM
-  RP --> AUDIT
+  UI --> AX --> SEC --> CTX --> ROUTES --> SERVICES --> REPOS --> Data
+  UI --> SYNC --> QUEUE --> AX
+  ROUTES --> ERR
+  REPOS --> CORE
+  REPOS --> IDEM
+  REPOS --> AUDIT
 ```
 
-## Offline and Idempotency Flow
+### Backend Layering
+
+- `server/routes/`: HTTP transport concerns (validation, request/response mapping).
+- `server/services/`: business rules and workflow orchestration.
+- `server/repositories/`: SQL and persistence concerns.
+- `server/middleware/`: authentication, authorization, security, request context.
+- `server/utils/errors.js`: normalized API errors in the format:
+
+```json
+{
+  "error": "Human-readable error message",
+  "code": "ERROR_CODE",
+  "requestId": "req-timestamp"
+}
+```
+
+## Core Reliability Design
+
+This section documents the reliability hardening added specifically to prevent the previously observed offline-sync failure patterns.
+
+### 1) Offline Replay Safety
+
+- Sales requests use `X-Idempotency-Key` to prevent duplicate writes.
+- Offline operations are persisted in IndexedDB and replayed with the same idempotency identity.
+- Queue flushes are guarded against overlap (`flushInProgress`) to prevent concurrent duplicate replay loops.
+- Batches are capped (`MAX_BATCH_PER_FLUSH`) so one flush cycle does not overload a degraded backend.
+- Adaptive request timeouts reduce false failures on slow connections.
+
+### 2) Retry-Storm Prevention During Outages
+
+- During queue replay, if an operation fails with server-unavailable characteristics (network failure / 5xx / 429), the queue pauses the remainder of the current batch.
+- This reduces pressure on the API/DB during incidents and allows controlled retries on subsequent sync cycles.
+
+### 3) Transaction and Connection Resilience
+
+- Database transient failures are detected and classified (timeouts, terminated connections, connection transport errors).
+- Transient DB failures are surfaced as `503` with a stable code (`DB_UNAVAILABLE`) for predictable client handling.
+- Transaction rollback paths are guarded so broken sockets do not cascade into process-level instability.
+- Broken clients are not reused in the pool (`release(true)` behavior).
+
+### 4) Process Stability and Observability
+
+- Request context middleware attaches a request ID for traceability.
+- Centralized error handler standardizes API failure responses.
+- Global process handlers avoid terminating the API process for recognized transient DB connectivity failures.
+
+### 5) Idempotent Sales Flow
 
 ```mermaid
 sequenceDiagram
@@ -45,47 +115,53 @@ sequenceDiagram
   participant API
   participant DB
 
-  Cashier->>Client: Checkout
+  Cashier->>Client: Submit checkout
   Client->>API: POST /api/sales + X-Idempotency-Key
-  alt network fails
-    Client->>Queue: store op with same key
-    Queue->>API: replay with same key
+  alt Request fails (offline or transient backend issue)
+    Client->>Queue: Persist operation + payload
+    Queue->>API: Replay later with same idempotency key
   end
-  API->>DB: advisory lock on user+key
-  API->>DB: check/insert idempotency_keys
-  API-->>Client: single sale response
+  API->>DB: Acquire advisory lock on user+key
+  API->>DB: Check/insert idempotency_keys
+  API-->>Client: Deterministic single-sale outcome
 ```
 
-## Backend Layering
+## Security Controls
 
-- `server/routes/` handles HTTP transport + validation only.
-- `server/services/` contains business lifecycle logic.
-- `server/repositories/` owns SQL and transaction persistence.
-- `server/middleware/` enforces auth/security/request context.
-- `server/utils/errors.js` standardizes `{ error, code, requestId }` responses.
+- Helmet hardening enabled (with stricter policies in production).
+- CORS policy controlled by `ALLOWED_ORIGINS`.
+- API rate limiting for auth and general endpoints.
+- JWT-based authentication with startup validation for secret strength.
+- Parameterized SQL queries across persistence layer.
+- Role-based authorization for protected routes.
 
-## Security Posture
+## Project Structure
 
-- Helmet hardening, CORS allowlist, and rate limiting.
-- JWT secret strength enforced at startup.
-- Request correlation ID attached per request.
-- SQL uses parameterized queries.
-- Idempotency for retry-safe writes.
+```text
+client/          React + Vite frontend
+server/          Express backend
+  routes/        API route handlers
+  middleware/    auth/security/validation/request context
+  services/      business logic orchestration
+  repositories/  persistence layer
+  utils/         shared helpers and error handling
+database/        PostgreSQL schema and migrations
+scripts/         setup and utility scripts
+```
 
+## Environment Configuration
 
-## DB Resilience Behavior
+Required values (see `.env.example`):
 
-- Transient PostgreSQL failures (connection timeout/termination) are classified as `DB_UNAVAILABLE` and surfaced as `503` responses.
-- Transaction rollback failures on broken DB sockets no longer crash request handling.
-- Process-level fatal handlers ignore transient DB connectivity errors so temporary DB drops do not kill the API process.
-- Offline sales queue keeps retrying failed writes when connectivity returns.
+```env
+PORT=5000
+NODE_ENV=production
+JWT_SECRET=<min-32-chars>
+DATABASE_URL=<postgresql-connection-string>
+ALLOWED_ORIGINS=https://yourdomain.com
+```
 
-## Database and Migrations
-
-Schema evolution should be handled by SQL migrations under `database/migrations/`.
-Runtime route handlers do not perform schema migration tasks.
-
-## Run
+## Development Workflow
 
 ```bash
 npm install
@@ -94,7 +170,16 @@ npm run setup-db
 npm run dev
 ```
 
-## Quality Gates
+Useful commands:
+
+```bash
+npm run server      # backend only
+npm run client      # frontend only
+npm run build       # production client build
+npm start           # production server start
+```
+
+## Testing and Quality Gates
 
 ```bash
 npm test
@@ -102,11 +187,11 @@ npm run lint
 npm run build
 ```
 
-## Production Checklist
+## Deployment Checklist
 
 - Set `NODE_ENV=production`
 - Set strong `JWT_SECRET` (32+ chars)
 - Set `DATABASE_URL` with SSL policy
 - Configure `ALLOWED_ORIGINS`
-- Apply migrations before deploy
-- Verify `/api/health`, `/api/ready`, `/api/live`
+- Apply database migrations before startup
+- Verify health probes: `/api/health`, `/api/ready`, `/api/live`
