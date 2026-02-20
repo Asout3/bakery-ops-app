@@ -5,6 +5,8 @@ import dotenv from 'dotenv';
 import helmet from 'helmet';
 import pool from './db.js';
 import { apiLimiter, validateEnvironment, getCorsOptions } from './middleware/security.js';
+import { attachRequestContext } from './middleware/requestContext.js';
+import { errorHandler } from './utils/errors.js';
 
 import authRoutes from './routes/auth.js';
 import productsRoutes from './routes/products.js';
@@ -27,6 +29,7 @@ const PORT = process.env.PORT || 5000;
 const isProduction = process.env.NODE_ENV === 'production';
 
 app.set('trust proxy', isProduction ? 1 : 0);
+app.use(attachRequestContext);
 
 app.use(helmet({
   contentSecurityPolicy: isProduction ? {
@@ -128,58 +131,14 @@ app.use('/api/activity', activityRoutes);
 app.use('/api/locations', locationsRoutes);
 app.use('/api/admin', adminRoutes);
 
-app.use((err, req, res, next) => {
-  const requestId = req.headers['x-request-id'] || `req-${Date.now()}`;
-  const statusCode = err.status || err.statusCode || 500;
-  
-  if (statusCode >= 500) {
-    console.error(`[${requestId}] Server error:`, {
-      message: err.message,
-      stack: isProduction ? undefined : err.stack,
-      path: req.path,
-      method: req.method,
-      body: isProduction ? undefined : req.body,
-    });
-  }
-  
-  if (err.name === 'UnauthorizedError' || err.code === 'invalid_token') {
-    return res.status(401).json({
-      error: 'Invalid or expired token',
-      code: 'AUTH_INVALID_TOKEN',
-      requestId
-    });
-  }
-  
-  if (err.name === 'SyntaxError' && err.status === 400 && 'body' in err) {
-    return res.status(400).json({
-      error: 'Invalid JSON payload',
-      code: 'INVALID_JSON',
-      requestId
-    });
-  }
-  
-  if (err.message === 'Not allowed by CORS') {
-    return res.status(403).json({
-      error: 'Origin not allowed',
-      code: 'CORS_DENIED',
-      requestId
-    });
-  }
-  
-  res.status(statusCode).json({
-    error: isProduction && statusCode === 500 ? 'Internal server error' : err.message,
-    code: err.code || 'SERVER_ERROR',
-    requestId,
-    ...(isProduction ? {} : { stack: err.stack })
-  });
-});
+app.use(errorHandler);
 
 app.use((req, res) => {
   res.status(404).json({
     error: 'Not found',
     code: 'NOT_FOUND',
     path: req.path,
-    requestId: req.headers['x-request-id'] || `req-${Date.now()}`
+    requestId: req.requestId || req.headers['x-request-id'] || `req-${Date.now()}`
   });
 });
 

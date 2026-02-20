@@ -6,6 +6,7 @@ const PAYLOAD_STORE = 'payloads';
 
 const MAX_RETRIES = 5;
 const BASE_RETRY_DELAY_MS = 1000;
+const MAX_BATCH_PER_FLUSH = 20;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -89,6 +90,15 @@ function calculateNextRetry(retries) {
   return Date.now() + delay + jitter;
 }
 
+
+function getRequestTimeout(retries) {
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const quality = connection?.effectiveType || 'unknown';
+  if (quality === 'slow-2g' || quality === '2g') return 25000;
+  if (retries >= 3) return 20000;
+  return 15000;
+}
+
 export async function enqueueOperation(operation) {
   const db = await openDb();
   const id = operation.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -168,7 +178,10 @@ export async function flushQueue(api) {
   if (!queue.length) return { synced: 0, failed: 0, pending: 0 };
 
   const now = Date.now();
-  const readyToSync = queue.filter(op => op.nextRetry <= now && op.status !== 'conflict');
+  const readyToSync = queue
+    .filter(op => op.nextRetry <= now && op.status !== 'conflict')
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    .slice(0, MAX_BATCH_PER_FLUSH);
   
   if (!readyToSync.length) return { synced: 0, failed: 0, pending: queue.length };
 
@@ -189,7 +202,7 @@ export async function flushQueue(api) {
           'X-Queued-Request': 'true',
           'X-Retry-Count': String(op.retries || 0),
         },
-        timeout: 15000,
+        timeout: getRequestTimeout(op.retries || 0),
       });
 
       const db = await openDb();

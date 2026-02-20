@@ -51,7 +51,7 @@ export const asyncHandler = (fn) => (req, res, next) => {
 };
 
 export const errorHandler = (err, req, res, next) => {
-  const requestId = req.headers['x-request-id'] || `req-${Date.now()}`;
+  const requestId = req.requestId || req.headers['x-request-id'] || `req-${Date.now()}`;
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (err instanceof AppError) {
@@ -88,6 +88,14 @@ export const errorHandler = (err, req, res, next) => {
     });
   }
 
+
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({
+      error: 'Origin not allowed',
+      code: 'CORS_DENIED',
+      requestId,
+    });
+  }
   if (err.code === '23503') {
     return res.status(400).json({
       error: 'Referenced resource not found',
