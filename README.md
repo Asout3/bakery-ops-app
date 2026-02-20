@@ -1,146 +1,87 @@
 # Bakery Operations Web App
 
-Production-focused, role-based bakery management platform with multi-branch operations, offline-safe writes, and inventory/sales/finance reporting.
+Role-based bakery operations platform with branch-aware workflows, offline-safe sales sync, and production security controls.
 
-## Core Capabilities
-
-- Role-based access for admin, manager, cashier
-- Branch-aware operations using `X-Location-Id`
-- Idempotent writes for retry-safe operations using `X-Idempotency-Key`
-- Offline queue with retry, conflict marking, and sync history
-- Sales with inventory deduction, void flow, and movement ledger
-- Expenses, staff payments, and branch reports
-- Security middleware (Helmet, CORS policy, rate limiting, JWT)
-
-## Architecture
+## System Architecture
 
 ```mermaid
-flowchart LR
-    subgraph Client[React + Vite Client]
-      UI[Role-based UI]
-      AX[Axios API Client]
-      OQ[IndexedDB Offline Queue]
-      SY[Sync Hook]
-    end
+flowchart TB
+  subgraph Frontend[Client - React + Vite]
+    UI[Role UI]
+    AX[Axios Client]
+    SYNC[Offline Sync Hook]
+    Q[IndexedDB Queue]
+  end
 
-    subgraph API[Express API]
-      MW[Security + Auth Middleware]
-      RT[Route Handlers]
-      EH[Central Error Handler]
-    end
+  subgraph Backend[API - Express]
+    MW[Security/Auth Middleware]
+    RT[Route Handlers]
+    SV[Service Layer]
+    RP[Repository Layer]
+    EH[Central Error Handler]
+  end
 
-    subgraph Data[PostgreSQL]
-      S1[(Operational Tables)]
-      S2[(Idempotency Keys)]
-      S3[(Inventory Movements)]
-      S4[(KPI Events)]
-    end
+  subgraph DB[PostgreSQL]
+    CORE[(users, staff_profiles, sales, inventory)]
+    IDEM[(idempotency_keys)]
+    AUDIT[(activity_log, notifications, kpi_events)]
+  end
 
-    UI --> AX
-    AX --> RT
-    UI --> SY
-    SY --> OQ
-    SY --> AX
-
-    RT --> MW
-    RT --> EH
-    RT --> S1
-    RT --> S2
-    RT --> S3
-    RT --> S4
+  UI --> AX --> MW --> RT --> SV --> RP --> DB
+  AX --> EH
+  UI --> SYNC --> Q --> AX
+  RP --> CORE
+  RP --> IDEM
+  RP --> AUDIT
 ```
 
-## Offline Sync Flow
+## Offline and Idempotency Flow
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant Client
-    participant Queue as IndexedDB Queue
-    participant API as Express API
-    participant DB as PostgreSQL
+  participant Cashier
+  participant Client
+  participant Queue
+  participant API
+  participant DB
 
-    User->>Client: Create sale while online
-    Client->>API: POST /api/sales + X-Idempotency-Key
-    API->>DB: Validate + transaction
-    API->>DB: Store idempotency response
-    API-->>Client: Success
-
-    User->>Client: Create sale while offline
-    Client->>Queue: Enqueue operation + payload
-    Client-->>User: Queued
-
-    Client->>Client: Connectivity restored
-    Client->>Queue: Read ready operations
-    loop each queued op
-      Client->>API: Retry with same idempotency key
-      API->>DB: Replay-safe write
-      API-->>Client: Success or conflict
-      Client->>Queue: Remove success / mark conflict
-    end
+  Cashier->>Client: Checkout
+  Client->>API: POST /api/sales + X-Idempotency-Key
+  alt network fails
+    Client->>Queue: store op with same key
+    Queue->>API: replay with same key
+  end
+  API->>DB: advisory lock on user+key
+  API->>DB: check/insert idempotency_keys
+  API-->>Client: single sale response
 ```
 
-## Backend Structure
+## Backend Layering
 
-```text
-server/
-  index.js                    # app bootstrap, middleware, routes, lifecycle
-  db.js                       # pool, query helper, transaction helper
-  middleware/
-    auth.js                   # JWT auth + role authorization
-    security.js               # rate limiting, env validation, CORS
-    requestContext.js         # requestId injection
-  routes/                     # domain endpoints
-  utils/
-    errors.js                 # AppError classes, asyncHandler, central error handler
-    location.js               # branch access resolver
-```
+- `server/routes/` handles HTTP transport + validation only.
+- `server/services/` contains business lifecycle logic.
+- `server/repositories/` owns SQL and transaction persistence.
+- `server/middleware/` enforces auth/security/request context.
+- `server/utils/errors.js` standardizes `{ error, code, requestId }` responses.
 
-## Frontend Structure
+## Security Posture
 
-```text
-client/src/
-  api/axios.js                # API client + auth/location headers
-  hooks/useOfflineSync.js     # sync loop + online/offline reaction
-  utils/offlineQueue.js       # IndexedDB queue, retries, history, conflicts
-  context/                    # auth, language, branch state
-  pages/                      # role pages
-  components/                 # shared UI
-```
+- Helmet hardening, CORS allowlist, and rate limiting.
+- JWT secret strength enforced at startup.
+- Request correlation ID attached per request.
+- SQL uses parameterized queries.
+- Idempotency for retry-safe writes.
 
-## Security Model
+## Database and Migrations
 
-- JWT required for protected routes
-- Password policy enforcement
-- Per-environment rate limits
-- CORS allow-list in production via `ALLOWED_ORIGINS`
-- Helmet hardening and secure defaults
-- Request ID on each API request (`X-Request-Id`) for traceability
-- Consistent API errors with `{ error, code, requestId }`
-
-## Environment Variables
-
-See `.env.example`.
-
-Required in production:
-
-- `NODE_ENV=production`
-- `JWT_SECRET` (32+ chars)
-- `DATABASE_URL`
-- `ALLOWED_ORIGINS`
-
-Optional tuning:
-
-- `DB_MAX_POOL_SIZE`, `DB_MIN_POOL_SIZE`
-- `DB_CONNECTION_TIMEOUT_MS`, `DB_IDLE_TIMEOUT_MS`
-- `SSL_REJECT_UNAUTHORIZED`, `SSL_CA_CERT`
+Schema evolution should be handled by SQL migrations under `database/migrations/`.
+Runtime route handlers do not perform schema migration tasks.
 
 ## Run
 
 ```bash
 npm install
 cd client && npm install && cd ..
-cp .env.example .env
 npm run setup-db
 npm run dev
 ```
@@ -155,10 +96,9 @@ npm run build
 
 ## Production Checklist
 
-- Strong JWT secret configured
-- Production CORS origins set
-- Database SSL policy set
-- Migrations applied
-- Build succeeds
-- Health/readiness probes return OK
-- Logs monitored for sync conflicts, slow queries, and auth/rate-limit events
+- Set `NODE_ENV=production`
+- Set strong `JWT_SECRET` (32+ chars)
+- Set `DATABASE_URL` with SSL policy
+- Configure `ALLOWED_ORIGINS`
+- Apply migrations before deploy
+- Verify `/api/health`, `/api/ready`, `/api/live`

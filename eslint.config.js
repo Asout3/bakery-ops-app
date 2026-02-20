@@ -13,7 +13,9 @@ export default [
       },
     },
     rules: {
-      'no-unused-vars': 'off',
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      'no-shadow': 'warn',
+      eqeqeq: ['warn', 'always'],
     },
   },
 ];
