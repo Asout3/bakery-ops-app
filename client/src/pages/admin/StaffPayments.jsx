@@ -59,6 +59,12 @@ export default function StaffPaymentsPage() {
     }
   };
 
+  const openCreateModal = () => {
+    setEditingPayment(null);
+    setFormData(initialForm);
+    setShowForm(true);
+  };
+
   const openEditModal = (payment) => {
     setEditingPayment(payment);
     setFormData({

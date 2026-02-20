@@ -402,7 +402,7 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
         sp.role_preference,
         sp.job_title,
         sp.location_id,
-        sp.payment_due_date,
+        COALESCE(sp.payment_due_date, 25) as payment_due_date,
         sp.is_active,
         sp.hire_date,
         sp.termination_date,
@@ -428,6 +428,9 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
     res.json(result.rows);
   } catch (err) {
     console.error('Get staff for payments error:', err);
+    if (err.message && err.message.includes('payment_due_date')) {
+      return res.json([]);
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });

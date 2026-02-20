@@ -23,8 +23,7 @@ router.post(
     const { items, payment_method, cashier_timing_ms } = req.body;
     const cashierId = req.user.id;
     const idempotencyKey = req.headers['x-idempotency-key'];
-    const isOfflineQueued = req.headers['x-queued-request'] === 'true' || 
-                           req.headers['x-retry-count'] !== undefined;
+    const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
 
     try {
       const locationId = await getTargetLocationId(req, query);
@@ -36,7 +35,11 @@ router.post(
             [cashierId, idempotencyKey]
           );
           if (existing.rows.length > 0) {
-            return existing.rows[0].response_payload;
+            const existingPayload = existing.rows[0].response_payload;
+            if (typeof existingPayload === 'string') {
+              return JSON.parse(existingPayload);
+            }
+            return existingPayload;
           }
         }
 
@@ -65,12 +68,12 @@ router.post(
           });
         }
 
-        const receiptNumber = `RCP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const receiptNumber = `RCP-${Date.now().toString().slice(-8)}`;
         const saleResult = await tx.query(
           `INSERT INTO sales (location_id, cashier_id, total_amount, payment_method, receipt_number, is_offline)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING *`,
-          [locationId, cashierId, totalAmount, payment_method || 'cash', receiptNumber, isOfflineQueued]
+          [locationId, cashierId, totalAmount, payment_method || 'cash', receiptNumber, isFromOfflineQueue]
         );
 
         const createdSale = saleResult.rows[0];
