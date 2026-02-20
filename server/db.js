@@ -70,20 +70,16 @@ const pool = new Pool({
   allowExitOnIdle: false,
 });
 
-pool.on('connect', (client) => {
-  console.log('[DB] New client connected to pool');
+pool.on('connect', () => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[DB] Client connected');
+  }
 });
 
-pool.on('acquire', (client) => {
-  console.log('[DB] Client acquired from pool');
-});
-
-pool.on('release', (client) => {
-  console.log('[DB] Client released back to pool');
-});
-
-pool.on('remove', (client) => {
-  console.log('[DB] Client removed from pool');
+pool.on('remove', () => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[DB] Client removed from pool');
+  }
 });
 
 pool.on('error', (err, client) => {
