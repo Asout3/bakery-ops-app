@@ -283,8 +283,15 @@ router.delete('/staff/:id', authenticateToken, authorizeRoles('admin'), async (r
       return res.status(400).json({ error: 'Cannot delete staff with active account. Delete account first.' });
     }
 
-    await query('DELETE FROM staff_profiles WHERE id = $1', [id]);
-    res.json({ deleted: true });
+    await query(
+      `UPDATE staff_profiles
+       SET is_active = false,
+           termination_date = COALESCE(termination_date, CURRENT_DATE),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [id]
+    );
+    res.json({ archived: true });
   } catch (err) {
     console.error('Delete staff profile error:', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -568,34 +575,92 @@ router.post(
         }
 
         const resolvedEmail = `${(staff.phone_number || username).replace(/[^0-9+]/g, '') || username}@phone.local`;
-        const exists = await tx.query('SELECT id FROM users WHERE username = $1 OR email = $2', [username, resolvedEmail]);
-        if (exists.rows.length > 0) {
-          const err = new Error('Username or phone already exists');
-          err.status = 409;
-          throw err;
-        }
-
         const password_hash = await bcrypt.hash(password, SALT_ROUNDS);
-        const inserted = await tx.query(
-          `INSERT INTO users
-           (username, email, password_hash, role, location_id, full_name, national_id, phone_number, age, monthly_salary, job_title, hire_date, is_active)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true)
-           RETURNING id, username, email, role, location_id, is_active, created_at, full_name, phone_number, age, monthly_salary, job_title, hire_date`,
-          [
-            username,
-            resolvedEmail,
-            password_hash,
-            role,
-            location_id,
-            staff.full_name,
-            staff.national_id,
-            staff.phone_number,
-            staff.age,
-            staff.monthly_salary,
-            staff.job_title,
-            staff.hire_date || new Date().toISOString().slice(0, 10),
-          ]
+        const existingUserResult = await tx.query(
+          `SELECT id, is_active
+           FROM users
+           WHERE username = $1 OR email = $2
+           LIMIT 1`,
+          [username, resolvedEmail]
         );
+
+        let inserted;
+
+        if (existingUserResult.rows.length > 0) {
+          const existingUser = existingUserResult.rows[0];
+          if (existingUser.is_active) {
+            const err = new Error('Username or phone already exists');
+            err.status = 409;
+            throw err;
+          }
+
+          const linkedProfile = await tx.query(
+            'SELECT id FROM staff_profiles WHERE linked_user_id = $1 AND id <> $2 LIMIT 1',
+            [existingUser.id, staff_profile_id]
+          );
+          if (linkedProfile.rows.length > 0) {
+            const err = new Error('Archived account is linked to another staff profile');
+            err.status = 409;
+            throw err;
+          }
+
+          inserted = await tx.query(
+            `UPDATE users
+             SET username = $1,
+                 email = $2,
+                 password_hash = $3,
+                 role = $4,
+                 location_id = $5,
+                 full_name = $6,
+                 national_id = $7,
+                 phone_number = $8,
+                 age = $9,
+                 monthly_salary = $10,
+                 job_title = $11,
+                 hire_date = $12,
+                 termination_date = NULL,
+                 is_active = true,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $13
+             RETURNING id, username, email, role, location_id, is_active, created_at, full_name, phone_number, age, monthly_salary, job_title, hire_date`,
+            [
+              username,
+              resolvedEmail,
+              password_hash,
+              role,
+              location_id,
+              staff.full_name,
+              staff.national_id,
+              staff.phone_number,
+              staff.age,
+              staff.monthly_salary,
+              staff.job_title,
+              staff.hire_date || new Date().toISOString().slice(0, 10),
+              existingUser.id,
+            ]
+          );
+        } else {
+          inserted = await tx.query(
+            `INSERT INTO users
+             (username, email, password_hash, role, location_id, full_name, national_id, phone_number, age, monthly_salary, job_title, hire_date, is_active)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true)
+             RETURNING id, username, email, role, location_id, is_active, created_at, full_name, phone_number, age, monthly_salary, job_title, hire_date`,
+            [
+              username,
+              resolvedEmail,
+              password_hash,
+              role,
+              location_id,
+              staff.full_name,
+              staff.national_id,
+              staff.phone_number,
+              staff.age,
+              staff.monthly_salary,
+              staff.job_title,
+              staff.hire_date || new Date().toISOString().slice(0, 10),
+            ]
+          );
+        }
 
         await tx.query(
           `INSERT INTO user_locations (user_id, location_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
@@ -684,19 +749,32 @@ router.put('/users/:id', authenticateToken, authorizeRoles('admin'), async (req,
     const { username, password, role, location_id } = req.body;
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id' });
 
-    let passwordClause = '';
-    const params = [username || null, role || null, location_id ?? null, id];
+    let updated;
     if (password) {
       const password_hash = await bcrypt.hash(password, 10);
-      passwordClause = ', password_hash = $5';
-      params.splice(3, 0, password_hash);
+      updated = await query(
+        `UPDATE users
+         SET username = COALESCE($1::text, username),
+             role = COALESCE($2::text, role),
+             location_id = COALESCE($3::int, location_id),
+             password_hash = $4,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $5::int
+         RETURNING id, username, role, location_id, is_active`,
+        [username || null, role || null, location_id ?? null, password_hash, id]
+      );
+    } else {
+      updated = await query(
+        `UPDATE users
+         SET username = COALESCE($1::text, username),
+             role = COALESCE($2::text, role),
+             location_id = COALESCE($3::int, location_id),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $4::int
+         RETURNING id, username, role, location_id, is_active`,
+        [username || null, role || null, location_id ?? null, id]
+      );
     }
-
-    const sql = password
-      ? `UPDATE users SET username = COALESCE($1, username), role = COALESCE($2, role), location_id = COALESCE($3, location_id)${passwordClause}, updated_at = CURRENT_TIMESTAMP WHERE id = $6 RETURNING id, username, role, location_id, is_active`
-      : `UPDATE users SET username = COALESCE($1, username), role = COALESCE($2, role), location_id = COALESCE($3, location_id), updated_at = CURRENT_TIMESTAMP WHERE id = $4 RETURNING id, username, role, location_id, is_active`;
-
-    const updated = await query(sql, params);
     if (!updated.rows.length) return res.status(404).json({ error: 'Account not found' });
     res.json(updated.rows[0]);
   } catch (err) {
@@ -716,7 +794,16 @@ router.delete('/users/:id', authenticateToken, authorizeRoles('admin'), async (r
     if (userRow.rows[0].role === 'admin') return res.status(400).json({ error: 'Cannot delete admin account', code: 'ADMIN_DELETE_FORBIDDEN', requestId: req.requestId });
     if (!userRow.rows[0].is_active) return res.json({ archived: true, already_inactive: true });
 
-    await query('UPDATE users SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
+    await query(
+      `UPDATE users
+       SET is_active = false,
+           username = CONCAT(username, '__archived__', id, '__', EXTRACT(EPOCH FROM NOW())::bigint),
+           email = CONCAT(id, '__archived__', EXTRACT(EPOCH FROM NOW())::bigint, '@archived.local'),
+           termination_date = COALESCE(termination_date, CURRENT_DATE),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [id]
+    );
     await query('UPDATE staff_profiles SET linked_user_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE linked_user_id = $1', [id]);
     await query('DELETE FROM user_locations WHERE user_id = $1', [id]);
 
