@@ -277,6 +277,87 @@ flowchart LR
 
 ---
 
+## Security
+
+This application implements multiple layers of security to protect data and prevent common vulnerabilities.
+
+### Authentication & Authorization
+
+- **JWT-based authentication** with configurable token expiration
+- **Role-based access control (RBAC)** with three roles: Admin, Manager, Cashier
+- **Password hashing** using bcrypt with salt rounds of 12
+- **Password validation** enforcing minimum 8 characters, letters, numbers, and special characters
+
+### Rate Limiting
+
+- **Authentication endpoints**: 10 requests/15min (production), 100 requests/min (development)
+- **General API endpoints**: 100 requests/15min (production), 1000 requests/30s (development)
+- **Strict endpoints**: 5 requests/hour (production), 50 requests/min (development)
+- **Password reset**: 3 requests/hour (production), 20 requests/min (development)
+- IPv6-aware key generation to prevent bypass attempts
+
+### HTTP Security
+
+- **Helmet.js** middleware for security headers:
+  - X-Content-Type-Options: nosniff
+  - X-Frame-Options: DENY
+  - X-XSS-Protection
+  - Strict-Transport-Security (HSTS)
+  - Content-Security-Policy (CSP)
+
+### CORS Configuration
+
+- **Development**: All origins allowed (`origin: true`)
+- **Production**: Strict origin whitelist via `ALLOWED_ORIGINS` environment variable
+- Credentials support enabled
+
+### Database Security
+
+- **Parameterized queries** (using `$1, $2, ...` syntax) to prevent SQL injection
+- **SSL/TLS support** with configurable certificate verification
+- **Connection pooling** with configurable limits
+- **Transaction support** for atomic operations
+
+### Input Validation
+
+- **express-validator** for request validation
+- **Input sanitization** to prevent XSS
+- Strict type checking on all endpoints
+
+### Idempotency
+
+- **X-Idempotency-Key** header support for write operations
+- Prevents duplicate submissions during network retries
+- Essential for offline queue operations
+
+### Graceful Shutdown
+
+- Proper connection draining on server stop
+- Database pool cleanup
+- In-flight request completion
+
+### Environment Validation
+
+```mermaid
+flowchart TD
+    A[Server Start] --> B{NODE_ENV}
+    B -->|production| C[Strict Validation]
+    B -->|development| D[Relaxed Validation]
+    
+    C --> E{JWT_SECRET >= 32?}
+    E -->|No| F[EXIT: Fatal Error]
+    E -->|Yes| G{ALLOWED_ORIGINS set?}
+    G -->|No| H[WARN: CORS restrictive]
+    G -->|Yes| I[Full Security]
+    
+    D --> J[Full Access]
+    J --> I
+    H --> I
+    F --> K[Server Crashes]
+```
+
+---
+
 ## API Endpoints
 
 ### Authentication

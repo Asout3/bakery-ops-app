@@ -48,6 +48,10 @@ export default function StaffManagement() {
 
   const createStaff = async (e) => {
     e.preventDefault();
+    if (!staffForm.location_id) {
+      setFeedback({ type: 'danger', message: 'Please select a branch' });
+      return;
+    }
     setSaving(true);
     try {
       await api.post('/admin/staff', {

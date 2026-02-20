@@ -1,4 +1,5 @@
 import rateLimit from 'express-rate-limit';
+import { ipKeyGenerator } from 'express-rate-limit';
 
 const isDevelopment = process.env.NODE_ENV !== 'production';
 
@@ -13,9 +14,7 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: !isDevelopment,
-  keyGenerator: (req) => {
-    return req.ip || req.connection.remoteAddress || 'unknown';
-  }
+  keyGenerator: ipKeyGenerator
 });
 
 const apiLimiter = rateLimit({
@@ -28,9 +27,7 @@ const apiLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    return req.ip || req.connection.remoteAddress || 'unknown';
-  }
+  keyGenerator: ipKeyGenerator
 });
 
 const strictLimiter = rateLimit({
@@ -43,9 +40,7 @@ const strictLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    return req.ip || req.connection.remoteAddress || 'unknown';
-  }
+  keyGenerator: ipKeyGenerator
 });
 
 const passwordResetLimiter = rateLimit({
@@ -58,9 +53,7 @@ const passwordResetLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    return req.ip || req.connection.remoteAddress || 'unknown';
-  }
+  keyGenerator: ipKeyGenerator
 });
 
 export { authLimiter, apiLimiter, strictLimiter, passwordResetLimiter };

@@ -1,5 +1,6 @@
 -- Migration: 006_performance_indexes.sql
 -- Description: Add indexes to improve query performance
+-- NOTE: Only creates indexes for columns that exist in the schema
 
 -- Indexes for auth and user lookups (common slow queries)
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
@@ -11,7 +12,7 @@ CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active);
 -- Indexes for sales (most common reports)
 CREATE INDEX IF NOT EXISTS idx_sales_location_id ON sales(location_id);
 CREATE INDEX IF NOT EXISTS idx_sales_sale_date ON sales(sale_date);
-CREATE INDEX IF NOT EXISTS idx_sales_location_date ON sales(location_id, sale_date);
+CREATE INDEX IF NOT EXISTS idx_sales_location_date ON sales(location_id, (sale_date::date));
 CREATE INDEX IF NOT EXISTS idx_sales_payment_method ON sales(payment_method);
 
 -- Indexes for sale_items
@@ -40,20 +41,21 @@ CREATE INDEX IF NOT EXISTS idx_kpi_events_metric_key ON kpi_events(metric_key);
 CREATE INDEX IF NOT EXISTS idx_kpi_events_created_at ON kpi_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_kpi_events_location_metric ON kpi_events(location_id, metric_key, created_at);
 
--- Indexes for products
-CREATE INDEX IF NOT EXISTS idx_products_location_id ON products(location_id);
+-- Indexes for products (global catalog - no location_id)
 CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
 
 -- Indexes for inventory
 CREATE INDEX IF NOT EXISTS idx_inventory_location_id ON inventory(location_id);
 CREATE INDEX IF NOT EXISTS idx_inventory_product_id ON inventory(product_id);
-CREATE INDEX IF NOT EXISTS idx_inventory_batch_id ON inventory(batch_id);
 
--- Indexes for notifications
-CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
-CREATE INDEX IF NOT EXISTS idx_notifications_location_id ON notifications(location_id);
-CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
+-- Indexes for locations
+CREATE INDEX IF NOT EXISTS idx_locations_is_active ON locations(is_active);
 
 -- Composite index for user auth (most common lookup)
 CREATE INDEX IF NOT EXISTS idx_users_role_active ON users(role, is_active) WHERE role IN ('admin', 'manager');
+
+-- Index for notifications
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_location_id ON notifications(location_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
