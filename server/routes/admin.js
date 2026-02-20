@@ -1,8 +1,11 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import { body, validationResult } from 'express-validator';
-import { query } from '../db.js';
+import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
+import { validatePassword } from '../middleware/security.js';
+
+const SALT_ROUNDS = 12;
 
 const router = express.Router();
 let schemaReadyPromise;
@@ -383,55 +386,99 @@ router.post(
   '/users',
   authenticateToken,
   authorizeRoles('admin'),
-  body('username').trim().isLength({ min: 3 }),
-  body('password').isLength({ min: 6 }),
-  body('role').isIn(['manager', 'cashier']),
-  body('location_id').isInt({ min: 1 }),
-  body('staff_profile_id').isInt({ min: 1 }),
+  body('username').trim().isLength({ min: 3 }).withMessage('Username must be at least 3 characters'),
+  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
+  body('role').isIn(['manager', 'cashier']).withMessage('Role must be manager or cashier'),
+  body('location_id').isInt({ min: 1 }).withMessage('Valid location is required'),
+  body('staff_profile_id').isInt({ min: 1 }).withMessage('Valid staff profile is required'),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const { username, password, role, location_id, staff_profile_id } = req.body;
 
+    const passwordCheck = validatePassword(password);
+    if (!passwordCheck.valid) {
+      return res.status(400).json({ 
+        error: 'Password does not meet security requirements',
+        code: 'WEAK_PASSWORD',
+        details: passwordCheck.errors 
+      });
+    }
+
     try {
       await ensureSchemaReady();
-      const staffResult = await query('SELECT * FROM staff_profiles WHERE id = $1', [staff_profile_id]);
-      if (!staffResult.rows.length) return res.status(404).json({ error: 'Staff profile not found' });
-      const staff = staffResult.rows[0];
+      
+      const result = await withTransaction(async (tx) => {
+        const staffResult = await tx.query('SELECT * FROM staff_profiles WHERE id = $1 AND is_active = true', [staff_profile_id]);
+        if (!staffResult.rows.length) {
+          const err = new Error('Staff profile not found or inactive');
+          err.status = 404;
+          throw err;
+        }
+        const staff = staffResult.rows[0];
 
-      const resolvedEmail = `${(staff.phone_number || username).replace(/[^0-9+]/g, '') || username}@phone.local`;
-      const exists = await query('SELECT id FROM users WHERE username = $1 OR email = $2', [username, resolvedEmail]);
-      if (exists.rows.length > 0) return res.status(400).json({ error: 'Username or phone already exists' });
+        if (staff.linked_user_id) {
+          const err = new Error('Staff profile already has an account');
+          err.status = 400;
+          throw err;
+        }
 
-      const password_hash = await bcrypt.hash(password, 10);
-      const inserted = await query(
-        `INSERT INTO users
-         (username, email, password_hash, role, location_id, full_name, national_id, phone_number, age, monthly_salary, job_title, hire_date, is_active)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true)
-         RETURNING id, username, email, role, location_id, is_active, created_at, full_name, phone_number, age, monthly_salary, job_title, hire_date`,
-        [
-          username,
-          resolvedEmail,
-          password_hash,
-          role,
-          location_id,
-          staff.full_name,
-          staff.national_id,
-          staff.phone_number,
-          staff.age,
-          staff.monthly_salary,
-          staff.job_title,
-          staff.hire_date || new Date().toISOString().slice(0, 10),
-        ]
-      );
+        if (staff.role_preference === 'other') {
+          const err = new Error('Staff with "other" role typically do not need accounts. Create a manager or cashier staff profile first.');
+          err.status = 400;
+          throw err;
+        }
 
-      await query(`INSERT INTO user_locations (user_id, location_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [inserted.rows[0].id, location_id]);
-      await query(`UPDATE staff_profiles SET linked_user_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [inserted.rows[0].id, staff_profile_id]);
+        const resolvedEmail = `${(staff.phone_number || username).replace(/[^0-9+]/g, '') || username}@phone.local`;
+        const exists = await tx.query('SELECT id FROM users WHERE username = $1 OR email = $2', [username, resolvedEmail]);
+        if (exists.rows.length > 0) {
+          const err = new Error('Username or phone already exists');
+          err.status = 409;
+          throw err;
+        }
 
-      res.status(201).json({ ...inserted.rows[0], staff_profile_id });
+        const password_hash = await bcrypt.hash(password, SALT_ROUNDS);
+        const inserted = await tx.query(
+          `INSERT INTO users
+           (username, email, password_hash, role, location_id, full_name, national_id, phone_number, age, monthly_salary, job_title, hire_date, is_active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true)
+           RETURNING id, username, email, role, location_id, is_active, created_at, full_name, phone_number, age, monthly_salary, job_title, hire_date`,
+          [
+            username,
+            resolvedEmail,
+            password_hash,
+            role,
+            location_id,
+            staff.full_name,
+            staff.national_id,
+            staff.phone_number,
+            staff.age,
+            staff.monthly_salary,
+            staff.job_title,
+            staff.hire_date || new Date().toISOString().slice(0, 10),
+          ]
+        );
+
+        await tx.query(
+          `INSERT INTO user_locations (user_id, location_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [inserted.rows[0].id, location_id]
+        );
+        
+        await tx.query(
+          `UPDATE staff_profiles SET linked_user_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          [inserted.rows[0].id, staff_profile_id]
+        );
+
+        return { user: inserted.rows[0], staff_profile_id };
+      });
+
+      res.status(201).json(result);
     } catch (err) {
       console.error('Create admin user error:', err);
+      if (err.status) {
+        return res.status(err.status).json({ error: err.message });
+      }
       res.status(500).json({ error: 'Internal server error' });
     }
   }

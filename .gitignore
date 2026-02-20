@@ -1,11 +1,72 @@
+# Dependencies
 node_modules/
+client/node_modules/
+package-lock.json
+yarn.lock
+
+# Environment files
 .env
+.env.local
+.env.*.local
+.env.backup
+.env.debug
+!.env.example
+
+# Build outputs
 dist/
 build/
-*.log
-.DS_Store
-client/node_modules/
 client/dist/
 coverage/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+
+# Test/Debug files
+server/*-test.js
+server/debug-*.js
+server/minimal-test.js
+server/comprehensive-test.js
+server/error-analysis.js
+server/pool-test.js
+server/check-*.js
+server/env-test.js
+database-connection-info.json
+
+# Docker
+docker-compose.override.yml
+
+# SSL/Security
+certbot/
+*.pem
+*.key
+*.crt
+
+# Misc
+.cache/
+.temp/
+.tmp/
+*.bak
+*.backup
+
+# Docker volumes (local development)
+postgres_data/

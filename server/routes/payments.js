@@ -1,6 +1,6 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
-import { query } from '../db.js';
+import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
 
@@ -51,9 +51,9 @@ router.get('/', authenticateToken, authorizeRoles('admin'), async (req, res) => 
 router.post('/',
   authenticateToken,
   authorizeRoles('admin'),
-  body('user_id').isInt(),
-  body('amount').isFloat({ min: 0 }),
-  body('payment_date').isDate(),
+  body('user_id').isInt().withMessage('Valid user ID is required'),
+  body('amount').isFloat({ min: 0 }).withMessage('Amount must be a positive number'),
+  body('payment_date').isDate().withMessage('Valid payment date is required'),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -61,29 +61,57 @@ router.post('/',
     }
 
     const { user_id, amount, payment_date, payment_type, notes, location_id } = req.body;
+    const idempotencyKey = req.headers['x-idempotency-key'];
 
     try {
       const locationId = await getTargetLocationId({ headers: req.headers, query: { ...req.query, location_id }, user: req.user }, query);
-      const result = await query(
-        `INSERT INTO staff_payments (user_id, location_id, amount, payment_date, payment_type, notes, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING *`,
-        [user_id, locationId, amount, payment_date, payment_type || 'salary', notes || null, req.user.id]
-      );
+      
+      const result = await withTransaction(async (tx) => {
+        if (idempotencyKey) {
+          const existing = await tx.query(
+            `SELECT response_payload FROM idempotency_keys
+             WHERE user_id = $1 AND idempotency_key = $2`,
+            [req.user.id, idempotencyKey]
+          );
+          if (existing.rows.length > 0) {
+            return existing.rows[0].response_payload;
+          }
+        }
 
-      await query(
-        `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata) 
-         VALUES ($1, $2, $3, $4, $5)`,
-        [
-          req.user.id,
-          locationId,
-          'payment_created',
-          `Staff payment: ${amount} to user ${user_id}`,
-          JSON.stringify({ payment_id: result.rows[0].id, user_id, amount })
-        ]
-      );
+        const paymentResult = await tx.query(
+          `INSERT INTO staff_payments (user_id, location_id, amount, payment_date, payment_type, notes, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING *`,
+          [user_id, locationId, amount, payment_date, payment_type || 'salary', notes || null, req.user.id]
+        );
 
-      res.status(201).json(result.rows[0]);
+        const payment = paymentResult.rows[0];
+
+        await tx.query(
+          `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            req.user.id,
+            locationId,
+            'payment_created',
+            `Staff payment: ${amount} to user ${user_id}`,
+            JSON.stringify({ payment_id: payment.id, user_id, amount })
+          ]
+        );
+
+        if (idempotencyKey) {
+          await tx.query(
+            `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
+            [req.user.id, locationId, idempotencyKey, '/api/payments', JSON.stringify(payment)]
+          );
+        }
+
+        return payment;
+      });
+
+      res.status(201).json(result);
     } catch (err) {
       console.error('Create staff payment error:', err);
       if (err.status) {

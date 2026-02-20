@@ -11,6 +11,11 @@ const emptyAccount = {
   location_id: '',
 };
 
+const ROLE_LABELS = {
+  cashier: 'Cashier',
+  manager: 'Ground Manager',
+};
+
 export default function BranchesAndStaff() {
   const [loading, setLoading] = useState(true);
   const [locations, setLocations] = useState([]);
@@ -45,16 +50,21 @@ export default function BranchesAndStaff() {
     loadData();
   }, []);
 
+  const showFeedback = (type, message) => {
+    setFeedback({ type, message });
+    setTimeout(() => setFeedback(null), 5000);
+  };
+
   const createBranch = async (e) => {
     e.preventDefault();
     setSavingBranch(true);
     try {
       await api.post('/locations', branchForm);
       setBranchForm(emptyBranch);
-      setFeedback({ type: 'success', message: 'Branch created successfully.' });
+      showFeedback('success', 'Branch created successfully.');
       loadData();
     } catch (err) {
-      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not create branch' });
+      showFeedback('danger', err.response?.data?.error || 'Could not create branch');
     } finally {
       setSavingBranch(false);
     }
@@ -65,20 +75,28 @@ export default function BranchesAndStaff() {
     setSavingAccount(true);
     try {
       if (!accountForm.staff_profile_id || !accountForm.location_id || !accountForm.username || !accountForm.password) {
-        setFeedback({ type: 'danger', message: 'Please fill all required account fields.' });
+        showFeedback('danger', 'Please fill all required account fields.');
+        setSavingAccount(false);
         return;
       }
+      
+      if (accountForm.password.length < 8) {
+        showFeedback('danger', 'Password must be at least 8 characters.');
+        setSavingAccount(false);
+        return;
+      }
+      
       await api.post('/admin/users', {
         ...accountForm,
         location_id: Number(accountForm.location_id),
         staff_profile_id: Number(accountForm.staff_profile_id),
       });
-      setFeedback({ type: 'success', message: 'Staff account created successfully.' });
+      showFeedback('success', 'Staff account created successfully.');
       setAccountForm(emptyAccount);
       loadData();
     } catch (err) {
       const validationText = err.response?.data?.errors?.map((x) => x.msg).join(', ');
-      setFeedback({ type: 'danger', message: validationText || err.response?.data?.error || 'Could not create staff account' });
+      showFeedback('danger', validationText || err.response?.data?.error || 'Could not create staff account');
     } finally {
       setSavingAccount(false);
     }
@@ -86,20 +104,28 @@ export default function BranchesAndStaff() {
 
   const onStaffSelect = (staffId) => {
     const selected = staffProfiles.find((s) => Number(s.id) === Number(staffId));
+    if (!selected) return;
+    
+    let defaultRole = 'cashier';
+    if (selected.role_preference === 'manager') {
+      defaultRole = 'manager';
+    }
+    
     setAccountForm((p) => ({
       ...p,
       staff_profile_id: staffId,
-      role: selected?.role_preference === 'manager' ? 'manager' : 'cashier',
-      location_id: selected?.location_id ? String(selected.location_id) : p.location_id,
+      role: defaultRole,
+      location_id: selected.location_id ? String(selected.location_id) : p.location_id,
     }));
   };
 
   const toggleAccountStatus = async (user) => {
     try {
       await api.patch(`/admin/users/${user.id}/status`, { is_active: !user.is_active });
+      showFeedback('success', `Account ${!user.is_active ? 'enabled' : 'disabled'} successfully.`);
       loadData();
     } catch (err) {
-      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not update account status' });
+      showFeedback('danger', err.response?.data?.error || 'Could not update account status');
     }
   };
 
@@ -110,11 +136,11 @@ export default function BranchesAndStaff() {
   const saveBranchEdit = async () => {
     try {
       await api.put(`/locations/${editBranchModel.id}`, editBranchModel);
-      setFeedback({ type: 'success', message: 'Branch updated.' });
+      showFeedback('success', 'Branch updated.');
       setEditBranchModel(null);
       loadData();
     } catch (err) {
-      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not update branch' });
+      showFeedback('danger', err.response?.data?.error || 'Could not update branch');
     }
   };
 
@@ -122,10 +148,10 @@ export default function BranchesAndStaff() {
     if (!window.confirm(`Delete/disable branch "${branch.name}"?`)) return;
     try {
       const res = await api.delete(`/locations/${branch.id}`);
-      setFeedback({ type: 'success', message: res.data?.message || 'Branch removed.' });
+      showFeedback('success', res.data?.message || 'Branch removed.');
       loadData();
     } catch (err) {
-      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not remove branch' });
+      showFeedback('danger', err.response?.data?.error || 'Could not remove branch');
     }
   };
 
@@ -135,28 +161,37 @@ export default function BranchesAndStaff() {
 
   const saveAccountEdit = async () => {
     try {
-      await api.put(`/admin/users/${editAccountModel.id}`, {
+      const payload = {
         username: editAccountModel.username,
         role: editAccountModel.role,
         location_id: Number(editAccountModel.location_id),
-        ...(editAccountModel.password ? { password: editAccountModel.password } : {}),
-      });
-      setFeedback({ type: 'success', message: 'Account updated.' });
+      };
+      
+      if (editAccountModel.password) {
+        if (editAccountModel.password.length < 8) {
+          showFeedback('danger', 'Password must be at least 8 characters.');
+          return;
+        }
+        payload.password = editAccountModel.password;
+      }
+      
+      await api.put(`/admin/users/${editAccountModel.id}`, payload);
+      showFeedback('success', 'Account updated.');
       setEditAccountModel(null);
       loadData();
     } catch (err) {
-      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not update account' });
+      showFeedback('danger', err.response?.data?.error || 'Could not update account');
     }
   };
 
   const deleteAccount = async (user) => {
-    if (!window.confirm(`Delete account ${user.username}?`)) return;
+    if (!window.confirm(`Delete account ${user.username}? This cannot be undone.`)) return;
     try {
       await api.delete(`/admin/users/${user.id}`);
-      setFeedback({ type: 'success', message: 'Account deleted.' });
+      showFeedback('success', 'Account deleted.');
       loadData();
     } catch (err) {
-      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not delete account' });
+      showFeedback('danger', err.response?.data?.error || 'Could not delete account');
     }
   };
 
@@ -170,46 +205,89 @@ export default function BranchesAndStaff() {
       {feedback && <div className={`alert alert-${feedback.type} mb-4`}>{feedback.message}</div>}
 
       <div className="stats-grid mb-4">
-        <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><Building2 size={24} /></div><div className="stat-content"><h3>{locations.length}</h3><p>Active Branches</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><Users size={24} /></div><div className="stat-content"><h3>{accounts.length}</h3><p>Staff Accounts</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><Building2 size={24} /></div><div className="stat-content"><h3>{locations.filter(l => l.is_active).length}</h3><p>Active Branches</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><Users size={24} /></div><div className="stat-content"><h3>{accounts.filter(a => a.is_active).length}</h3><p>Active Accounts</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><UserPlus size={24} /></div><div className="stat-content"><h3>{availableStaff.length}</h3><p>Staff Without Account</p></div></div>
       </div>
 
       <div className="row g-4 mb-4">
         <div className="col-lg-6"><div className="card h-100"><div className="card-header"><h4>Create Branch</h4></div><div className="card-body">
           <form onSubmit={createBranch}>
-            <div className="mb-3"><label className="form-label">Branch Name</label><input className="form-control" required value={branchForm.name} onChange={(e)=>setBranchForm((p)=>({...p,name:e.target.value}))} /></div>
-            <div className="mb-3"><label className="form-label">Address</label><input className="form-control" value={branchForm.address} onChange={(e)=>setBranchForm((p)=>({...p,address:e.target.value}))} /></div>
-            <div className="mb-3"><label className="form-label">Phone</label><input className="form-control" value={branchForm.phone} onChange={(e)=>setBranchForm((p)=>({...p,phone:e.target.value}))} /></div>
+            <div className="mb-3"><label className="form-label">Branch Name *</label><input className="form-control" required value={branchForm.name} onChange={(e)=>setBranchForm((p)=>({...p,name:e.target.value}))} placeholder="Enter branch name" /></div>
+            <div className="mb-3"><label className="form-label">Address</label><input className="form-control" value={branchForm.address} onChange={(e)=>setBranchForm((p)=>({...p,address:e.target.value}))} placeholder="Enter address" /></div>
+            <div className="mb-3"><label className="form-label">Phone</label><input className="form-control" value={branchForm.phone} onChange={(e)=>setBranchForm((p)=>({...p,phone:e.target.value}))} placeholder="Enter phone number" /></div>
             <button className="btn btn-primary" disabled={savingBranch}>{savingBranch ? 'Creating...' : 'Create Branch'}</button>
           </form>
         </div></div></div>
 
         <div className="col-lg-6"><div className="card h-100"><div className="card-header"><h4>Create Staff Account</h4></div><div className="card-body">
+          {availableStaff.length === 0 ? (
+            <div className="alert alert-info">
+              No staff members available for account creation. Add staff profiles first in Staff Management.
+            </div>
+          ) : (
           <form onSubmit={createAccount}>
-            <div className="mb-3"><label className="form-label">Select Staff</label><select className="form-select" required value={accountForm.staff_profile_id} onChange={(e)=>onStaffSelect(e.target.value)}><option value="">Select staff profile</option>{availableStaff.map((s)=><option key={s.id} value={s.id}>{s.full_name} • {s.job_title || s.role_preference}</option>)}</select></div>
-            <div className="row g-2">
-              <div className="col-md-6 mb-3"><label className="form-label">Username</label><input className="form-control" required value={accountForm.username} onChange={(e)=>setAccountForm((p)=>({...p,username:e.target.value}))} /></div>
-              <div className="col-md-6 mb-3"><label className="form-label">Password</label><input type="password" minLength={6} className="form-control" required value={accountForm.password} onChange={(e)=>setAccountForm((p)=>({...p,password:e.target.value}))} /></div>
+            <div className="mb-3">
+              <label className="form-label">Select Staff *</label>
+              <select className="form-select" required value={accountForm.staff_profile_id} onChange={(e)=>onStaffSelect(e.target.value)}>
+                <option value="">Select staff profile</option>
+                {availableStaff.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.full_name} • {s.job_title || s.role_preference} {s.role_preference === 'other' ? '(Non-account staff)' : ''}
+                  </option>
+                ))}
+              </select>
+              <small className="text-muted">Staff with role "other" (bakers, cleaners, etc.) typically don't need accounts</small>
             </div>
             <div className="row g-2">
-              <div className="col-md-6 mb-3"><label className="form-label">Account Role</label><select className="form-select" value={accountForm.role} onChange={(e)=>setAccountForm((p)=>({...p,role:e.target.value}))}><option value="cashier">Cashier</option><option value="manager">Ground Manager</option></select></div>
-              <div className="col-md-6 mb-3"><label className="form-label">Branch</label><select className="form-select" required value={accountForm.location_id} onChange={(e)=>setAccountForm((p)=>({...p,location_id:e.target.value}))}><option value="">Select branch</option>{locations.map((l)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
+              <div className="col-md-6 mb-3"><label className="form-label">Username *</label><input className="form-control" required value={accountForm.username} onChange={(e)=>setAccountForm((p)=>({...p,username:e.target.value}))} placeholder="Login username" /></div>
+              <div className="col-md-6 mb-3"><label className="form-label">Password *</label><input type="password" minLength={8} className="form-control" required value={accountForm.password} onChange={(e)=>setAccountForm((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters" /></div>
             </div>
-            <button className="btn btn-success" disabled={savingAccount || !availableStaff.length}><UserPlus size={16} /> {savingAccount ? 'Creating...' : 'Create Account'}</button>
+            <div className="row g-2">
+              <div className="col-md-6 mb-3"><label className="form-label">Account Role *</label>
+                <select className="form-select" value={accountForm.role} onChange={(e)=>setAccountForm((p)=>({...p,role:e.target.value}))}>
+                  {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-md-6 mb-3"><label className="form-label">Branch *</label><select className="form-select" required value={accountForm.location_id} onChange={(e)=>setAccountForm((p)=>({...p,location_id:e.target.value}))}><option value="">Select branch</option>{locations.filter(l => l.is_active).map((l)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
+            </div>
+            <button className="btn btn-success" disabled={savingAccount}><UserPlus size={16} className="me-1" /> {savingAccount ? 'Creating...' : 'Create Account'}</button>
           </form>
+          )}
         </div></div></div>
       </div>
 
       <div className="card mb-4"><div className="card-header"><h4>Branches</h4></div><div className="card-body table-container">
+        {locations.length === 0 ? (
+          <p className="text-muted">No branches created yet.</p>
+        ) : (
         <table className="table"><thead><tr><th>Name</th><th>Address</th><th>Phone</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {locations.map((b) => <tr key={b.id}><td>{b.name}</td><td>{b.address || '—'}</td><td>{b.phone || '—'}</td><td><span className={`badge ${b.is_active ? 'badge-success':'badge-warning'}`}>{b.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editBranch(b)}>Edit</button><button className="btn btn-sm btn-danger" onClick={()=>deleteBranch(b)}>Delete</button></td></tr>)}
+          {locations.map((b) => <tr key={b.id}><td>{b.name}</td><td>{b.address || '—'}</td><td>{b.phone || '—'}</td><td><span className={`badge ${b.is_active ? 'badge-success':'badge-warning'}`}>{b.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editBranch(b)}>Edit</button><button className="btn btn-sm btn-danger" onClick={()=>deleteBranch(b)}>{b.is_active ? 'Disable' : 'Delete'}</button></td></tr>)}
         </tbody></table>
+        )}
       </div></div>
 
       <div className="card"><div className="card-header"><h4>Account Directory</h4></div><div className="card-body table-container">
+        {accounts.length === 0 ? (
+          <p className="text-muted">No accounts created yet.</p>
+        ) : (
         <table className="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Branch</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {accounts.map((user) => <tr key={user.id}><td>{user.full_name || user.username}</td><td>{user.username}</td><td>{user.job_title || user.role}</td><td>{user.location_name || user.location_id}</td><td><span className={`badge ${user.is_active ? 'badge-success':'badge-warning'}`}>{user.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editAccount(user)}>Edit</button><button className={`btn btn-sm ${user.is_active ? 'btn-danger':'btn-success'}`} onClick={()=>toggleAccountStatus(user)}>{user.is_active ? 'Disable':'Enable'}</button><button className="btn btn-sm btn-danger" onClick={()=>deleteAccount(user)}>Delete</button></td></tr>)}
+          {accounts.map((user) => <tr key={user.id}>
+            <td>{user.full_name || user.username}</td>
+            <td>{user.username}</td>
+            <td><span className={`badge ${user.role === 'manager' ? 'badge-primary' : 'badge-info'}`}>{ROLE_LABELS[user.role] || user.role}</span></td>
+            <td>{user.location_name || '—'}</td>
+            <td><span className={`badge ${user.is_active ? 'badge-success':'badge-warning'}`}>{user.is_active ? 'Active':'Inactive'}</span></td>
+            <td style={{ display:'flex', gap:'0.5rem' }}>
+              <button className="btn btn-sm btn-secondary" onClick={()=>editAccount(user)}>Edit</button>
+              <button className={`btn btn-sm ${user.is_active ? 'btn-warning':'btn-success'}`} onClick={()=>toggleAccountStatus(user)}>{user.is_active ? 'Disable':'Enable'}</button>
+              <button className="btn btn-sm btn-danger" onClick={()=>deleteAccount(user)}>Delete</button>
+            </td>
+          </tr>)}
         </tbody></table>
+        )}
       </div></div>
 
       {editBranchModel && (
@@ -217,10 +295,10 @@ export default function BranchesAndStaff() {
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header"><h3>Edit Branch</h3><button className="close-btn" onClick={() => setEditBranchModel(null)}>×</button></div>
             <div className="modal-body">
-              <div className="mb-3"><label className="form-label">Name</label><input className="form-control" value={editBranchModel.name || ''} onChange={(e)=>setEditBranchModel((p)=>({...p,name:e.target.value}))} /></div>
+              <div className="mb-3"><label className="form-label">Name *</label><input className="form-control" value={editBranchModel.name || ''} onChange={(e)=>setEditBranchModel((p)=>({...p,name:e.target.value}))} /></div>
               <div className="mb-3"><label className="form-label">Address</label><input className="form-control" value={editBranchModel.address || ''} onChange={(e)=>setEditBranchModel((p)=>({...p,address:e.target.value}))} /></div>
               <div className="mb-3"><label className="form-label">Phone</label><input className="form-control" value={editBranchModel.phone || ''} onChange={(e)=>setEditBranchModel((p)=>({...p,phone:e.target.value}))} /></div>
-              <button className="btn btn-primary" onClick={saveBranchEdit}>Save</button>
+              <div className="d-flex gap-2"><button className="btn btn-primary" onClick={saveBranchEdit}>Save</button><button className="btn btn-secondary" onClick={() => setEditBranchModel(null)}>Cancel</button></div>
             </div>
           </div>
         </div>
@@ -229,13 +307,19 @@ export default function BranchesAndStaff() {
       {editAccountModel && (
         <div className="modal-overlay" onClick={() => setEditAccountModel(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><h3>View / Edit Account</h3><button className="close-btn" onClick={() => setEditAccountModel(null)}>×</button></div>
+            <div className="modal-header"><h3>Edit Account</h3><button className="close-btn" onClick={() => setEditAccountModel(null)}>×</button></div>
             <div className="modal-body">
               <div className="mb-3"><label className="form-label">Username</label><input className="form-control" value={editAccountModel.username || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,username:e.target.value}))} /></div>
-              <div className="mb-3"><label className="form-label">Role</label><select className="form-select" value={editAccountModel.role} onChange={(e)=>setEditAccountModel((p)=>({...p,role:e.target.value}))}><option value="cashier">Cashier</option><option value="manager">Ground Manager</option></select></div>
-              <div className="mb-3"><label className="form-label">Branch</label><select className="form-select" value={editAccountModel.location_id || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,location_id:e.target.value}))}>{locations.map((l)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
-              <div className="mb-3"><label className="form-label">New Password (optional)</label><input type="password" className="form-control" value={editAccountModel.password || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,password:e.target.value}))} /></div>
-              <button className="btn btn-primary" onClick={saveAccountEdit}>Save</button>
+              <div className="mb-3"><label className="form-label">Role</label>
+                <select className="form-select" value={editAccountModel.role} onChange={(e)=>setEditAccountModel((p)=>({...p,role:e.target.value}))}>
+                  {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="mb-3"><label className="form-label">Branch</label><select className="form-select" value={editAccountModel.location_id || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,location_id:e.target.value}))}>{locations.filter(l => l.is_active).map((l)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
+              <div className="mb-3"><label className="form-label">New Password (leave blank to keep current)</label><input type="password" className="form-control" value={editAccountModel.password || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters" /></div>
+              <div className="d-flex gap-2"><button className="btn btn-primary" onClick={saveAccountEdit}>Save</button><button className="btn btn-secondary" onClick={() => setEditAccountModel(null)}>Cancel</button></div>
             </div>
           </div>
         </div>

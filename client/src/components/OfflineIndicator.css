@@ -1,0 +1,138 @@
+.offline-indicator {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1000;
+  max-width: 320px;
+  background: var(--success, #28a745);
+  color: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.offline-indicator.offline {
+  background: var(--warning, #ffc107);
+  color: #333;
+}
+
+.offline-indicator.has-conflicts {
+  background: var(--danger, #dc3545);
+  color: white;
+}
+
+.indicator-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.indicator-bar:hover {
+  opacity: 0.9;
+}
+
+.indicator-bar .badge {
+  background: rgba(255, 255, 255, 0.25);
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.indicator-expanded {
+  padding: 16px;
+  background: white;
+  color: #333;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.sync-status {
+  margin-bottom: 12px;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.text-warning {
+  color: var(--warning, #ffc107);
+  font-weight: 600;
+}
+
+.text-danger {
+  color: var(--danger, #dc3545);
+  font-weight: 600;
+}
+
+.conflicts-list {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #eee;
+}
+
+.conflicts-list h4 {
+  font-size: 13px;
+  margin-bottom: 8px;
+  color: #666;
+}
+
+.conflict-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px;
+  background: #f8f9fa;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.conflict-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.conflict-type {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.conflict-error {
+  font-size: 11px;
+  color: #dc3545;
+}
+
+.conflict-time {
+  font-size: 10px;
+  color: #999;
+}
+
+.conflict-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.more-items {
+  font-size: 12px;
+  color: #666;
+  text-align: center;
+  margin: 8px 0 0;
+}

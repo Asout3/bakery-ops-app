@@ -2,8 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import helmet from 'helmet';
+import pool from './db.js';
+import { apiLimiter, validateEnvironment, getCorsOptions } from './middleware/security.js';
 
-// Routes
 import authRoutes from './routes/auth.js';
 import productsRoutes from './routes/products.js';
 import inventoryRoutes from './routes/inventory.js';
@@ -18,20 +20,102 @@ import adminRoutes from './routes/admin.js';
 
 dotenv.config();
 
+validateEnvironment();
+
 const app = express();
 const PORT = process.env.PORT || 5000;
+const isProduction = process.env.NODE_ENV === 'production';
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(morgan('dev'));
+app.set('trust proxy', isProduction ? 1 : 0);
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.use(helmet({
+  contentSecurityPolicy: isProduction ? {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
+  } : false,
+  crossOriginEmbedderPolicy: isProduction,
+  crossOriginOpenerPolicy: isProduction,
+  crossOriginResourcePolicy: { policy: "same-origin" },
+  dnsPrefetchControl: { allow: false },
+  frameguard: { action: 'deny' },
+  hidePoweredBy: true,
+  hsts: isProduction ? {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true,
+  } : false,
+  ieNoOpen: true,
+  noSniff: true,
+  originAgentCluster: true,
+  permittedCrossDomainPolicies: { permittedPolicies: "none" },
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  xssFilter: true,
+}));
+
+app.use(cors(getCorsOptions()));
+
+app.use(express.json({ limit: '10kb' }));
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+if (process.env.NODE_ENV !== 'test') {
+  app.use(morgan(isProduction ? 'combined' : 'dev'));
+}
+
+app.get('/api/health', async (req, res) => {
+  try {
+    const dbStart = Date.now();
+    await pool.query('SELECT 1');
+    const dbLatency = Date.now() - dbStart;
+    
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+      database: {
+        connected: true,
+        latencyMs: dbLatency
+      },
+      version: process.env.npm_package_version || '1.0.0'
+    });
+  } catch (err) {
+    res.status(503).json({
+      status: 'degraded',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+      database: {
+        connected: false,
+        error: 'Database connection failed'
+      }
+    });
+  }
 });
 
-// API Routes
+app.get('/api/ready', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.status(200).json({ ready: true });
+  } catch (err) {
+    res.status(503).json({ ready: false, reason: 'Database not ready' });
+  }
+});
+
+app.get('/api/live', (req, res) => {
+  res.status(200).json({ alive: true });
+});
+
+app.use('/api/', apiLimiter);
+
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/inventory', inventoryRoutes);
@@ -44,20 +128,106 @@ app.use('/api/activity', activityRoutes);
 app.use('/api/locations', locationsRoutes);
 app.use('/api/admin', adminRoutes);
 
-// Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Server error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+  const requestId = req.headers['x-request-id'] || `req-${Date.now()}`;
+  const statusCode = err.status || err.statusCode || 500;
+  
+  if (statusCode >= 500) {
+    console.error(`[${requestId}] Server error:`, {
+      message: err.message,
+      stack: isProduction ? undefined : err.stack,
+      path: req.path,
+      method: req.method,
+      body: isProduction ? undefined : req.body,
+    });
+  }
+  
+  if (err.name === 'UnauthorizedError' || err.code === 'invalid_token') {
+    return res.status(401).json({
+      error: 'Invalid or expired token',
+      code: 'AUTH_INVALID_TOKEN',
+      requestId
+    });
+  }
+  
+  if (err.name === 'SyntaxError' && err.status === 400 && 'body' in err) {
+    return res.status(400).json({
+      error: 'Invalid JSON payload',
+      code: 'INVALID_JSON',
+      requestId
+    });
+  }
+  
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({
+      error: 'Origin not allowed',
+      code: 'CORS_DENIED',
+      requestId
+    });
+  }
+  
+  res.status(statusCode).json({
+    error: isProduction && statusCode === 500 ? 'Internal server error' : err.message,
+    code: err.code || 'SERVER_ERROR',
+    requestId,
+    ...(isProduction ? {} : { stack: err.stack })
+  });
 });
 
-// 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Not found' });
+  res.status(404).json({
+    error: 'Not found',
+    code: 'NOT_FOUND',
+    path: req.path,
+    requestId: req.headers['x-request-id'] || `req-${Date.now()}`
+  });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+const server = app.listen(PORT, () => {
+  console.log(`[INFO] Server running on port ${PORT}`);
+  console.log(`[INFO] Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`[INFO] Process ID: ${process.pid}`);
+});
+
+let isShuttingDown = false;
+
+async function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  
+  console.log(`[INFO] Received ${signal}. Starting graceful shutdown...`);
+  
+  server.close(async () => {
+    console.log('[INFO] HTTP server closed');
+    
+    try {
+      await pool.end();
+      console.log('[INFO] Database pool closed');
+    } catch (err) {
+      console.error('[ERROR] Failed to close database pool:', err.message);
+    }
+    
+    console.log('[INFO] Graceful shutdown complete');
+    process.exit(0);
+  });
+  
+  setTimeout(() => {
+    console.error('[ERROR] Forced shutdown after timeout');
+    process.exit(1);
+  }, 30000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught Exception:', err);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('unhandledRejection');
 });
 
 export default app;

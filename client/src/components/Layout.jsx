@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react';
 import api from '../api/axios';
 import { useBranch } from '../context/BranchContext';
 import { useLanguage } from '../context/LanguageContext';
+import OfflineIndicator from './OfflineIndicator';
 import './Layout.css';
 
 export default function Layout() {
@@ -178,6 +179,8 @@ export default function Layout() {
           onClick={() => setSidebarOpen(false)}
         />
       )}
+      
+      <OfflineIndicator />
     </div>
   );
 }

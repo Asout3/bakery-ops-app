@@ -240,6 +240,133 @@ router.get('/:id', authenticateToken, async (req, res) => {
   }
 });
 
+router.post('/:id/void', authenticateToken, authorizeRoles('admin', 'cashier', 'manager'), async (req, res) => {
+  const VOID_WINDOW_MINUTES = 20;
+  const saleId = parseInt(req.params.id, 10);
+  
+  if (!Number.isInteger(saleId)) {
+    return res.status(400).json({ error: 'Invalid sale ID', code: 'INVALID_SALE_ID' });
+  }
+  
+  const { reason } = req.body;
+
+  try {
+    const locationId = await getTargetLocationId(req, query);
+    
+    const result = await withTransaction(async (tx) => {
+      const saleResult = await tx.query(
+        `SELECT s.*, u.username as cashier_name
+         FROM sales s
+         JOIN users u ON s.cashier_id = u.id
+         WHERE s.id = $1 AND s.location_id = $2`,
+        [saleId, locationId]
+      );
+      
+      if (saleResult.rows.length === 0) {
+        const err = new Error('Sale not found');
+        err.status = 404;
+        throw err;
+      }
+      
+      const sale = saleResult.rows[0];
+      
+      if (sale.status === 'voided') {
+        const err = new Error('Sale has already been voided');
+        err.status = 400;
+        throw err;
+      }
+      
+      const saleTime = new Date(sale.sale_date);
+      const now = new Date();
+      const minutesSinceSale = (now - saleTime) / (1000 * 60);
+      
+      if (req.user.role !== 'admin' && minutesSinceSale > VOID_WINDOW_MINUTES) {
+        const err = new Error(`Sale can only be voided within ${VOID_WINDOW_MINUTES} minutes. This sale was made ${Math.floor(minutesSinceSale)} minutes ago.`);
+        err.status = 403;
+        err.code = 'VOID_WINDOW_EXPIRED';
+        throw err;
+      }
+      
+      const itemsResult = await tx.query(
+        `SELECT si.*, p.name as product_name
+         FROM sale_items si
+         JOIN products p ON si.product_id = p.id
+         WHERE si.sale_id = $1`,
+        [saleId]
+      );
+      
+      for (const item of itemsResult.rows) {
+        const inventoryResult = await tx.query(
+          `UPDATE inventory
+           SET quantity = quantity + $1, last_updated = CURRENT_TIMESTAMP
+           WHERE product_id = $2 AND location_id = $3
+           RETURNING quantity`,
+          [item.quantity, item.product_id, locationId]
+        );
+        
+        if (inventoryResult.rows.length === 0) {
+          await tx.query(
+            `INSERT INTO inventory (product_id, location_id, quantity, last_updated)
+             VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
+            [item.product_id, locationId, item.quantity]
+          );
+        }
+        
+        await tx.query(
+          `INSERT INTO inventory_movements
+           (location_id, product_id, movement_type, quantity_change, source, reference_type, reference_id, created_by, metadata)
+           VALUES ($1, $2, 'sale_out', $3, 'sale', 'void', $4, $5, $6)`,
+          [
+            locationId, 
+            item.product_id, 
+            item.quantity, 
+            saleId, 
+            req.user.id, 
+            JSON.stringify({ action: 'void_restore', void_reason: reason || 'No reason provided' })
+          ]
+        );
+      }
+      
+      await tx.query(
+        `UPDATE sales SET status = 'voided' WHERE id = $1`,
+        [saleId]
+      );
+      
+      await tx.query(
+        `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
+         VALUES ($1, $2, 'sale_voided', $3, $4)`,
+        [
+          req.user.id,
+          locationId,
+          `Voided sale ${sale.receipt_number}`,
+          JSON.stringify({
+            sale_id: saleId,
+            receipt_number: sale.receipt_number,
+            original_amount: sale.total_amount,
+            reason: reason || 'No reason provided',
+            minutes_since_sale: Math.floor(minutesSinceSale)
+          })
+        ]
+      );
+      
+      const voidedSale = await getSaleWithItems(saleId, tx);
+      voidedSale.voided = true;
+      voidedSale.void_reason = reason || 'No reason provided';
+      voidedSale.voided_at = now.toISOString();
+      
+      return voidedSale;
+    });
+    
+    res.json(result);
+  } catch (err) {
+    console.error('Void sale error:', err);
+    res.status(err.status || 500).json({ 
+      error: err.message || 'Internal server error',
+      code: err.code || 'VOID_ERROR'
+    });
+  }
+});
+
 async function getSaleWithItems(saleId, tx = null) {
   const executor = tx || { query };
 

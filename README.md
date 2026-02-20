@@ -1,440 +1,381 @@
-ASout3
-
-> ⚠️ **NOTICE (Ready to push):** This branch is prepared for `main` push once your git remote is configured.
-
 # Bakery Operations Web App
 
-A role-based bakery management platform for day-to-day operations across one or many branches.
+A production-ready, role-based bakery management platform for day-to-day operations across one or many branches.
 
-It includes:
-- real-time inventory tracking,
-- POS sales,
-- expenses and staff payments,
-- operational reports,
-- branch-level controls,
-- offline queue/retry logic,
-- idempotent write handling,
-- alert rules and KPI telemetry.
+## Features
 
----
-
-## 1) What this app solves
-
-This project is designed for bakeries that need a **single operations system** across admin, manager, and cashier workflows.
-
-### Core operational goals
-- Prevent silent inventory drift and overselling.
-- Keep sales/expense/batch writes reliable even on unstable internet.
-- Give admins branch-level visibility and control.
-- Provide simple, understandable screens for non-technical staff.
-
-### Reliability goals
-- Transaction-safe critical writes.
-- Retry-safe writes through idempotency keys.
-- Visible offline queue + retry/conflict history.
-- Branch-aware access checks to avoid cross-branch leakage.
+- **Real-time inventory tracking** with oversell protection
+- **POS sales** with offline support
+- **Sale voiding** within 20-minute window with inventory restoration
+- **Expenses and staff payments** management
+- **Operational reports** with weekly/monthly exports
+- **Branch-level controls** with role-based access
+- **Offline queue/retry logic** with IndexedDB
+- **Idempotent write handling** for data consistency
+- **Alert rules and KPI telemetry**
 
 ---
 
-## 2) Feature overview
+## Architecture Overview
 
-### 2.1 Role-based product experience
-- **Admin**: full platform access, branch switching, reporting, staff/branch setup, notifications rules, sync monitor.
-- **Manager**: product + inventory + batches + expenses at branch scope.
-- **Cashier**: POS sales + sales history at branch scope.
-
-### 2.2 Branch-aware operations
-- Frontend stores selected branch context.
-- Requests include branch context (`X-Location-Id` + query usage where needed).
-- Backend validates branch access using `getTargetLocationId` + `user_locations` when available.
-
-### 2.3 Inventory and batch flow
-- Add/update inventory per product per branch.
-- Send inventory batches atomically.
-- Track ledger entries in `inventory_movements`.
-
-### 2.4 Sales and oversell protection
-- Sale creation validates stock before deducting quantity.
-- If stock is insufficient, sale fails safely with clear error.
-- Sale + sale-items + inventory deduction run transactionally.
-
-### 2.5 Expenses and staff payments
-- Expense create/update/delete and category summary.
-- Staff payments with branch context and staff selection.
-
-### 2.6 Reporting and export
-- Daily/weekly/monthly summaries.
-- Weekly CSV export.
-- Branch summary and KPI summary endpoints.
-
-### 2.7 Notifications and alerts
-- Per-user notifications.
-- Mark single/all as read.
-- Admin alert rules for events (e.g., low stock/high sale).
-
-### 2.8 Offline and retry resilience
-- IndexedDB queue for critical write operations.
-- Background sync hook.
-- Retry/conflict history available in admin sync UI.
-- Backend deduplication via `idempotency_keys`.
-
----
-
-## 3) Tech stack
-
-### Frontend
-- React 18
-- Vite
-- React Router
-- Axios
-- Recharts
-- Lucide React
-
-### Backend
-- Node.js + Express
-- PostgreSQL (`pg`)
-- JWT auth
-- bcryptjs
-- express-validator
-- Morgan + CORS
-
----
-
-## 4) Project structure
-
-```txt
-client/
-  src/
-    api/
-    components/
-    context/
-    hooks/
-    pages/
-      admin/
-      manager/
-      cashier/
-    utils/
-server/
-  middleware/
-  routes/
-  utils/
-database/
-  migrations/
-  schema.sql
-scripts/
+```mermaid
+flowchart TB
+    subgraph Client["Frontend (React + Vite)"]
+        UI[User Interface]
+        OfflineQueue[IndexedDB Offline Queue]
+        Context[Auth + Branch Context]
+        SyncHook[useOfflineSync Hook]
+    end
+    
+    subgraph Server["Backend (Node.js + Express)"]
+        API[REST API Endpoints]
+        Auth[JWT Authentication]
+        RBAC[Role-Based Access Control]
+        BranchResolver[Branch Access Resolver]
+        Idempotency[Idempotency Handler]
+    end
+    
+    subgraph Database["PostgreSQL Database"]
+        Users[users, staff_profiles]
+        Inventory[inventory, inventory_movements]
+        Sales[sales, sale_items]
+        Finance[expenses, staff_payments]
+        System[idempotency_keys, kpi_events]
+    end
+    
+    UI --> Context
+    UI --> SyncHook
+    SyncHook --> OfflineQueue
+    SyncHook --> API
+    
+    API --> Auth
+    API --> RBAC
+    API --> BranchResolver
+    API --> Idempotency
+    
+    Auth --> Database
+    RBAC --> Database
+    BranchResolver --> Database
+    Idempotency --> Database
+    API --> Database
 ```
 
 ---
 
-## 5) Quick start (local PostgreSQL)
+## Offline Sync Architecture
 
-## 5.1 Prerequisites
-- Node.js 18+ recommended
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant C as Client
+    participant IDB as IndexedDB
+    participant API as Server API
+    participant DB as Database
+    
+    Note over U,DB: Normal Online Flow
+    U->>C: Create Sale
+    C->>API: POST /sales (with idempotency key)
+    API->>DB: Check idempotency key
+    alt Key exists
+        DB-->>API: Return cached response
+    else Key not found
+        API->>DB: Create sale + inventory deduction
+        API->>DB: Store idempotency key
+    end
+    API-->>C: Sale response
+    C-->>U: Success
+    
+    Note over U,DB: Offline Flow
+    U->>C: Create Sale (offline)
+    C->>IDB: Store operation in queue
+    C-->>U: Queued for sync
+    
+    Note over U,DB: Sync on Reconnection
+    C->>C: Online event triggered
+    C->>IDB: Get pending operations
+    loop For each operation
+        C->>API: Retry with idempotency key
+        API->>DB: Process with idempotency check
+        API-->>C: Response
+        C->>IDB: Remove from queue
+    end
+```
+
+---
+
+## Database Schema
+
+```mermaid
+erDiagram
+    users ||--o{ sales : creates
+    users ||--o{ expenses : records
+    users ||--o{ staff_payments : receives
+    users ||--o{ inventory_movements : logs
+    users ||--o{ user_locations : has_access
+    
+    locations ||--o{ inventory : stocks
+    locations ||--o{ sales : processes
+    locations ||--o{ expenses : incurs
+    locations ||--o{ staff_payments : pays
+    
+    products ||--o{ inventory : has
+    products ||--o{ sale_items : includes
+    products ||--o{ inventory_movements : tracks
+    
+    sales ||--o{ sale_items : contains
+    sales ||--o{ inventory_movements : triggers
+    
+    inventory_batches ||--o{ batch_items : contains
+    
+    users {
+        int id PK
+        string username
+        string email
+        string password_hash
+        string role
+        int location_id FK
+        boolean is_active
+    }
+    
+    locations {
+        int id PK
+        string name
+        string address
+        boolean is_active
+    }
+    
+    products {
+        int id PK
+        string name
+        int category_id FK
+        decimal price
+        decimal cost
+    }
+    
+    inventory {
+        int id PK
+        int product_id FK
+        int location_id FK
+        int quantity
+        string source
+    }
+    
+    sales {
+        int id PK
+        int location_id FK
+        int cashier_id FK
+        decimal total_amount
+        string payment_method
+        string receipt_number
+        string status
+        timestamp sale_date
+    }
+    
+    staff_profiles {
+        int id PK
+        string full_name
+        string role_preference
+        decimal monthly_salary
+        int location_id FK
+        int linked_user_id FK
+        boolean is_active
+    }
+```
+
+---
+
+## Quick Start
+
+### Prerequisites
+- Node.js 18+
 - PostgreSQL 12+
 - npm
 
-## 5.2 Install dependencies
+### Installation
+
 ```bash
+# Install dependencies
 npm install
 cd client && npm install && cd ..
-```
 
-## 5.3 Create local env
-```bash
+# Set up environment
 cp .env.example .env
-```
+# Edit .env with your database credentials
 
-Set at minimum:
-- `PORT=5000`
-- `JWT_SECRET=...`
-- either `DATABASE_URL=...` OR PG fallback vars (`PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE`)
-
-## 5.4 Initialize database
-```bash
+# Initialize database
 npm run setup-db
+
+# Run migrations
 psql "$DATABASE_URL" -f database/migrations/001_ops_hardening.sql
 psql "$DATABASE_URL" -f database/migrations/002_branch_access_and_kpi.sql
-```
+psql "$DATABASE_URL" -f database/migrations/005_sales_void_support.sql
 
-## 5.5 Start app
-```bash
+# Start development server
 npm run dev
 ```
 
-Access:
-- Frontend: `http://localhost:3000`
-- Backend: `http://localhost:5000`
+### Access
 
-Default seeded login:
-- username: `admin`
-- password: `admin123`
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:5000
+- **Default login**: username `admin`, password `admin123`
 
 ---
 
-## 6) Supabase quick connect (recommended free hosted DB)
+## Environment Variables
 
-Use Supabase **Connection Pooler** URL (transaction mode, usually port `6543`) and include `sslmode=require`.
-
-Example `.env` essentials:
-```env
-PORT=5000
-NODE_ENV=development
-JWT_SECRET=your_super_secret_jwt_key
-DB_IP_FAMILY=4
-DATABASE_URL=postgresql://postgres.<ref>:<password>@<region>.pooler.supabase.com:6543/postgres?sslmode=require
-```
-
-Then run:
-```bash
-npm run setup-db
-psql "$DATABASE_URL" -f database/migrations/001_ops_hardening.sql
-psql "$DATABASE_URL" -f database/migrations/002_branch_access_and_kpi.sql
-npm run dev
-```
-
-Detailed guide: [`SUPABASE-SETUP.md`](./SUPABASE-SETUP.md).
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PORT` | No | Server port (default: 5000) |
+| `NODE_ENV` | Yes | `development` or `production` |
+| `JWT_SECRET` | **Yes** | Min 32 characters |
+| `DATABASE_URL` | **Yes** | PostgreSQL connection string |
+| `ALLOWED_ORIGINS` | Prod | Comma-separated CORS origins |
 
 ---
 
-## 7) Environment variables reference
-
-### Server
-- `PORT` — API port.
-- `NODE_ENV` — `development` / `production`.
-- `JWT_SECRET` — token signing secret.
-- `DATABASE_URL` — preferred full DB connection string.
-- `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` — fallback PG config if `DATABASE_URL` is absent.
-- `DB_IP_FAMILY` — set to `4` for IPv4-only environments.
-- `DB_CONNECTION_TIMEOUT_MS` — DB connect timeout.
-- `DB_IDLE_TIMEOUT_MS` — idle client timeout.
-
-### Client
-- `VITE_API_URL` — optional override for API base.
-
----
-
-## 8) API overview
-
-### Authentication
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-
-### Locations / branches
-- `GET /api/locations`
-- `POST /api/locations` (admin)
-
-### Admin management
-- `GET /api/admin/users`
-- `POST /api/admin/users`
-- `PATCH /api/admin/users/:id/status`
-
-### Products
-- `GET /api/products`
-- `GET /api/products/:id`
-- `POST /api/products`
-- `PUT /api/products/:id`
-- `DELETE /api/products/:id`
-
-### Inventory / batches
-- `GET /api/inventory`
-- `POST /api/inventory`
-- `PUT /api/inventory/:productId`
-- `DELETE /api/inventory/:id`
-- `POST /api/inventory/batches`
-- `GET /api/inventory/batches`
-- `GET /api/inventory/batches/:id`
-
-### Sales
-- `POST /api/sales`
-- `GET /api/sales`
-- `GET /api/sales/:id`
-
-### Expenses
-- `GET /api/expenses`
-- `POST /api/expenses`
-- `PUT /api/expenses/:id`
-- `DELETE /api/expenses/:id`
-- `GET /api/expenses/summary/categories`
-
-### Staff payments
-- `GET /api/payments`
-- `POST /api/payments`
-- `PUT /api/payments/:id`
-- `DELETE /api/payments/:id`
-- `GET /api/payments/summary`
-
-### Reports
-- `GET /api/reports/daily`
-- `GET /api/reports/weekly`
-- `GET /api/reports/weekly/export`
-- `GET /api/reports/monthly`
-- `GET /api/reports/products/profitability`
-- `GET /api/reports/branches/summary`
-- `GET /api/reports/kpis`
-
-### Notifications
-- `GET /api/notifications`
-- `GET /api/notifications/rules` (admin)
-- `POST /api/notifications/rules` (admin)
-- `PUT /api/notifications/rules/:id` (admin)
-- `PUT /api/notifications/:id/read`
-- `PUT /api/notifications/:id`
-- `PUT /api/notifications/read-all`
-- `PUT /api/notifications/mark-all-read`
-- `GET /api/notifications/unread/count`
-- `DELETE /api/notifications/:id`
-
-### Activity
-- `GET /api/activity`
-
----
-
-## 9) Database schema highlights
-
-Primary entities:
-- `users`
-- `locations`
-- `products`, `categories`
-- `inventory`, `inventory_batches`, `batch_items`
-- `sales`, `sale_items`
-- `expenses`, `staff_payments`
-- `notifications`, `activity_log`
-
-Reliability/observability entities:
-- `idempotency_keys`
-- `inventory_movements`
-- `kpi_events`
-- `alert_rules`
-- `user_locations`
-
-See full schema in `database/schema.sql` and changes in `database/migrations/`.
-
----
-
-## 10) Reliability and data consistency model
-
-### 10.1 Transactions
-Critical write workflows run in DB transactions to guarantee all-or-nothing behavior.
-
-### 10.2 Idempotency
-For retry/offline scenarios, endpoints can use `x-idempotency-key` to avoid duplicate writes.
-
-### 10.3 Inventory safety
-Sales cannot reduce stock below zero. If insufficient stock exists, the sale fails with an explicit error.
-
-### 10.4 Branch access enforcement
-Branch target resolution validates access by role and mapping. Legacy admin behavior is preserved where no explicit branch assignments exist.
-
-### 10.5 Offline queue
-Client stores queued operations in IndexedDB and retries via background sync logic.
-
----
-
-## 11) Troubleshooting
-
-### 11.1 `ECONNREFUSED 127.0.0.1:5432`
-Your API cannot reach local PostgreSQL.
-
-Actions:
-1. Verify `.env` DB settings.
-2. Start Postgres locally (or use Supabase).
-3. Re-run setup + migrations.
-4. Restart `npm run dev`.
-
-### 11.2 `ENETUNREACH ... supabase.co:5432`
-Usually an IPv6/routing limitation in dev environment.
-
-Actions:
-1. Use Supabase Connection Pooler URL (`:6543`).
-2. Ensure `sslmode=require` in `DATABASE_URL`.
-3. Set `DB_IP_FAMILY=4`.
-4. Restart app.
-
-### 11.3 Branch 403 errors (`You do not have access to this branch`)
-- Ensure selected branch is valid for logged-in user.
-- For admins with explicit branch mappings, requested branch must be assigned.
-- Check `user_locations` and `users.location_id` records.
-
-### 11.4 Sales blocked with insufficient stock
-This is expected data safety behavior.
-- Refill inventory first (manual adjustment or batch flow), then retry sale.
-
----
-
-## 12) Operational notes
-
-- Use admin **Branches & Staff** page to create branches and cashier/manager accounts.
-- Use admin **Sync Queue** page to inspect offline retries/conflicts.
-- Use branch selector in the top bar for admin branch context.
-- For reports/KPIs, verify selected branch context before validating totals.
-
----
-
-## 13) Security and production guidance
-
-Before production:
-- Set strong `JWT_SECRET`.
-- Restrict DB credentials and rotate periodically.
-- Use HTTPS.
-- Apply least-privilege branch/user assignments.
-- Configure backups for DB.
-- Add API rate limiting + centralized logging/monitoring.
-
----
-
-## 14) Scripts
-
-Root scripts:
-- `npm run dev` — run backend + frontend concurrently.
-- `npm run server` — backend only.
-- `npm run client` — frontend only.
-- `npm run build` — frontend production build.
-- `npm run setup-db` — initialize DB schema and seed defaults.
-
----
-
-## 15) Current status
-
-- Multi-branch, offline queue, idempotency, KPI, and alert-rule foundations are implemented.
-- Admin branch/staff setup screens are implemented.
-- Major recent stability fixes include branch-access fallback handling and payments route location-resolution fixes.
-
-If you want, next pass can include:
-- end-to-end tests for critical write flows,
-- stricter API error contracts,
-- UI notification/toast system standardization across all screens,
-- dashboard caching and report query performance tuning.
-
----
-
-## 16) Architecture diagram (Mermaid)
+## Role-Based Access
 
 ```mermaid
-flowchart TD
-  U[Users: Admin / Manager / Cashier] --> FE[React Frontend]
-  FE -->|JWT + Branch Context| API[Express API]
-  FE -->|Offline queue + retry| OQ[IndexedDB Offline Queue]
-  OQ -->|flush when online| API
-
-  API --> AUTH[Auth + RBAC + Branch Resolver]
-  API --> OPS[Sales / Inventory / Expenses / Payments]
-  API --> HR[Staff Profiles + Account Provisioning]
-  API --> RPT[Reports + KPI + Export]
-  API --> NTF[Notifications + Alert Rules]
-
-  OPS --> TX[Transactional Service Layer]
-  TX --> DB[(PostgreSQL)]
-  AUTH --> DB
-  HR --> DB
-  RPT --> DB
-  NTF --> DB
-
-  DB --> LEDGER[Inventory Movements / Activity Log / KPI Events]
+flowchart LR
+    subgraph Admin[Admin Role]
+        A1[All Operations]
+        A2[Branch Management]
+        A3[Staff Management]
+        A4[All Reports]
+    end
+    
+    subgraph Manager[Manager Role]
+        M1[Inventory Management]
+        M2[Batch Operations]
+        M3[Expenses]
+        M4[Products CRUD]
+    end
+    
+    subgraph Cashier[Cashier Role]
+        C1[POS Sales]
+        C2[Sale History]
+        C3[Void Sales - 20min]
+    end
+    
+    Admin --> Manager
+    Manager --> Cashier
 ```
 
-### Offline sync behavior (production intent)
-- Cashier can sell while offline using locally cached product catalog for selected branch.
-- Writes are queued with idempotency keys in IndexedDB.
-- Background sync retries automatically and moves hard 4xx failures to conflict log for admin review.
-- Admin can trigger manual sync from **Sync Queue** page and inspect sync/failure history.
+| Feature | Admin | Manager | Cashier |
+|---------|-------|---------|---------|
+| Dashboard | ✅ | ❌ | ❌ |
+| All Branches | ✅ | ❌ | ❌ |
+| Assigned Branch | ✅ | ✅ | ✅ |
+| Inventory | ✅ | ✅ | ❌ |
+| Sales | ✅ | ❌ | ✅ |
+| Expenses | ✅ | ✅ | ❌ |
+| Staff Payments | ✅ | ❌ | ❌ |
+| Reports | ✅ | ❌ | ❌ |
+| Products | ✅ | ✅ | ❌ |
+| Sale Void | ✅ | ✅ | ✅ (20min) |
+
+---
+
+## API Endpoints
+
+### Authentication
+- `POST /api/auth/login` - User login
+- `POST /api/auth/register` - Create user (admin only)
+- `GET /api/auth/me` - Current user
+- `POST /api/auth/change-password` - Change password
+- `POST /api/auth/refresh-token` - Refresh JWT
+
+### Sales
+- `GET /api/sales` - List sales
+- `POST /api/sales` - Create sale (with offline support)
+- `GET /api/sales/:id` - Sale details
+- `POST /api/sales/:id/void` - Void sale (20-minute window)
+
+### Inventory
+- `GET /api/inventory` - List inventory
+- `POST /api/inventory` - Create inventory record
+- `PUT /api/inventory/:productId` - Update inventory
+- `POST /api/inventory/batches` - Create batch (with offline support)
+
+### Reports
+- `GET /api/reports/daily` - Daily summary
+- `GET /api/reports/weekly` - Weekly summary
+- `GET /api/reports/weekly/export` - CSV export
+- `GET /api/reports/monthly` - Monthly summary
+- `GET /api/reports/branches/summary` - Multi-branch snapshot
+- `GET /api/reports/kpis` - KPI metrics
+
+---
+
+## Offline Support
+
+Operations that support offline queueing:
+
+| Operation | Offline Support | Idempotency |
+|-----------|----------------|-------------|
+| Create Sale | ✅ | ✅ |
+| Create Inventory Batch | ✅ | ✅ |
+| Create Expense | ✅ | ✅ |
+| Create Staff Payment | ✅ | ✅ |
+
+The offline system features:
+- **Exponential backoff** for retries
+- **Conflict detection** and logging
+- **Manual retry** from UI
+- **Global offline indicator** with queue stats
+- **Payload persistence** for conflict recovery
+
+---
+
+## Deployment
+
+### Docker
+
+```bash
+# Build image
+docker build -t bakery-ops-app .
+
+# Run container
+docker run -p 5000:5000 --env-file .env bakery-ops-app
+```
+
+### Docker Compose
+
+```bash
+docker-compose up -d
+```
+
+### Production Checklist
+
+- [ ] Set strong `JWT_SECRET` (32+ characters)
+- [ ] Configure `ALLOWED_ORIGINS` for CORS
+- [ ] Set `NODE_ENV=production`
+- [ ] Configure SSL/TLS
+- [ ] Set up database backups
+- [ ] Configure monitoring/logging
+- [ ] Run all migrations
+
+---
+
+## Development
+
+```bash
+# Run in development mode
+npm run dev
+
+# Run tests
+npm test
+
+# Run linting
+npm run lint
+
+# Validate environment
+npm run validate:env
+```
+
+---
+
+## License
+
+MIT

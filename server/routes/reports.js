@@ -5,7 +5,6 @@ import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
 
-// Daily summary report
 router.get('/daily', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
@@ -19,7 +18,6 @@ router.get('/daily', authenticateToken, async (req, res) => {
       );
     }
 
-    // Sales summary
     const salesResult = await query(
       `SELECT 
          COUNT(*) as total_transactions,
@@ -30,7 +28,6 @@ router.get('/daily', authenticateToken, async (req, res) => {
       [locationId, date]
     );
 
-    // Top products
     const topProductsResult = await query(
       `SELECT p.name, p.unit, 
               SUM(si.quantity) as total_sold,
@@ -45,7 +42,6 @@ router.get('/daily', authenticateToken, async (req, res) => {
       [locationId, date]
     );
 
-    // Expenses summary
     const expensesResult = await query(
       `SELECT 
          COUNT(*) as expense_count,
@@ -55,7 +51,15 @@ router.get('/daily', authenticateToken, async (req, res) => {
       [locationId, date]
     );
 
-    // Payment methods breakdown
+    const staffPaymentsResult = await query(
+      `SELECT 
+         COUNT(*) as payment_count,
+         SUM(amount) as total_staff_payments
+       FROM staff_payments
+       WHERE location_id = $1 AND payment_date = $2`,
+      [locationId, date]
+    );
+
     const paymentMethodsResult = await query(
       `SELECT 
          payment_method,
@@ -69,21 +73,33 @@ router.get('/daily', authenticateToken, async (req, res) => {
 
     const sales = salesResult.rows[0];
     const expenses = expensesResult.rows[0];
-    const grossProfit = (parseFloat(sales.total_sales) || 0) - (parseFloat(expenses.total_expenses) || 0);
+    const staffPayments = staffPaymentsResult.rows[0];
+    
+    const totalRevenue = parseFloat(sales.total_sales) || 0;
+    const totalExpenses = parseFloat(expenses.total_expenses) || 0;
+    const totalStaffPayments = parseFloat(staffPayments.total_staff_payments) || 0;
+    const totalCosts = totalExpenses + totalStaffPayments;
+    const netProfit = totalRevenue - totalCosts;
 
     res.json({
       date,
       sales: {
         total_transactions: parseInt(sales.total_transactions) || 0,
-        total_sales: parseFloat(sales.total_sales) || 0,
+        total_sales: totalRevenue,
         avg_transaction: parseFloat(sales.avg_transaction) || 0
       },
       expenses: {
         expense_count: parseInt(expenses.expense_count) || 0,
-        total_expenses: parseFloat(expenses.total_expenses) || 0
+        total_expenses: totalExpenses
+      },
+      staff_payments: {
+        payment_count: parseInt(staffPayments.payment_count) || 0,
+        total_staff_payments: totalStaffPayments
       },
       profit: {
-        gross_profit: grossProfit
+        gross_profit: totalRevenue - totalExpenses,
+        net_profit: netProfit,
+        total_costs: totalCosts
       },
       top_products: topProductsResult.rows,
       payment_methods: paymentMethodsResult.rows
@@ -94,7 +110,6 @@ router.get('/daily', authenticateToken, async (req, res) => {
   }
 });
 
-// Weekly summary report
 router.get('/weekly', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
@@ -111,11 +126,10 @@ router.get('/weekly', authenticateToken, async (req, res) => {
     let startDate = req.query.start_date;
     if (!startDate) {
       const startDateObj = new Date(endDate);
-      startDateObj.setDate(startDateObj.getDate() - 7);
+      startDateObj.setDate(startDateObj.getDate() - 6);
       startDate = startDateObj.toISOString().split('T')[0];
     }
 
-    // Sales by day
     const salesByDayResult = await query(
       `SELECT 
          DATE(sale_date) as date,
@@ -128,20 +142,28 @@ router.get('/weekly', authenticateToken, async (req, res) => {
       [locationId, startDate, endDate]
     );
 
-    // Total sales and expenses
     const totalsResult = await query(
       `SELECT 
          (SELECT COALESCE(SUM(total_amount), 0) FROM sales 
           WHERE location_id = $1 AND DATE(sale_date) BETWEEN $2 AND $3) as total_sales,
          (SELECT COALESCE(SUM(amount), 0) FROM expenses 
-          WHERE location_id = $1 AND expense_date BETWEEN $2 AND $3) as total_expenses`,
+          WHERE location_id = $1 AND expense_date BETWEEN $2 AND $3) as total_expenses,
+         (SELECT COUNT(*) FROM expenses 
+          WHERE location_id = $1 AND expense_date BETWEEN $2 AND $3) as expense_count,
+         (SELECT COALESCE(SUM(amount), 0) FROM staff_payments 
+          WHERE location_id = $1 AND payment_date BETWEEN $2 AND $3) as total_staff_payments,
+         (SELECT COUNT(*) FROM staff_payments 
+          WHERE location_id = $1 AND payment_date BETWEEN $2 AND $3) as staff_payment_count`,
       [locationId, startDate, endDate]
     );
 
     const totals = totalsResult.rows[0];
-    const netProfit = parseFloat(totals.total_sales) - parseFloat(totals.total_expenses);
+    const totalRevenue = parseFloat(totals.total_sales) || 0;
+    const totalExpenses = parseFloat(totals.total_expenses) || 0;
+    const totalStaffPayments = parseFloat(totals.total_staff_payments) || 0;
+    const totalCosts = totalExpenses + totalStaffPayments;
+    const netProfit = totalRevenue - totalCosts;
 
-    // Top products for the week
     const topProductsResult = await query(
       `SELECT p.name, 
               SUM(si.quantity) as total_sold,
@@ -184,11 +206,15 @@ router.get('/weekly', authenticateToken, async (req, res) => {
     res.json({
       period: { start_date: startDate, end_date: endDate },
       summary: {
-        total_sales: parseFloat(totals.total_sales),
-        total_expenses: parseFloat(totals.total_expenses),
+        total_sales: totalRevenue,
+        total_expenses: totalExpenses,
+        total_staff_payments: totalStaffPayments,
+        total_costs: totalCosts,
         net_profit: netProfit,
         total_transactions: transactions,
-        avg_transaction: transactions > 0 ? parseFloat(totals.total_sales) / transactions : 0,
+        expense_count: parseInt(totals.expense_count) || 0,
+        staff_payment_count: parseInt(totals.staff_payment_count) || 0,
+        avg_transaction: transactions > 0 ? totalRevenue / transactions : 0,
       },
       sales_by_day: salesByDayResult.rows,
       sales_by_category: categoryResult.rows,
@@ -202,7 +228,6 @@ router.get('/weekly', authenticateToken, async (req, res) => {
 });
 
 
-// Weekly summary CSV export
 router.get('/weekly/export', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
@@ -215,10 +240,11 @@ router.get('/weekly/export', authenticateToken, async (req, res) => {
         [locationId, req.user.id, JSON.stringify({ report: 'weekly' })]
       );
     }
+    
     let startDate = req.query.start_date;
     if (!startDate) {
       const startDateObj = new Date(endDate);
-      startDateObj.setDate(startDateObj.getDate() - 7);
+      startDateObj.setDate(startDateObj.getDate() - 6);
       startDate = startDateObj.toISOString().split('T')[0];
     }
 
@@ -247,11 +273,11 @@ router.get('/weekly/export', authenticateToken, async (req, res) => {
   }
 });
 
-// Monthly summary report
 router.get('/monthly', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
     const year = req.query.year || new Date().getFullYear();
+    const month = req.query.month || (new Date().getMonth() + 1);
 
     if (req.user?.role === 'admin') {
       await query(
@@ -260,9 +286,7 @@ router.get('/monthly', authenticateToken, async (req, res) => {
         [locationId, req.user.id, JSON.stringify({ report: 'monthly' })]
       );
     }
-    const month = req.query.month || (new Date().getMonth() + 1);
 
-    // Sales summary
     const salesResult = await query(
       `SELECT 
          COUNT(*) as total_transactions,
@@ -275,7 +299,6 @@ router.get('/monthly', authenticateToken, async (req, res) => {
       [locationId, year, month]
     );
 
-    // Expenses by category
     const expensesByCategoryResult = await query(
       `SELECT 
          category,
@@ -290,9 +313,9 @@ router.get('/monthly', authenticateToken, async (req, res) => {
       [locationId, year, month]
     );
 
-    // Staff payments
     const staffPaymentsResult = await query(
       `SELECT 
+         COUNT(*) as payment_count,
          SUM(amount) as total_staff_payments
        FROM staff_payments
        WHERE location_id = $1 
@@ -301,7 +324,6 @@ router.get('/monthly', authenticateToken, async (req, res) => {
       [locationId, year, month]
     );
 
-    // Top products
     const topProductsResult = await query(
       `SELECT p.name, 
               SUM(si.quantity) as total_sold,
@@ -319,28 +341,37 @@ router.get('/monthly', authenticateToken, async (req, res) => {
     );
 
     const sales = salesResult.rows[0];
+    const staffPayments = staffPaymentsResult.rows[0];
     const totalExpenses = expensesByCategoryResult.rows.reduce((sum, row) => sum + parseFloat(row.total), 0);
-    const totalStaffPayments = parseFloat(staffPaymentsResult.rows[0].total_staff_payments) || 0;
+    const totalStaffPayments = parseFloat(staffPayments.total_staff_payments) || 0;
     const totalCosts = totalExpenses + totalStaffPayments;
-    const netProfit = (parseFloat(sales.total_sales) || 0) - totalCosts;
+    const totalRevenue = parseFloat(sales.total_sales) || 0;
+    const netProfit = totalRevenue - totalCosts;
 
     res.json({
       period: { year: parseInt(year), month: parseInt(month) },
       sales: {
         total_transactions: parseInt(sales.total_transactions) || 0,
-        total_sales: parseFloat(sales.total_sales) || 0,
+        total_sales: totalRevenue,
         avg_transaction: parseFloat(sales.avg_transaction) || 0
       },
-      costs: {
+      expenses: {
+        expense_count: expensesByCategoryResult.rows.reduce((sum, row) => sum + parseInt(row.count), 0),
         total_expenses: totalExpenses,
-        total_staff_payments: totalStaffPayments,
+        by_category: expensesByCategoryResult.rows
+      },
+      staff_payments: {
+        payment_count: parseInt(staffPayments.payment_count) || 0,
+        total_staff_payments: totalStaffPayments
+      },
+      costs: {
         total_costs: totalCosts
       },
       profit: {
+        gross_profit: totalRevenue - totalExpenses,
         net_profit: netProfit,
-        margin_percent: sales.total_sales > 0 ? (netProfit / sales.total_sales * 100).toFixed(2) : 0
+        margin_percent: totalRevenue > 0 ? (netProfit / totalRevenue * 100).toFixed(2) : 0
       },
-      expenses_by_category: expensesByCategoryResult.rows,
       top_products: topProductsResult.rows
     });
   } catch (err) {
@@ -350,14 +381,14 @@ router.get('/monthly', authenticateToken, async (req, res) => {
 });
 
 
-// Multi-branch summary (admin)
 router.get('/branches/summary', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     const result = await query(
       `SELECT l.id as location_id, l.name as location_name,
               COALESCE(SUM(CASE WHEN DATE(s.sale_date) = CURRENT_DATE THEN s.total_amount ELSE 0 END), 0) as today_sales,
               COALESCE(COUNT(CASE WHEN DATE(s.sale_date) = CURRENT_DATE THEN s.id END), 0) as today_transactions,
-              COALESCE((SELECT SUM(e.amount) FROM expenses e WHERE e.location_id = l.id AND e.expense_date = CURRENT_DATE), 0) as today_expenses
+              COALESCE((SELECT SUM(e.amount) FROM expenses e WHERE e.location_id = l.id AND e.expense_date = CURRENT_DATE), 0) as today_expenses,
+              COALESCE((SELECT SUM(sp.amount) FROM staff_payments sp WHERE sp.location_id = l.id AND sp.payment_date = CURRENT_DATE), 0) as today_staff_payments
        FROM locations l
        LEFT JOIN sales s ON s.location_id = l.id
        WHERE l.is_active = true
@@ -365,7 +396,11 @@ router.get('/branches/summary', authenticateToken, authorizeRoles('admin'), asyn
        ORDER BY l.name`
     );
 
-    res.json(result.rows);
+    res.json(result.rows.map(row => ({
+      ...row,
+      today_total_costs: parseFloat(row.today_expenses || 0) + parseFloat(row.today_staff_payments || 0),
+      today_net: parseFloat(row.today_sales || 0) - parseFloat(row.today_expenses || 0) - parseFloat(row.today_staff_payments || 0)
+    })));
   } catch (err) {
     console.error('Branch summary error:', err);
     res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
@@ -373,7 +408,6 @@ router.get('/branches/summary', authenticateToken, authorizeRoles('admin'), asyn
 });
 
 
-// KPI summary mapped to success criteria
 router.get('/kpis', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
@@ -423,7 +457,6 @@ router.get('/kpis', authenticateToken, authorizeRoles('admin'), async (req, res)
   }
 });
 
-// Product profitability analysis
 router.get('/products/profitability', 
   authenticateToken, 
   authorizeRoles('admin'), 

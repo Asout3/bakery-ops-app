@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { TrendingUp, TrendingDown, DollarSign, Package } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Package, Users, AlertCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import './Dashboard.css';
 import { useLanguage } from '../../context/LanguageContext';
@@ -48,11 +48,11 @@ export default function Dashboard() {
 
   const stats = [
     {
-      title: 'Daily Sales',
+      title: 'Weekly Sales',
       value: `$${Number(weeklyReport?.summary?.total_sales || 0).toFixed(2)}`,
       icon: DollarSign,
       color: 'primary',
-      subtext: `Weekly • ${weeklyReport?.summary?.total_transactions || 0} transactions`
+      subtext: `${weeklyReport?.summary?.total_transactions || 0} transactions`
     },
     {
       title: 'Weekly Expenses',
@@ -62,18 +62,35 @@ export default function Dashboard() {
       subtext: `${weeklyReport?.summary?.expense_count || 0} expense entries`
     },
     {
-      title: 'Weekly Profit',
-      value: `$${Number(weeklyReport?.summary?.net_profit || 0).toFixed(2)}`,
-      icon: TrendingUp,
-      color: 'success',
-      subtext: 'Revenue - expenses'
+      title: 'Weekly Staff Payments',
+      value: `$${Number(weeklyReport?.summary?.total_staff_payments || 0).toFixed(2)}`,
+      icon: Users,
+      color: 'warning',
+      subtext: `${weeklyReport?.summary?.staff_payment_count || 0} payments`
     },
     {
-      title: 'Monthly Net Flow',
-      value: `$${Number(monthlyReport?.summary?.net_profit || 0).toFixed(2)}`,
-      icon: Package,
-      color: 'info',
-      subtext: `${monthlyReport?.summary?.total_transactions || 0} monthly transactions`
+      title: 'Weekly Net Profit',
+      value: `$${Number(weeklyReport?.summary?.net_profit || 0).toFixed(2)}`,
+      icon: TrendingUp,
+      color: Number(weeklyReport?.summary?.net_profit || 0) >= 0 ? 'success' : 'danger',
+      subtext: 'Revenue - All costs'
+    }
+  ];
+
+  const monthlyStats = [
+    {
+      title: 'Monthly Sales',
+      value: `$${Number(monthlyReport?.sales?.total_sales || 0).toFixed(2)}`,
+      icon: DollarSign,
+      color: 'primary',
+      subtext: `${monthlyReport?.sales?.total_transactions || 0} transactions`
+    },
+    {
+      title: 'Monthly Net Profit',
+      value: `$${Number(monthlyReport?.profit?.net_profit || 0).toFixed(2)}`,
+      icon: TrendingUp,
+      color: Number(monthlyReport?.profit?.net_profit || 0) >= 0 ? 'success' : 'danger',
+      subtext: `Margin: ${monthlyReport?.profit?.margin_percent || 0}%`
     }
   ];
 
@@ -105,7 +122,6 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
-
 
       <div className="alert alert-info mb-4">
         <strong>Active Branch Context:</strong> Dashboard values reflect the selected branch from the top selector.
@@ -187,14 +203,22 @@ export default function Dashboard() {
         </div>
       </div>
 
-
       {branchSummary.length > 0 && (
         <div className="card mb-4">
           <div className="card-header"><h3>Multi-Branch Snapshot (Today)</h3></div>
           <div className="card-body">
             <div className="table-responsive">
               <table className="table table-hover">
-                <thead><tr><th>Branch</th><th>Sales</th><th>Transactions</th><th>Expenses</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Branch</th>
+                    <th>Sales</th>
+                    <th>Transactions</th>
+                    <th>Expenses</th>
+                    <th>Staff Payments</th>
+                    <th>Net</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {branchSummary.map((b) => (
                     <tr key={b.location_id}>
@@ -202,6 +226,10 @@ export default function Dashboard() {
                       <td>${Number(b.today_sales).toFixed(2)}</td>
                       <td>{Number(b.today_transactions)}</td>
                       <td>${Number(b.today_expenses).toFixed(2)}</td>
+                      <td>${Number(b.today_staff_payments || 0).toFixed(2)}</td>
+                      <td className={Number(b.today_net) >= 0 ? 'text-success' : 'text-danger'}>
+                        ${Number(b.today_net).toFixed(2)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -211,10 +239,51 @@ export default function Dashboard() {
         </div>
       )}
 
+      {monthlyReport && (
+        <div className="card mb-4">
+          <div className="card-header">
+            <h3>Monthly Summary ({monthlyReport.period?.month}/{monthlyReport.period?.year})</h3>
+          </div>
+          <div className="card-body">
+            <div className="stats-grid" style={{ marginBottom: '1rem' }}>
+              {monthlyStats.map((stat, idx) => (
+                <div key={idx} className="stat-card card bg-light">
+                  <div className="stat-content">
+                    <div className="stat-label">{stat.title}</div>
+                    <div className="stat-value">{stat.value}</div>
+                    <div className="stat-subtext">{stat.subtext}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            {monthlyReport.expenses?.by_category?.length > 0 && (
+              <div>
+                <h4>Expenses by Category</h4>
+                <table className="table table-sm">
+                  <thead>
+                    <tr><th>Category</th><th>Count</th><th>Total</th></tr>
+                  </thead>
+                  <tbody>
+                    {monthlyReport.expenses.by_category.map((cat, idx) => (
+                      <tr key={idx}>
+                        <td>{cat.category}</td>
+                        <td>{cat.count}</td>
+                        <td>${Number(cat.total).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="details-grid">
         <div className="card">
           <div className="card-header">
-            <h3>Payment Methods</h3>
+            <h3>Payment Methods (Weekly)</h3>
           </div>
           <div className="card-body">
             <div className="payment-methods">
@@ -227,6 +296,9 @@ export default function Dashboard() {
                   </div>
                 </div>
               ))}
+              {(!weeklyReport?.payment_methods || weeklyReport.payment_methods.length === 0) && (
+                <p className="text-muted">No payment data for this period</p>
+              )}
             </div>
           </div>
         </div>
@@ -238,7 +310,7 @@ export default function Dashboard() {
           <div className="card-body">
             <div className="summary-list">
               <div className="summary-item">
-                <span>Total Sales</span>
+                <span>Total Revenue</span>
                 <strong>${Number(weeklyReport?.summary?.total_sales || 0).toFixed(2)}</strong>
               </div>
               <div className="summary-item">
@@ -246,8 +318,16 @@ export default function Dashboard() {
                 <strong>${Number(weeklyReport?.summary?.total_expenses || 0).toFixed(2)}</strong>
               </div>
               <div className="summary-item">
+                <span>Total Staff Payments</span>
+                <strong>${Number(weeklyReport?.summary?.total_staff_payments || 0).toFixed(2)}</strong>
+              </div>
+              <div className="summary-item">
+                <span>Total Costs</span>
+                <strong>${Number(weeklyReport?.summary?.total_costs || 0).toFixed(2)}</strong>
+              </div>
+              <div className="summary-item highlight">
                 <span>Net Profit</span>
-                <strong className="text-success">
+                <strong className={Number(weeklyReport?.summary?.net_profit || 0) >= 0 ? 'text-success' : 'text-danger'}>
                   ${Number(weeklyReport?.summary?.net_profit || 0).toFixed(2)}
                 </strong>
               </div>
