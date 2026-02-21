@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import api from '../../api/axios';
+import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Package, Send, Plus, Minus } from 'lucide-react';
 import './Inventory.css';
@@ -12,19 +12,42 @@ export default function Inventory() {
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useEffect(() => {
     fetchProducts();
     fetchInventory();
   }, [selectedLocationId]);
 
+  useEffect(() => {
+    const onOnline = () => {
+      setIsOnline(true);
+      fetchProducts();
+      fetchInventory();
+    };
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, [selectedLocationId]);
+
   const fetchProducts = async () => {
     try {
       const [productsRes, inventoryRes] = await Promise.all([api.get('/products'), api.get('/inventory')]);
       const availableIds = new Set((inventoryRes.data || []).map((it) => Number(it.product_id)));
-      setProducts((productsRes.data || []).filter((p) => availableIds.has(Number(p.id))));
+      const availableProducts = (productsRes.data || []).filter((product) => availableIds.has(Number(product.id)));
+      setProducts(availableProducts);
+      localStorage.setItem(`manager_products_cache_${selectedLocationId || 'default'}`, JSON.stringify(availableProducts));
     } catch (err) {
       console.error('Failed to fetch products:', err);
+      const cached = localStorage.getItem(`manager_products_cache_${selectedLocationId || 'default'}`);
+      if (cached) {
+        setProducts(JSON.parse(cached));
+        setMessage({ type: 'warning', text: 'Offline mode: using cached products list.' });
+      }
     }
   };
 
@@ -32,12 +55,17 @@ export default function Inventory() {
     try {
       const response = await api.get('/inventory');
       const inventoryMap = {};
-      response.data.forEach(item => {
+      response.data.forEach((item) => {
         inventoryMap[item.product_id] = item;
       });
       setInventory(inventoryMap);
+      localStorage.setItem(`manager_inventory_cache_${selectedLocationId || 'default'}`, JSON.stringify(inventoryMap));
     } catch (err) {
       console.error('Failed to fetch inventory:', err);
+      const cached = localStorage.getItem(`manager_inventory_cache_${selectedLocationId || 'default'}`);
+      if (cached) {
+        setInventory(JSON.parse(cached));
+      }
     }
   };
 
@@ -117,7 +145,7 @@ export default function Inventory() {
       } else {
         setMessage({
           type: 'danger',
-          text: err.response?.data?.error || 'Failed to send batch',
+          text: getErrorMessage(err, 'Failed to send batch'),
         });
       }
     } finally {
@@ -129,6 +157,7 @@ export default function Inventory() {
     <div className="inventory-page">
       <div className="inventory-header">
         <h2>Inventory Management</h2>
+        {!isOnline && <div className="alert alert-warning">You are offline. Batch operations will be queued.</div>}
         {message && <div className={`alert alert-${message.type}`}>{message.text}</div>}
       </div>
 
@@ -212,7 +241,7 @@ export default function Inventory() {
                 </div>
               ) : (
                 <div className="cart-items">
-                  {cart.map((item, idx) => (
+                  {cart.map((item) => (
                     <div key={`${item.product_id}-${item.source}`} className="cart-item">
                       <div className="cart-item-header">
                         <div>

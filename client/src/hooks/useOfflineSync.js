@@ -15,10 +15,19 @@ export function useOfflineSync() {
   const [isOnlineState, setIsOnlineState] = useState(isOnline());
   const [queueStats, setQueueStats] = useState({ total: 0, pending: 0, conflict: 0, failed: 0 });
   const [syncInProgress, setSyncInProgress] = useState(false);
-  const [lastSyncResult, setLastSyncResult] = useState(null);
+  const [lastSyncResult, setLastSyncResult] = useState(() => {
+    const cached = localStorage.getItem('offline_sync_last_result');
+    return cached ? JSON.parse(cached) : null;
+  });
 
   const runSync = useCallback(async () => {
-    if (syncInProgress || !navigator.onLine) return;
+    if (syncInProgress) return;
+
+    if (!navigator.onLine) {
+      const stats = await getSyncStats();
+      setQueueStats(stats);
+      return;
+    }
 
     setSyncInProgress(true);
     try {
@@ -94,11 +103,21 @@ export function useOfflineSync() {
     };
     document.addEventListener('visibilitychange', onVisible);
 
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const onConnectionChange = () => {
+      updateQueueStats();
+      if (navigator.onLine) {
+        runSync();
+      }
+    };
+    connection?.addEventListener?.('change', onConnectionChange);
+
     return () => {
       clearInterval(interval);
       window.removeEventListener('online', updateOnlineStatus);
       window.removeEventListener('offline', updateOnlineStatus);
       document.removeEventListener('visibilitychange', onVisible);
+      connection?.removeEventListener?.('change', onConnectionChange);
     };
   }, [runSync, syncInterval, updateOnlineStatus, updateQueueStats]);
 

@@ -7,6 +7,7 @@ const PAYLOAD_STORE = 'payloads';
 const MAX_RETRIES = 5;
 const BASE_RETRY_DELAY_MS = 1000;
 const MAX_BATCH_PER_FLUSH = 20;
+const TRANSIENT_HTTP_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 let flushInProgress = false;
 
 function openDb() {
@@ -100,6 +101,10 @@ function getRequestTimeout(retries) {
   return 15000;
 }
 
+
+function resolveSyncErrorMessage(error) {
+  return error?.response?.data?.error || error?.userMessage || error?.message || 'Sync failed';
+}
 export async function enqueueOperation(operation) {
   const db = await openDb();
   const id = operation.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -207,7 +212,7 @@ export async function flushQueue(api) {
       const response = await api.request({
         url: op.url,
         method: op.method,
-        data: payload || op.data,
+        data: payload ?? op.data,
         headers: {
           ...(op.headers || {}),
           'X-Idempotency-Key': op.idempotencyKey || op.id,
@@ -238,6 +243,7 @@ export async function flushQueue(api) {
       const status = error?.response?.status;
       const isClientError = Number.isInteger(status) && status >= 400 && status < 500;
       const isConflict = status === 409;
+      const isTransientHttp = TRANSIENT_HTTP_CODES.has(status);
       const retries = (op.retries || 0) + 1;
 
       const db = await openDb();
@@ -248,7 +254,7 @@ export async function flushQueue(api) {
           ...op,
           retries,
           status: 'conflict',
-          lastError: error.response?.data?.error || error.message,
+          lastError: resolveSyncErrorMessage(error),
           lastAttempt: new Date().toISOString(),
         };
         tx.objectStore(OPS_STORE).put(updatedOp);
@@ -257,7 +263,7 @@ export async function flushQueue(api) {
           ...op,
           retries,
           status: 'failed',
-          lastError: error.message || 'Max retries exceeded',
+          lastError: resolveSyncErrorMessage(error) || 'Max retries exceeded',
           lastAttempt: new Date().toISOString(),
         };
         tx.objectStore(OPS_STORE).put(updatedOp);
@@ -268,7 +274,7 @@ export async function flushQueue(api) {
           retries,
           status: 'pending',
           nextRetry,
-          lastError: error.message,
+          lastError: resolveSyncErrorMessage(error),
           lastAttempt: new Date().toISOString(),
         };
         tx.objectStore(OPS_STORE).put(updatedOp);
@@ -282,13 +288,13 @@ export async function flushQueue(api) {
         id: `${op.id}-failed-${Date.now()}`,
         operation_id: op.id,
         status: isClientError ? 'conflict' : (retries >= MAX_RETRIES ? 'failed' : 'retrying'),
-        message: `${error.response?.data?.error || error.message || 'Sync failed'}`,
+        message: resolveSyncErrorMessage(error),
         created_at: new Date().toISOString(),
         retryCount: retries,
         statusCode: status,
       });
 
-      const isServerUnavailable = !status || status >= 500 || status === 429;
+      const isServerUnavailable = !status || isTransientHttp;
       if (isServerUnavailable) {
         shouldPauseBatch = true;
       }

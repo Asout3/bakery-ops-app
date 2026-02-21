@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import api from '../../api/axios';
+import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Plus, Minus, ShoppingCart, Trash2, Search } from 'lucide-react';
 import './Sales.css';
@@ -175,7 +175,7 @@ export default function Sales() {
       } else {
         setMessage({
           type: 'danger',
-          text: err.response?.data?.error || 'Failed to process sale'
+          text: getErrorMessage(err, 'Failed to process sale')
         });
       }
     } finally {
