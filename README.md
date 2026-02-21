@@ -22,6 +22,7 @@ The platform is designed for real bakery operations where intermittent connectiv
 - replay-safe offline synchronization,
 - transaction-safe backend operations,
 - standardized API error responses with request tracing.
+- browser-level offline page boot support for refresh scenarios.
 
 ## Architecture
 
@@ -82,6 +83,7 @@ This section documents the reliability hardening added specifically to prevent t
 ### 1) Offline Replay Safety
 
 - Sales requests use `X-Idempotency-Key` to prevent duplicate writes.
+- A service worker caches the app shell (`index.html` + static assets) so users can refresh and still open the app UI while offline.
 - Offline operations are persisted in IndexedDB and replayed with the same idempotency identity.
 - Queue flushes are guarded against overlap (`flushInProgress`) to prevent concurrent duplicate replay loops.
 - Batches are capped (`MAX_BATCH_PER_FLUSH`) so one flush cycle does not overload a degraded backend.
