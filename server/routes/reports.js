@@ -74,6 +74,7 @@ router.get('/daily', authenticateToken, async (req, res) => {
 
     const cashierPerformanceResult = await query(
       `SELECT u.username as cashier_name,
+              u.role as cashier_role,
               s.cashier_id,
               COUNT(*) as transactions,
               COALESCE(SUM(s.total_amount), 0) as total_sales,
@@ -84,7 +85,9 @@ router.get('/daily', authenticateToken, async (req, res) => {
        JOIN users u ON u.id = s.cashier_id
        LEFT JOIN sale_items si ON si.sale_id = s.id
        WHERE s.location_id = $1 AND DATE(s.sale_date) = $2
-       GROUP BY s.cashier_id, u.username
+         AND u.is_active = true
+         AND u.role IN ('cashier', 'manager')
+       GROUP BY s.cashier_id, u.username, u.role
        ORDER BY total_sales DESC`,
       [locationId, date]
     );
@@ -263,6 +266,7 @@ router.get('/weekly', authenticateToken, async (req, res) => {
 
     const cashierPerformanceResult = await query(
       `SELECT u.username as cashier_name,
+              u.role as cashier_role,
               s.cashier_id,
               COUNT(*) as transactions,
               COALESCE(SUM(s.total_amount), 0) as total_sales,
@@ -273,7 +277,9 @@ router.get('/weekly', authenticateToken, async (req, res) => {
        JOIN users u ON u.id = s.cashier_id
        LEFT JOIN sale_items si ON si.sale_id = s.id
        WHERE s.location_id = $1 AND DATE(s.sale_date) BETWEEN $2 AND $3
-       GROUP BY s.cashier_id, u.username
+         AND u.is_active = true
+         AND u.role IN ('cashier', 'manager')
+       GROUP BY s.cashier_id, u.username, u.role
        ORDER BY total_sales DESC`,
       [locationId, startDate, endDate]
     );
@@ -449,6 +455,7 @@ router.get('/monthly', authenticateToken, async (req, res) => {
 
     const cashierPerformanceResult = await query(
       `SELECT u.username as cashier_name,
+              u.role as cashier_role,
               s.cashier_id,
               COUNT(*) as transactions,
               COALESCE(SUM(s.total_amount), 0) as total_sales,
@@ -461,7 +468,9 @@ router.get('/monthly', authenticateToken, async (req, res) => {
        WHERE s.location_id = $1
          AND EXTRACT(YEAR FROM s.sale_date) = $2
          AND EXTRACT(MONTH FROM s.sale_date) = $3
-       GROUP BY s.cashier_id, u.username
+         AND u.is_active = true
+         AND u.role IN ('cashier', 'manager')
+       GROUP BY s.cashier_id, u.username, u.role
        ORDER BY total_sales DESC`,
       [locationId, year, month]
     );
