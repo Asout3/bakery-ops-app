@@ -1,8 +1,15 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useMemo, useState } from 'react';
 import api from '../api/axios';
-import { flushQueue, getQueueSize, getSyncStats, isOnline, getConnectionQuality } from '../utils/offlineQueue';
+import { flushQueue, getSyncStats, isOnline, getConnectionQuality } from '../utils/offlineQueue';
 
-const SYNC_INTERVAL_MS = 10000;
+const BASE_SYNC_INTERVAL_MS = 10000;
+
+function resolveSyncInterval(queueStats) {
+  const quality = getConnectionQuality();
+  if (quality === 'slow-2g' || quality === '2g') return 25000;
+  if (queueStats.pending > 0 || queueStats.failed > 0) return 5000;
+  return BASE_SYNC_INTERVAL_MS;
+}
 
 export function useOfflineSync() {
   const [isOnlineState, setIsOnlineState] = useState(isOnline());
@@ -12,28 +19,29 @@ export function useOfflineSync() {
 
   const runSync = useCallback(async () => {
     if (syncInProgress || !navigator.onLine) return;
-    
+
     setSyncInProgress(true);
     try {
       const result = await flushQueue(api);
       const stats = await getSyncStats();
       setQueueStats(stats);
-      setLastSyncResult({
+      const syncResult = {
         ...result,
         at: new Date().toISOString(),
         online: true,
-      });
-      
-      localStorage.setItem('offline_sync_last_result', JSON.stringify(result));
+      };
+      setLastSyncResult(syncResult);
+      localStorage.setItem('offline_sync_last_result', JSON.stringify(syncResult));
     } catch (err) {
-      console.error('Offline sync failed:', err);
-      setLastSyncResult({
+      const syncResult = {
         synced: 0,
         failed: 0,
         error: err.message,
         at: new Date().toISOString(),
         online: navigator.onLine,
-      });
+      };
+      setLastSyncResult(syncResult);
+      localStorage.setItem('offline_sync_last_result', JSON.stringify(syncResult));
     } finally {
       setSyncInProgress(false);
     }
@@ -42,7 +50,7 @@ export function useOfflineSync() {
   const updateOnlineStatus = useCallback(async () => {
     const online = navigator.onLine;
     setIsOnlineState(online);
-    
+
     if (online) {
       await runSync();
     }
@@ -53,9 +61,15 @@ export function useOfflineSync() {
       const stats = await getSyncStats();
       setQueueStats(stats);
     } catch (err) {
-      console.error('Failed to get queue stats:', err);
+      setLastSyncResult((prev) => ({
+        ...(prev || {}),
+        error: err.message,
+        at: new Date().toISOString(),
+      }));
     }
   }, []);
+
+  const syncInterval = useMemo(() => resolveSyncInterval(queueStats), [queueStats]);
 
   useEffect(() => {
     updateQueueStats();
@@ -65,7 +79,7 @@ export function useOfflineSync() {
         runSync();
       }
       updateQueueStats();
-    }, SYNC_INTERVAL_MS);
+    }, syncInterval);
 
     window.addEventListener('online', updateOnlineStatus);
     window.addEventListener('offline', updateOnlineStatus);
@@ -86,7 +100,7 @@ export function useOfflineSync() {
       window.removeEventListener('offline', updateOnlineStatus);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [runSync, updateOnlineStatus, updateQueueStats]);
+  }, [runSync, syncInterval, updateOnlineStatus, updateQueueStats]);
 
   return {
     isOnline: isOnlineState,
@@ -95,6 +109,7 @@ export function useOfflineSync() {
     lastSyncResult,
     runSync,
     connectionQuality: getConnectionQuality(),
+    syncInterval,
   };
 }
 

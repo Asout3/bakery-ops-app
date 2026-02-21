@@ -17,7 +17,7 @@ router.post(
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
     }
 
     const { items, payment_method, cashier_timing_ms } = req.body;
@@ -29,6 +29,7 @@ router.post(
       const locationId = await getTargetLocationId(req, query);
       const sale = await withTransaction(async (tx) => {
         if (idempotencyKey) {
+          await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`sales:${cashierId}:${idempotencyKey}`]);
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
              WHERE user_id = $1 AND idempotency_key = $2`,
@@ -189,7 +190,7 @@ router.post(
       res.status(201).json(sale);
     } catch (err) {
       console.error('Create sale error:', err);
-      res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: err.code || 'SALES_CREATE_ERROR', requestId: req.requestId });
     }
   }
 );
@@ -228,7 +229,7 @@ router.get('/', authenticateToken, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('Get sales error:', err);
-    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: err.code || 'SALES_CREATE_ERROR', requestId: req.requestId });
   }
 });
 
@@ -236,12 +237,12 @@ router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const sale = await getSaleWithItems(req.params.id);
     if (!sale) {
-      return res.status(404).json({ error: 'Sale not found' });
+      return res.status(404).json({ error: 'Sale not found', code: 'SALE_NOT_FOUND', requestId: req.requestId });
     }
     res.json(sale);
   } catch (err) {
     console.error('Get sale error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', code: 'SALES_FETCH_ERROR', requestId: req.requestId });
   }
 });
 
@@ -250,7 +251,7 @@ router.post('/:id/void', authenticateToken, authorizeRoles('admin', 'cashier', '
   const saleId = parseInt(req.params.id, 10);
   
   if (!Number.isInteger(saleId)) {
-    return res.status(400).json({ error: 'Invalid sale ID', code: 'INVALID_SALE_ID' });
+    return res.status(400).json({ error: 'Invalid sale ID', code: 'INVALID_SALE_ID', requestId: req.requestId });
   }
   
   const { reason } = req.body;
@@ -367,7 +368,8 @@ router.post('/:id/void', authenticateToken, authorizeRoles('admin', 'cashier', '
     console.error('Void sale error:', err);
     res.status(err.status || 500).json({ 
       error: err.message || 'Internal server error',
-      code: err.code || 'VOID_ERROR'
+      code: err.code || 'VOID_ERROR',
+      requestId: req.requestId
     });
   }
 });

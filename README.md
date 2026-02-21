@@ -1,474 +1,245 @@
-# Bakery Operations Web App
+# Bakery Operations Platform
 
-A production-ready, role-based bakery management platform for day-to-day operations across one or many branches.
+A production-oriented, role-based bakery management system with multi-branch operations, offline-safe sales replay, idempotent write protection, and hardened API/DB resilience.
 
-## Features
+## Table of Contents
 
-- **Real-time inventory tracking** with oversell protection
-- **POS sales** with offline support
-- **Sale voiding** within 20-minute window with inventory restoration
-- **Expenses and staff payments** management
-- **Operational reports** with weekly/monthly exports
-- **Branch-level controls** with role-based access
-- **Offline queue/retry logic** with IndexedDB
-- **Idempotent write handling** for data consistency
-- **Alert rules and KPI telemetry**
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Core Reliability Design](#core-reliability-design)
+- [Security Controls](#security-controls)
+- [Project Structure](#project-structure)
+- [Environment Configuration](#environment-configuration)
+- [Development Workflow](#development-workflow)
+- [Testing and Quality Gates](#testing-and-quality-gates)
+- [Production-like Local Run (Frontend + Backend)](#production-like-local-run-frontend--backend)
+- [Deployment Strategy (No Feature Loss)](#deployment-strategy-no-feature-loss)
+- [Deployment Checklist](#deployment-checklist)
 
----
+## Overview
 
-## Architecture Overview
+The platform is designed for real bakery operations where intermittent connectivity and high checkout concurrency are normal. The current architecture emphasizes:
+
+- predictable sales processing under unstable networks,
+- replay-safe offline synchronization,
+- transaction-safe backend operations,
+- standardized API error responses with request tracing.
+- browser-level offline page boot support for refresh scenarios.
+
+## Architecture
+
+### High-Level System Diagram
 
 ```mermaid
 flowchart TB
-    subgraph Client["Frontend (React + Vite)"]
-        UI[User Interface]
-        OfflineQueue[IndexedDB Offline Queue]
-        Context[Auth + Branch Context]
-        SyncHook[useOfflineSync Hook]
-    end
-    
-    subgraph Server["Backend (Node.js + Express)"]
-        API[REST API Endpoints]
-        Auth[JWT Authentication]
-        RBAC[Role-Based Access Control]
-        BranchResolver[Branch Access Resolver]
-        Idempotency[Idempotency Handler]
-    end
-    
-    subgraph Database["PostgreSQL Database"]
-        Users[users, staff_profiles]
-        Inventory[inventory, inventory_movements]
-        Sales[sales, sale_items]
-        Finance[expenses, staff_payments]
-        System[idempotency_keys, kpi_events]
-    end
-    
-    UI --> Context
-    UI --> SyncHook
-    SyncHook --> OfflineQueue
-    SyncHook --> API
-    
-    API --> Auth
-    API --> RBAC
-    API --> BranchResolver
-    API --> Idempotency
-    
-    Auth --> Database
-    RBAC --> Database
-    BranchResolver --> Database
-    Idempotency --> Database
-    API --> Database
+  subgraph Frontend[Client - React + Vite]
+    UI[Role-Based UI]
+    AX[Axios API Client]
+    SYNC[useOfflineSync Hook]
+    QUEUE[IndexedDB Offline Queue]
+  end
+
+  subgraph Backend[API - Express]
+    SEC[Security Middleware]
+    CTX[Request Context Middleware]
+    ROUTES[Routes]
+    SERVICES[Service Layer]
+    REPOS[Repository Layer]
+    ERR[Central Error Handler]
+  end
+
+  subgraph Data[PostgreSQL]
+    CORE[(Operational Tables)]
+    IDEM[(idempotency_keys)]
+    AUDIT[(activity_log + notifications + kpi_events)]
+  end
+
+  UI --> AX --> SEC --> CTX --> ROUTES --> SERVICES --> REPOS --> Data
+  UI --> SYNC --> QUEUE --> AX
+  ROUTES --> ERR
+  REPOS --> CORE
+  REPOS --> IDEM
+  REPOS --> AUDIT
 ```
 
----
+### Backend Layering
 
-## Offline Sync Architecture
+- `server/routes/`: HTTP transport concerns (validation, request/response mapping).
+- `server/services/`: business rules and workflow orchestration.
+- `server/repositories/`: SQL and persistence concerns.
+- `server/middleware/`: authentication, authorization, security, request context.
+- `server/utils/errors.js`: normalized API errors in the format:
+
+```json
+{
+  "error": "Human-readable error message",
+  "code": "ERROR_CODE",
+  "requestId": "req-timestamp"
+}
+```
+
+## Core Reliability Design
+
+This section documents the reliability hardening added specifically to prevent the previously observed offline-sync failure patterns.
+
+### 1) Offline Replay Safety
+
+- Sales requests use `X-Idempotency-Key` to prevent duplicate writes.
+- In production builds, a service worker caches the app shell (`index.html` + static assets) so users can refresh and still open the app UI while offline.
+- Offline operations are persisted in IndexedDB and replayed with the same idempotency identity.
+- Queue flushes are guarded against overlap (`flushInProgress`) to prevent concurrent duplicate replay loops.
+- Batches are capped (`MAX_BATCH_PER_FLUSH`) so one flush cycle does not overload a degraded backend.
+- Adaptive request timeouts reduce false failures on slow connections.
+
+### 2) Retry-Storm Prevention During Outages
+
+- During queue replay, if an operation fails with server-unavailable characteristics (network failure / 5xx / 429), the queue pauses the remainder of the current batch.
+- This reduces pressure on the API/DB during incidents and allows controlled retries on subsequent sync cycles.
+
+### 3) Transaction and Connection Resilience
+
+- Database transient failures are detected and classified (timeouts, terminated connections, connection transport errors).
+- Transient DB failures are surfaced as `503` with a stable code (`DB_UNAVAILABLE`) for predictable client handling.
+- Transaction rollback paths are guarded so broken sockets do not cascade into process-level instability.
+- Broken clients are not reused in the pool (`release(true)` behavior).
+
+### 4) Process Stability and Observability
+
+- Request context middleware attaches a request ID for traceability.
+- Centralized error handler standardizes API failure responses.
+- Global process handlers avoid terminating the API process for recognized transient DB connectivity failures.
+
+### 5) Idempotent Sales Flow
 
 ```mermaid
 sequenceDiagram
-    participant U as User
-    participant C as Client
-    participant IDB as IndexedDB
-    participant API as Server API
-    participant DB as Database
-    
-    Note over U,DB: Normal Online Flow
-    U->>C: Create Sale
-    C->>API: POST /sales (with idempotency key)
-    API->>DB: Check idempotency key
-    alt Key exists
-        DB-->>API: Return cached response
-    else Key not found
-        API->>DB: Create sale + inventory deduction
-        API->>DB: Store idempotency key
-    end
-    API-->>C: Sale response
-    C-->>U: Success
-    
-    Note over U,DB: Offline Flow
-    U->>C: Create Sale (offline)
-    C->>IDB: Store operation in queue
-    C-->>U: Queued for sync
-    
-    Note over U,DB: Sync on Reconnection
-    C->>C: Online event triggered
-    C->>IDB: Get pending operations
-    loop For each operation
-        C->>API: Retry with idempotency key
-        API->>DB: Process with idempotency check
-        API-->>C: Response
-        C->>IDB: Remove from queue
-    end
+  participant Cashier
+  participant Client
+  participant Queue
+  participant API
+  participant DB
+
+  Cashier->>Client: Submit checkout
+  Client->>API: POST /api/sales + X-Idempotency-Key
+  alt Request fails (offline or transient backend issue)
+    Client->>Queue: Persist operation + payload
+    Queue->>API: Replay later with same idempotency key
+  end
+  API->>DB: Acquire advisory lock on user+key
+  API->>DB: Check/insert idempotency_keys
+  API-->>Client: Deterministic single-sale outcome
 ```
 
----
+## Security Controls
 
-## Database Schema
+- Helmet hardening enabled (with stricter policies in production).
+- CORS policy controlled by `ALLOWED_ORIGINS`.
+- API rate limiting for auth and general endpoints.
+- JWT-based authentication with startup validation for secret strength.
+- Parameterized SQL queries across persistence layer.
+- Role-based authorization for protected routes.
 
-```mermaid
-erDiagram
-    users ||--o{ sales : creates
-    users ||--o{ expenses : records
-    users ||--o{ staff_payments : receives
-    users ||--o{ inventory_movements : logs
-    users ||--o{ user_locations : has_access
-    
-    locations ||--o{ inventory : stocks
-    locations ||--o{ sales : processes
-    locations ||--o{ expenses : incurs
-    locations ||--o{ staff_payments : pays
-    
-    products ||--o{ inventory : has
-    products ||--o{ sale_items : includes
-    products ||--o{ inventory_movements : tracks
-    
-    sales ||--o{ sale_items : contains
-    sales ||--o{ inventory_movements : triggers
-    
-    inventory_batches ||--o{ batch_items : contains
-    
-    users {
-        int id PK
-        string username
-        string email
-        string password_hash
-        string role
-        int location_id FK
-        boolean is_active
-    }
-    
-    locations {
-        int id PK
-        string name
-        string address
-        boolean is_active
-    }
-    
-    products {
-        int id PK
-        string name
-        int category_id FK
-        decimal price
-        decimal cost
-    }
-    
-    inventory {
-        int id PK
-        int product_id FK
-        int location_id FK
-        int quantity
-        string source
-    }
-    
-    sales {
-        int id PK
-        int location_id FK
-        int cashier_id FK
-        decimal total_amount
-        string payment_method
-        string receipt_number
-        string status
-        boolean is_offline
-        timestamp sale_date
-    }
-    
-    staff_profiles {
-        int id PK
-        string full_name
-        string role_preference
-        decimal monthly_salary
-        int location_id FK
-        int linked_user_id FK
-        int payment_due_date
-        boolean is_active
-    }
-    
-    staff_payments {
-        int id PK
-        int user_id FK
-        int staff_profile_id FK
-        int location_id FK
-        decimal amount
-        date payment_date
-        string payment_type
-    }
+## Project Structure
+
+```text
+client/          React + Vite frontend
+server/          Express backend
+  routes/        API route handlers
+  middleware/    auth/security/validation/request context
+  services/      business logic orchestration
+  repositories/  persistence layer
+  utils/         shared helpers and error handling
+database/        PostgreSQL schema and migrations
+scripts/         setup and utility scripts
 ```
 
----
+## Environment Configuration
 
-## Quick Start
+Required values (see `.env.example`):
 
-### Prerequisites
-- Node.js 18+
-- PostgreSQL 12+
-- npm
+```env
+PORT=5000
+NODE_ENV=production
+JWT_SECRET=<min-32-chars>
+DATABASE_URL=<postgresql-connection-string>
+ALLOWED_ORIGINS=https://yourdomain.com
+```
 
-### Installation
+## Development Workflow
 
 ```bash
-# Install dependencies
 npm install
 cd client && npm install && cd ..
-
-# Set up environment
-cp .env.example .env
-# Edit .env with your database credentials
-
-# Initialize database
 npm run setup-db
-
-# Run migrations
-psql "$DATABASE_URL" -f database/migrations/001_ops_hardening.sql
-psql "$DATABASE_URL" -f database/migrations/002_branch_access_and_kpi.sql
-psql "$DATABASE_URL" -f database/migrations/005_sales_void_support.sql
-
-# Start development server
 npm run dev
 ```
 
-### Access
-
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:5000
-- **Default login**: username `admin`, password `admin123`
-
----
-
-## Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `PORT` | No | Server port (default: 5000) |
-| `NODE_ENV` | Yes | `development` or `production` |
-| `JWT_SECRET` | **Yes** | Min 32 characters |
-| `DATABASE_URL` | **Yes** | PostgreSQL connection string |
-| `ALLOWED_ORIGINS` | Prod | Comma-separated CORS origins |
-
----
-
-## Role-Based Access
-
-```mermaid
-flowchart LR
-    subgraph Admin[Admin Role]
-        A1[All Operations]
-        A2[Branch Management]
-        A3[Staff Management]
-        A4[All Reports]
-    end
-    
-    subgraph Manager[Manager Role]
-        M1[Inventory Management]
-        M2[Batch Operations]
-        M3[Expenses]
-        M4[Products CRUD]
-    end
-    
-    subgraph Cashier[Cashier Role]
-        C1[POS Sales]
-        C2[Sale History]
-        C3[Void Sales - 20min]
-    end
-    
-    Admin --> Manager
-    Manager --> Cashier
-```
-
-| Feature | Admin | Manager | Cashier |
-|---------|-------|---------|---------|
-| Dashboard | ✅ | ❌ | ❌ |
-| All Branches | ✅ | ❌ | ❌ |
-| Assigned Branch | ✅ | ✅ | ✅ |
-| Inventory | ✅ | ✅ | ❌ |
-| Sales | ✅ | ❌ | ✅ |
-| Expenses | ✅ | ✅ | ❌ |
-| Staff Payments | ✅ | ❌ | ❌ |
-| Reports | ✅ | ❌ | ❌ |
-| Products | ✅ | ✅ | ❌ |
-| Sale Void | ✅ | ✅ | ✅ (20min) |
-
----
-
-## Security
-
-This application implements multiple layers of security to protect data and prevent common vulnerabilities.
-
-### Authentication & Authorization
-
-- **JWT-based authentication** with configurable token expiration
-- **Role-based access control (RBAC)** with three roles: Admin, Manager, Cashier
-- **Password hashing** using bcrypt with salt rounds of 12
-- **Password validation** enforcing minimum 8 characters, letters, numbers, and special characters
-
-### Rate Limiting
-
-- **Authentication endpoints**: 10 requests/15min (production), 100 requests/min (development)
-- **General API endpoints**: 100 requests/15min (production), 1000 requests/30s (development)
-- **Strict endpoints**: 5 requests/hour (production), 50 requests/min (development)
-- **Password reset**: 3 requests/hour (production), 20 requests/min (development)
-- IPv6-aware key generation to prevent bypass attempts
-
-### HTTP Security
-
-- **Helmet.js** middleware for security headers:
-  - X-Content-Type-Options: nosniff
-  - X-Frame-Options: DENY
-  - X-XSS-Protection
-  - Strict-Transport-Security (HSTS)
-  - Content-Security-Policy (CSP)
-
-### CORS Configuration
-
-- **Development**: All origins allowed (`origin: true`)
-- **Production**: Strict origin whitelist via `ALLOWED_ORIGINS` environment variable
-- Credentials support enabled
-
-### Database Security
-
-- **Parameterized queries** (using `$1, $2, ...` syntax) to prevent SQL injection
-- **SSL/TLS support** with configurable certificate verification
-- **Connection pooling** with configurable limits
-- **Transaction support** for atomic operations
-
-### Input Validation
-
-- **express-validator** for request validation
-- **Input sanitization** to prevent XSS
-- Strict type checking on all endpoints
-
-### Idempotency
-
-- **X-Idempotency-Key** header support for write operations
-- Prevents duplicate submissions during network retries
-- Essential for offline queue operations
-
-### Graceful Shutdown
-
-- Proper connection draining on server stop
-- Database pool cleanup
-- In-flight request completion
-
-### Environment Validation
-
-```mermaid
-flowchart TD
-    A[Server Start] --> B{NODE_ENV}
-    B -->|production| C[Strict Validation]
-    B -->|development| D[Relaxed Validation]
-    
-    C --> E{JWT_SECRET >= 32?}
-    E -->|No| F[EXIT: Fatal Error]
-    E -->|Yes| G{ALLOWED_ORIGINS set?}
-    G -->|No| H[WARN: CORS restrictive]
-    G -->|Yes| I[Full Security]
-    
-    D --> J[Full Access]
-    J --> I
-    H --> I
-    F --> K[Server Crashes]
-```
-
----
-
-## API Endpoints
-
-### Authentication
-- `POST /api/auth/login` - User login
-- `POST /api/auth/register` - Create user (admin only)
-- `GET /api/auth/me` - Current user
-- `POST /api/auth/change-password` - Change password
-- `POST /api/auth/refresh-token` - Refresh JWT
-
-### Sales
-- `GET /api/sales` - List sales
-- `POST /api/sales` - Create sale (with offline support)
-- `GET /api/sales/:id` - Sale details
-- `POST /api/sales/:id/void` - Void sale (20-minute window)
-
-### Inventory
-- `GET /api/inventory` - List inventory
-- `POST /api/inventory` - Create inventory record
-- `PUT /api/inventory/:productId` - Update inventory
-- `POST /api/inventory/batches` - Create batch (with offline support)
-
-### Reports
-- `GET /api/reports/daily` - Daily summary
-- `GET /api/reports/weekly` - Weekly summary
-- `GET /api/reports/weekly/export` - CSV export
-- `GET /api/reports/monthly` - Monthly summary
-- `GET /api/reports/branches/summary` - Multi-branch snapshot
-- `GET /api/reports/kpis` - KPI metrics
-
----
-
-## Offline Support
-
-Operations that support offline queueing:
-
-| Operation | Offline Support | Idempotency |
-|-----------|----------------|-------------|
-| Create Sale | ✅ | ✅ |
-| Create Inventory Batch | ✅ | ✅ |
-| Create Expense | ✅ | ✅ |
-| Create Staff Payment | ✅ | ✅ |
-
-The offline system features:
-- **Exponential backoff** for retries
-- **Conflict detection** and logging
-- **Manual retry** from UI
-- **Global offline indicator** with queue stats
-- **Payload persistence** for conflict recovery
-
----
-
-## Deployment
-
-### Docker
+Useful commands:
 
 ```bash
-# Build image
-docker build -t bakery-ops-app .
-
-# Run container
-docker run -p 5000:5000 --env-file .env bakery-ops-app
+npm run server      # backend only
+npm run client      # frontend only
+npm run build       # production client build
+npm start           # production server start
 ```
 
-### Docker Compose
+## Testing and Quality Gates
 
 ```bash
-docker-compose up -d
-```
-
-### Production Checklist
-
-- [ ] Set strong `JWT_SECRET` (32+ characters)
-- [ ] Configure `ALLOWED_ORIGINS` for CORS
-- [ ] Set `NODE_ENV=production`
-- [ ] Configure SSL/TLS
-- [ ] Set up database backups
-- [ ] Configure monitoring/logging
-- [ ] Run all migrations
-
----
-
-## Development
-
-```bash
-# Run in development mode
-npm run dev
-
-# Run tests
 npm test
-
-# Run linting
 npm run lint
-
-# Validate environment
-npm run validate:env
+npm run build
 ```
 
----
+## Production-like Local Run (Frontend + Backend)
 
-## License
+Use this flow when validating offline-refresh behavior and backend APIs together.
 
-MIT
+1) Terminal A: run backend API
+
+```bash
+cd /workspace/bakery-ops-app
+npm run server
+```
+
+2) Terminal B: build and preview frontend
+
+```bash
+cd /workspace/bakery-ops-app/client
+npm run build
+npm run preview
+```
+
+3) Open the preview URL (usually `http://localhost:4173`).
+
+4) Make sure frontend can call backend:
+- If needed, set `VITE_API_URL=http://localhost:5000/api` in `client/.env` for preview/deploy environments.
+- If your platform uses different domains, ensure `ALLOWED_ORIGINS` on backend includes the frontend origin.
+
+Notes:
+- `npm run preview` exists in `client/package.json`, not root `package.json`.
+- Offline-refresh testing should be done with preview/deployed build, not Vite dev mode.
+
+## Deployment Strategy (No Feature Loss)
+
+To avoid losing offline and sync behavior when frontend/backend are deployed separately:
+
+- Deploy backend API and frontend app as separate artifacts/environments.
+- Keep API contract stable (`Authorization`, `X-Location-Id`, `X-Idempotency-Key`, error format).
+- Keep service worker and offline queue enabled in production frontend build.
+- Ensure frontend base API URL targets the deployed backend (`VITE_API_URL`).
+- Ensure backend CORS (`ALLOWED_ORIGINS`) allows deployed frontend origins.
+- Validate key acceptance flows after each release:
+  - normal online sale,
+  - offline sale queue,
+  - reconnect + sync replay,
+  - offline refresh on already-visited route.
+
+## Deployment Checklist
+
+- Set `NODE_ENV=production`
+- Set strong `JWT_SECRET` (32+ chars)
+- Set `DATABASE_URL` with SSL policy
+- Configure `ALLOWED_ORIGINS`
+- Apply database migrations before startup
+- Verify health probes: `/api/health`, `/api/ready`, `/api/live`

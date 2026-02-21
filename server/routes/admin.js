@@ -1,58 +1,12 @@
 import express from 'express';
-import bcrypt from 'bcryptjs';
 import { body, validationResult } from 'express-validator';
-import { query, withTransaction } from '../db.js';
+import { query } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { validatePassword } from '../middleware/security.js';
-
-const SALT_ROUNDS = 12;
+import { adminLifecycleRepository } from '../repositories/adminLifecycleRepository.js';
+import { createStaffAccount, updateStaffAccount, archiveStaffAccount, archiveStaffProfile } from '../services/adminLifecycleService.js';
 
 const router = express.Router();
-let schemaReadyPromise;
-
-function ensureSchemaReady() {
-  if (!schemaReadyPromise) {
-    schemaReadyPromise = (async () => {
-      await query(`
-        ALTER TABLE users
-          ADD COLUMN IF NOT EXISTS full_name VARCHAR(120),
-          ADD COLUMN IF NOT EXISTS national_id VARCHAR(60),
-          ADD COLUMN IF NOT EXISTS phone_number VARCHAR(30),
-          ADD COLUMN IF NOT EXISTS age INT,
-          ADD COLUMN IF NOT EXISTS monthly_salary NUMERIC(12,2) DEFAULT 0,
-          ADD COLUMN IF NOT EXISTS job_title VARCHAR(80),
-          ADD COLUMN IF NOT EXISTS hire_date DATE DEFAULT CURRENT_DATE,
-          ADD COLUMN IF NOT EXISTS termination_date DATE
-      `);
-
-      await query(`
-        CREATE TABLE IF NOT EXISTS staff_profiles (
-          id SERIAL PRIMARY KEY,
-          full_name VARCHAR(120) NOT NULL,
-          national_id VARCHAR(60) UNIQUE,
-          phone_number VARCHAR(30) NOT NULL,
-          age INT,
-          monthly_salary NUMERIC(12,2) NOT NULL DEFAULT 0,
-          role_preference VARCHAR(30) NOT NULL DEFAULT 'cashier',
-          job_title VARCHAR(80),
-          location_id INT REFERENCES locations(id) ON DELETE SET NULL,
-          is_active BOOLEAN NOT NULL DEFAULT true,
-          hire_date DATE NOT NULL DEFAULT CURRENT_DATE,
-          termination_date DATE,
-          linked_user_id INT UNIQUE REFERENCES users(id) ON DELETE SET NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-    })().catch((err) => {
-      schemaReadyPromise = null;
-      throw err;
-    });
-  }
-
-  return schemaReadyPromise;
-}
-
 function roleRank(role, jobTitle) {
   if (role === 'admin') return 1;
   if (role === 'manager') return 2;
@@ -83,7 +37,6 @@ async function createTerminationSecurityNotification(staff) {
 
 router.get('/staff', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    await ensureSchemaReady();
     const result = await query(
       `SELECT sp.*, l.name AS location_name, u.username AS account_username, u.role AS account_role, u.is_active AS account_active
        FROM staff_profiles sp
@@ -114,8 +67,7 @@ router.post(
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
-      await ensureSchemaReady();
-      const {
+        const {
         full_name,
         national_id,
         phone_number,
@@ -162,7 +114,6 @@ router.post(
 
 router.patch('/staff/:id/status', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    await ensureSchemaReady();
     const id = Number(req.params.id);
     const { is_active } = req.body;
     if (!Number.isInteger(id) || typeof is_active !== 'boolean') return res.status(400).json({ error: 'Invalid payload' });
@@ -216,7 +167,6 @@ router.patch('/staff/:id/status', authenticateToken, authorizeRoles('admin'), as
 
 router.put('/staff/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    await ensureSchemaReady();
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid staff id' });
 
@@ -273,27 +223,22 @@ router.put('/staff/:id', authenticateToken, authorizeRoles('admin'), async (req,
 
 router.delete('/staff/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    await ensureSchemaReady();
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid staff id' });
 
-    const current = await query('SELECT id, linked_user_id FROM staff_profiles WHERE id = $1', [id]);
-    if (!current.rows.length) return res.status(404).json({ error: 'Staff member not found' });
-    if (current.rows[0].linked_user_id) {
-      return res.status(400).json({ error: 'Cannot delete staff with active account. Delete account first.' });
-    }
-
-    await query('DELETE FROM staff_profiles WHERE id = $1', [id]);
-    res.json({ deleted: true });
+    const result = await archiveStaffProfile(id, adminLifecycleRepository);
+    res.json(result);
   } catch (err) {
     console.error('Delete staff profile error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message, code: err.code, requestId: req.requestId });
+    }
+    res.status(500).json({ error: 'Internal server error', code: 'STAFF_ARCHIVE_ERROR', requestId: req.requestId });
   }
 });
 
 router.get('/users', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    await ensureSchemaReady();
     const result = await query(
       `SELECT u.id, u.username, u.email, u.role, u.location_id, u.is_active, u.created_at,
               COALESCE(sp.full_name, u.full_name, u.username) AS full_name,
@@ -329,7 +274,6 @@ router.get('/users', authenticateToken, authorizeRoles('admin'), async (req, res
 
 router.get('/users/:id/profile', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    await ensureSchemaReady();
     const staff = await query(
       `SELECT u.id, u.username, u.role, u.is_active,
               COALESCE(sp.full_name, u.full_name, u.username) AS full_name,
@@ -364,7 +308,6 @@ router.get('/users/:id/profile', authenticateToken, authorizeRoles('admin'), asy
 
 router.get('/staff-expense-summary', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    await ensureSchemaReady();
     const activeSalary = await query(
       `SELECT COALESCE(SUM(monthly_salary), 0) AS total_active_salary
        FROM staff_profiles
@@ -390,10 +333,9 @@ router.get('/staff-expense-summary', authenticateToken, authorizeRoles('admin'),
 
 router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    await ensureSchemaReady();
     const locationId = req.query.location_id ? Number(req.query.location_id) : null;
     
-    let query = `
+    let queryText = `
       SELECT 
         sp.id,
         sp.full_name,
@@ -418,12 +360,12 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
     const params = [];
     if (locationId) {
       params.push(locationId);
-      query += ` AND sp.location_id = $${params.length}`;
+      queryText += ` AND sp.location_id = $${params.length}`;
     }
     
-    query += ` ORDER BY sp.full_name ASC`;
+    queryText += ` ORDER BY sp.full_name ASC`;
     
-    const result = await query(query, params);
+    const result = await query(queryText, params);
     
     res.json(result.rows);
   } catch (err) {
@@ -437,7 +379,6 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
 
 router.get('/check-salary-due', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    await ensureSchemaReady();
     
     const today = new Date();
     const currentDay = today.getDate();
@@ -536,94 +477,28 @@ router.post(
 
     const passwordCheck = validatePassword(password);
     if (!passwordCheck.valid) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Password does not meet security requirements',
         code: 'WEAK_PASSWORD',
-        details: passwordCheck.errors 
+        details: passwordCheck.errors
       });
     }
 
     try {
-      await ensureSchemaReady();
-      
-      const result = await withTransaction(async (tx) => {
-        const staffResult = await tx.query('SELECT * FROM staff_profiles WHERE id = $1 AND is_active = true', [staff_profile_id]);
-        if (!staffResult.rows.length) {
-          const err = new Error('Staff profile not found or inactive');
-          err.status = 404;
-          throw err;
-        }
-        const staff = staffResult.rows[0];
-
-        if (staff.linked_user_id) {
-          const err = new Error('Staff profile already has an account');
-          err.status = 400;
-          throw err;
-        }
-
-        if (staff.role_preference === 'other') {
-          const err = new Error('Staff with "other" role typically do not need accounts. Create a manager or cashier staff profile first.');
-          err.status = 400;
-          throw err;
-        }
-
-        const resolvedEmail = `${(staff.phone_number || username).replace(/[^0-9+]/g, '') || username}@phone.local`;
-        const exists = await tx.query('SELECT id FROM users WHERE username = $1 OR email = $2', [username, resolvedEmail]);
-        if (exists.rows.length > 0) {
-          const err = new Error('Username or phone already exists');
-          err.status = 409;
-          throw err;
-        }
-
-        const password_hash = await bcrypt.hash(password, SALT_ROUNDS);
-        const inserted = await tx.query(
-          `INSERT INTO users
-           (username, email, password_hash, role, location_id, full_name, national_id, phone_number, age, monthly_salary, job_title, hire_date, is_active)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true)
-           RETURNING id, username, email, role, location_id, is_active, created_at, full_name, phone_number, age, monthly_salary, job_title, hire_date`,
-          [
-            username,
-            resolvedEmail,
-            password_hash,
-            role,
-            location_id,
-            staff.full_name,
-            staff.national_id,
-            staff.phone_number,
-            staff.age,
-            staff.monthly_salary,
-            staff.job_title,
-            staff.hire_date || new Date().toISOString().slice(0, 10),
-          ]
-        );
-
-        await tx.query(
-          `INSERT INTO user_locations (user_id, location_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-          [inserted.rows[0].id, location_id]
-        );
-        
-        await tx.query(
-          `UPDATE staff_profiles SET linked_user_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-          [inserted.rows[0].id, staff_profile_id]
-        );
-
-        return { user: inserted.rows[0], staff_profile_id };
-      });
-
+      const result = await createStaffAccount({ username, password, role, location_id, staff_profile_id }, adminLifecycleRepository);
       res.status(201).json(result);
     } catch (err) {
       console.error('Create admin user error:', err);
       if (err.status) {
-        return res.status(err.status).json({ error: err.message });
+        return res.status(err.status).json({ error: err.message, code: err.code, requestId: req.requestId });
       }
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ error: 'Internal server error', code: 'ADMIN_USER_CREATE_ERROR', requestId: req.requestId });
     }
   }
 );
 
 router.patch('/users/:id/status', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    await ensureSchemaReady();
     const id = Number(req.params.id);
     const { is_active } = req.body;
 
@@ -679,50 +554,35 @@ router.patch('/users/:id/status', authenticateToken, authorizeRoles('admin'), as
 
 router.put('/users/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    await ensureSchemaReady();
     const id = Number(req.params.id);
     const { username, password, role, location_id } = req.body;
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id' });
 
-    let passwordClause = '';
-    const params = [username || null, role || null, location_id ?? null, id];
-    if (password) {
-      const password_hash = await bcrypt.hash(password, 10);
-      passwordClause = ', password_hash = $5';
-      params.splice(3, 0, password_hash);
-    }
-
-    const sql = password
-      ? `UPDATE users SET username = COALESCE($1, username), role = COALESCE($2, role), location_id = COALESCE($3, location_id)${passwordClause}, updated_at = CURRENT_TIMESTAMP WHERE id = $6 RETURNING id, username, role, location_id, is_active`
-      : `UPDATE users SET username = COALESCE($1, username), role = COALESCE($2, role), location_id = COALESCE($3, location_id), updated_at = CURRENT_TIMESTAMP WHERE id = $4 RETURNING id, username, role, location_id, is_active`;
-
-    const updated = await query(sql, params);
-    if (!updated.rows.length) return res.status(404).json({ error: 'Account not found' });
-    res.json(updated.rows[0]);
+    const updated = await updateStaffAccount({ id, username, password, role, location_id }, adminLifecycleRepository);
+    if (!updated) return res.status(404).json({ error: 'Account not found' });
+    res.json(updated);
   } catch (err) {
     console.error('Update account error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message, code: err.code, requestId: req.requestId });
+    }
+    res.status(500).json({ error: 'Internal server error', code: 'ACCOUNT_UPDATE_ERROR', requestId: req.requestId });
   }
 });
 
 router.delete('/users/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    await ensureSchemaReady();
     const id = Number(req.params.id);
-    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id' });
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id', code: 'INVALID_USER_ID', requestId: req.requestId });
 
-    const userRow = await query('SELECT id, role FROM users WHERE id = $1', [id]);
-    if (!userRow.rows.length) return res.status(404).json({ error: 'Account not found' });
-    if (userRow.rows[0].role === 'admin') return res.status(400).json({ error: 'Cannot delete admin account' });
-
-    await query('UPDATE staff_profiles SET linked_user_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE linked_user_id = $1', [id]);
-    await query('DELETE FROM user_locations WHERE user_id = $1', [id]);
-    await query('DELETE FROM users WHERE id = $1', [id]);
-
-    res.json({ deleted: true });
+    const result = await archiveStaffAccount(id, adminLifecycleRepository);
+    res.json(result);
   } catch (err) {
-    console.error('Delete account error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Archive account error:', err);
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message, code: err.code, requestId: req.requestId });
+    }
+    res.status(500).json({ error: 'Internal server error', code: 'ACCOUNT_ARCHIVE_ERROR', requestId: req.requestId });
   }
 });
 

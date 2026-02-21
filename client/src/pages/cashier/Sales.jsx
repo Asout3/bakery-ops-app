@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Plus, Minus, ShoppingCart, Trash2, Search } from 'lucide-react';
@@ -17,6 +17,7 @@ export default function Sales() {
   const [orderStartedAt, setOrderStartedAt] = useState(Date.now());
   const [receiptData, setReceiptData] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const checkoutInFlightRef = useRef(false);
 
   useEffect(() => {
     fetchProducts();
@@ -98,48 +99,52 @@ export default function Sales() {
   };
 
   const handleCheckout = async () => {
+    if (checkoutInFlightRef.current || loading) {
+      return;
+    }
+
     if (cart.length === 0) {
       setMessage({ type: 'warning', text: 'Cart is empty' });
       return;
     }
 
+    const payload = {
+      items: cart.map(item => ({ product_id: item.product_id, quantity: item.quantity })),
+      payment_method: 'cash',
+      cashier_timing_ms: Date.now() - orderStartedAt
+    };
+    const idempotencyKey = `sale-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    checkoutInFlightRef.current = true;
     setLoading(true);
     try {
-      const response = await api.post('/sales', {
-        items: cart.map(item => ({
-          product_id: item.product_id,
-          quantity: item.quantity
-        })),
-        payment_method: 'cash',
-        cashier_timing_ms: Date.now() - orderStartedAt
+      const response = await api.post('/sales', payload, {
+        headers: {
+          'X-Idempotency-Key': idempotencyKey,
+        },
       });
 
       setMessage({ type: 'success', text: `Sale completed! Receipt: ${response.data.receipt_number}` });
       setReceiptData(response.data);
       setCart([]);
       setOrderStartedAt(Date.now());
-      
+
       setTimeout(() => setMessage(null), 5000);
     } catch (err) {
       if (!err.response) {
-        const payload = {
-          items: cart.map(item => ({ product_id: item.product_id, quantity: item.quantity })),
-          payment_method: 'cash',
-          cashier_timing_ms: Date.now() - orderStartedAt
-        };
-        const idempotencyKey = `sale-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        await enqueueOperation({ url: '/sales', method: 'post', data: payload, idempotencyKey });
+        await enqueueOperation({ id: idempotencyKey, url: '/sales', method: 'post', data: payload, idempotencyKey });
         setMessage({ type: 'warning', text: 'Offline: sale queued for sync.' });
         setCart([]);
         setOrderStartedAt(Date.now());
       } else {
-        setMessage({ 
-          type: 'danger', 
-          text: err.response?.data?.error || 'Failed to process sale' 
+        setMessage({
+          type: 'danger',
+          text: err.response?.data?.error || 'Failed to process sale'
         });
       }
     } finally {
       setLoading(false);
+      checkoutInFlightRef.current = false;
     }
   };
 
