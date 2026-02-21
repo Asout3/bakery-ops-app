@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'bakery-ops-shell-v1';
+const CACHE_VERSION = 'bakery-ops-shell-v2';
 const SHELL_CACHE = `shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 const SHELL_ASSETS = ['/', '/index.html', '/vite.svg'];
@@ -47,6 +47,18 @@ async function networkThenCache(request) {
   return response;
 }
 
+async function cacheFirst(request) {
+  const cached = await caches.match(request);
+  if (cached) {
+    return cached;
+  }
+  try {
+    return await networkThenCache(request);
+  } catch {
+    return Response.error();
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') {
     return;
@@ -78,18 +90,17 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (isStaticAsset(requestUrl)) {
-    event.respondWith(
-      caches.match(event.request).then(async (cached) => {
-        if (cached) {
-          return cached;
-        }
-        return networkThenCache(event.request);
-      })
-    );
+    event.respondWith(cacheFirst(event.request));
     return;
   }
 
   event.respondWith(
-    networkThenCache(event.request).catch(() => caches.match(event.request))
+    networkThenCache(event.request).catch(async () => {
+      const cached = await caches.match(event.request);
+      if (cached) {
+        return cached;
+      }
+      return Response.error();
+    })
   );
 });

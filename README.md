@@ -83,7 +83,7 @@ This section documents the reliability hardening added specifically to prevent t
 ### 1) Offline Replay Safety
 
 - Sales requests use `X-Idempotency-Key` to prevent duplicate writes.
-- A service worker caches the app shell (`index.html` + static assets) so users can refresh and still open the app UI while offline.
+- In production builds, a service worker caches the app shell (`index.html` + static assets) so users can refresh and still open the app UI while offline.
 - Offline operations are persisted in IndexedDB and replayed with the same idempotency identity.
 - Queue flushes are guarded against overlap (`flushInProgress`) to prevent concurrent duplicate replay loops.
 - Batches are capped (`MAX_BATCH_PER_FLUSH`) so one flush cycle does not overload a degraded backend.
