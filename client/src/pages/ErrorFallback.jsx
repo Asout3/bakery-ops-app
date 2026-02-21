@@ -1,5 +1,3 @@
-import { Link } from 'react-router-dom';
-
 export default function ErrorFallback() {
   return (
     <div style={{ minHeight: '70vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
@@ -11,7 +9,7 @@ export default function ErrorFallback() {
           </p>
           <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem' }}>
             <button className="btn btn-secondary" onClick={() => window.location.reload()}>Reload page</button>
-            <Link to="/login" className="btn btn-primary">Login again</Link>
+            <button className="btn btn-primary" onClick={() => { window.location.href = '/login'; }}>Login again</button>
           </div>
         </div>
       </div>

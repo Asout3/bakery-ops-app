@@ -188,7 +188,7 @@ export default function CashierHistory() {
                       </td>
                       <td>
                         <span className={`fw-bold ${sale.status === 'voided' ? 'text-muted text-decoration-line-through' : 'text-success'}`}>
-                          ${Number(sale.total_amount).toFixed(2)}
+                          ETB {Number(sale.total_amount).toFixed(2)}
                         </span>
                       </td>
                       <td>
@@ -275,7 +275,7 @@ export default function CashierHistory() {
                 <div className="col-md-6">
                   <h5>Transaction Info</h5>
                   <p><strong>Date & Time:</strong> {new Date(selectedSale.sale_date).toLocaleString()}</p>
-                  <p><strong>Amount:</strong> ${Number(selectedSale.total_amount).toFixed(2)}</p>
+                  <p><strong>Amount:</strong> ETB {Number(selectedSale.total_amount).toFixed(2)}</p>
                   <p><strong>Payment Method:</strong> {selectedSale.payment_method}</p>
                   {selectedSale.status === 'voided' && (
                     <div className="alert alert-warning">
@@ -306,14 +306,14 @@ export default function CashierHistory() {
                           <td>{item.product_name}</td>
                           <td>{item.quantity}</td>
                           <td>${Number(item.unit_price).toFixed(2)}</td>
-                          <td>${Number(item.subtotal).toFixed(2)}</td>
+                          <td>ETB {Number(item.subtotal).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot>
                       <tr>
                         <th colSpan="3">Total:</th>
-                        <th>${Number(selectedSale.total_amount).toFixed(2)}</th>
+                        <th>ETB {Number(selectedSale.total_amount).toFixed(2)}</th>
                       </tr>
                     </tfoot>
                   </table>

@@ -24,7 +24,7 @@ router.get('/', authenticateToken, async (req, res) => {
           `SELECT DISTINCT p.*, c.name as category_name
            FROM products p
            LEFT JOIN categories c ON p.category_id = c.id
-           JOIN inventory i ON i.product_id = p.id AND i.location_id = $1
+           LEFT JOIN inventory i ON i.product_id = p.id AND i.location_id = $1
            WHERE p.is_active = true
            ORDER BY c.name, p.name`,
           [locationId]

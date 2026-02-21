@@ -3,7 +3,7 @@ import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Package, Send, Plus, Minus } from 'lucide-react';
 import './Inventory.css';
-import { enqueueOperation } from '../../utils/offlineQueue';
+import { enqueueOperation, listQueuedOperations } from '../../utils/offlineQueue';
 
 export default function Inventory() {
   const { selectedLocationId } = useBranch();
@@ -58,8 +58,9 @@ export default function Inventory() {
       response.data.forEach((item) => {
         inventoryMap[item.product_id] = item;
       });
-      setInventory(inventoryMap);
-      localStorage.setItem(`manager_inventory_cache_${selectedLocationId || 'default'}`, JSON.stringify(inventoryMap));
+      const inventoryWithPendingBatches = await applyPendingBatchesToInventory(inventoryMap);
+      setInventory(inventoryWithPendingBatches);
+      persistInventoryCache(inventoryWithPendingBatches);
     } catch (err) {
       console.error('Failed to fetch inventory:', err);
       const cached = localStorage.getItem(`manager_inventory_cache_${selectedLocationId || 'default'}`);
@@ -69,6 +70,31 @@ export default function Inventory() {
     }
   };
 
+
+  const persistInventoryCache = (inventoryMap) => {
+    localStorage.setItem(`manager_inventory_cache_${selectedLocationId || 'default'}`, JSON.stringify(inventoryMap));
+  };
+
+  const applyBatchItemsToInventory = (baseInventory, batchItems = []) => {
+    const nextInventory = { ...baseInventory };
+    batchItems.forEach((item) => {
+      const id = Number(item.product_id);
+      const qty = Number(item.quantity || 0);
+      const existing = nextInventory[id] || { product_id: id, quantity: 0 };
+      nextInventory[id] = {
+        ...existing,
+        quantity: Number(existing.quantity || 0) + qty,
+        source: item.source || existing.source || 'baked',
+      };
+    });
+    return nextInventory;
+  };
+
+  const applyPendingBatchesToInventory = async (baseInventory) => {
+    const queue = await listQueuedOperations();
+    const pendingBatches = queue.filter((op) => op.url === '/inventory/batches' && op.method === 'post' && op.status !== 'conflict');
+    return pendingBatches.reduce((acc, op) => applyBatchItemsToInventory(acc, op.data?.items || []), baseInventory);
+  };
   const addToCart = (product, source) => {
     const existing = cart.find(
       (item) => item.product_id === product.id && item.source === source
@@ -131,6 +157,9 @@ export default function Inventory() {
       });
 
       setMessage({ type: 'success', text: 'Batch sent successfully!' });
+      const optimisticInventory = applyBatchItemsToInventory(inventory, cart);
+      setInventory(optimisticInventory);
+      persistInventoryCache(optimisticInventory);
       setCart([]);
       fetchInventory();
 
@@ -140,6 +169,9 @@ export default function Inventory() {
         const payload = { items: cart, notes: 'Batch sent from manager' };
         const idempotencyKey = `batch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         await enqueueOperation({ url: '/inventory/batches', method: 'post', data: payload, idempotencyKey });
+        const optimisticInventory = applyBatchItemsToInventory(inventory, cart);
+        setInventory(optimisticInventory);
+        persistInventoryCache(optimisticInventory);
         setMessage({ type: 'warning', text: 'Offline: batch queued for sync.' });
         setCart([]);
       } else {

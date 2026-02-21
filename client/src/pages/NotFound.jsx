@@ -1,5 +1,3 @@
-import { Link } from 'react-router-dom';
-
 export default function NotFound() {
   return (
     <div style={{ minHeight: '70vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
@@ -10,7 +8,7 @@ export default function NotFound() {
           <p className="text-muted" style={{ marginBottom: '1.25rem' }}>
             The page you requested does not exist or may have been moved.
           </p>
-          <Link to="/login" className="btn btn-primary">Go to login</Link>
+          <button className="btn btn-primary" onClick={() => { window.location.href = '/login'; }}>Go to login</button>
         </div>
       </div>
     </div>

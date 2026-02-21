@@ -141,8 +141,10 @@ sequenceDiagram
 ### 7) Manager Offline Continuity
 
 - Manager inventory/product lists are now cached per branch in local storage.
+- Optimistic offline inventory/product adjustments are persisted to local caches so refresh does not resurrect already-consumed stock.
 - When offline, manager screens restore cached products/inventory so batch preparation can continue.
 - Offline batch sends are queued with idempotency keys for replay.
+- Admin product/inventory changes also queue offline and are rendered as pending sync in the UI.
 
 ## Security Controls
 

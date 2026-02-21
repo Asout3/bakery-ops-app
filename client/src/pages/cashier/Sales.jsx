@@ -3,7 +3,7 @@ import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Plus, Minus, ShoppingCart, Trash2, Search } from 'lucide-react';
 import './Sales.css';
-import { enqueueOperation } from '../../utils/offlineQueue';
+import { enqueueOperation, listQueuedOperations } from '../../utils/offlineQueue';
 import { useLanguage } from '../../context/LanguageContext';
 
 export default function Sales() {
@@ -38,6 +38,31 @@ export default function Sales() {
     };
   }, []);
 
+
+  const persistProductsCache = (nextProducts) => {
+    localStorage.setItem(`cashier_products_cache_${selectedLocationId || 'default'}`, JSON.stringify(nextProducts));
+  };
+
+  const applyPendingSalesToProducts = async (baseProducts) => {
+    const queue = await listQueuedOperations();
+    const pendingSales = queue.filter((op) => op.url === '/sales' && op.method === 'post' && op.status !== 'conflict');
+    if (!pendingSales.length) {
+      return baseProducts;
+    }
+    const usageByProduct = new Map();
+    pendingSales.forEach((op) => {
+      (op.data?.items || []).forEach((item) => {
+        const id = Number(item.product_id);
+        const current = usageByProduct.get(id) || 0;
+        usageByProduct.set(id, current + Number(item.quantity || 0));
+      });
+    });
+
+    return baseProducts.map((product) => ({
+      ...product,
+      stock_quantity: Math.max(0, Number(product.stock_quantity || 0) - (usageByProduct.get(Number(product.id)) || 0))
+    }));
+  };
   const fetchProducts = async () => {
     try {
       const [productsRes, inventoryRes] = await Promise.all([api.get('/products'), api.get('/inventory')]);
@@ -46,8 +71,9 @@ export default function Sales() {
         ...product,
         stock_quantity: inventoryByProduct.get(Number(product.id)) || 0
       }));
-      setProducts(productsWithStock);
-      localStorage.setItem(`cashier_products_cache_${selectedLocationId || 'default'}`, JSON.stringify(productsWithStock));
+      const productsWithPendingApplied = await applyPendingSalesToProducts(productsWithStock);
+      setProducts(productsWithPendingApplied);
+      persistProductsCache(productsWithPendingApplied);
     } catch (err) {
       console.error('Failed to fetch products:', err);
       const cached = localStorage.getItem(`cashier_products_cache_${selectedLocationId || 'default'}`);
@@ -67,7 +93,8 @@ export default function Sales() {
   const getRemainingStock = (product) => Number(product.stock_quantity || 0) - getCartQuantity(product.id);
 
   const applySaleToLocalStock = (soldItems) => {
-    setProducts((current) => current.map((product) => {
+    setProducts((current) => {
+      const nextProducts = current.map((product) => {
       const soldItem = soldItems.find((item) => Number(item.product_id) === Number(product.id));
       if (!soldItem) {
         return product;
@@ -76,7 +103,10 @@ export default function Sales() {
         ...product,
         stock_quantity: Math.max(0, Number(product.stock_quantity || 0) - Number(soldItem.quantity || 0))
       };
-    }));
+    });
+      persistProductsCache(nextProducts);
+      return nextProducts;
+    });
   };
 
   const addToCart = (product) => {
@@ -283,7 +313,7 @@ export default function Sales() {
                       </div>
 
                       <div className="cart-item-subtotal">
-                        ${(item.price * item.quantity).toFixed(2)}
+                        ETB {(item.price * item.quantity).toFixed(2)}
                       </div>
                     </div>
                   ))}
@@ -306,7 +336,7 @@ export default function Sales() {
               <div className="cart-total">
                 <span className="cart-total-label">Total:</span>
                 <span className="cart-total-amount">
-                  ${calculateTotal().toFixed(2)}
+                  ETB {calculateTotal().toFixed(2)}
                 </span>
               </div>
               <button
@@ -335,7 +365,7 @@ export default function Sales() {
                 {(receiptData.items || []).map((item, idx) => (
                   <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
                     <span>{item.product_name} × {item.quantity}</span>
-                    <span>${Number(item.subtotal).toFixed(2)}</span>
+                    <span>ETB {Number(item.subtotal).toFixed(2)}</span>
                   </div>
                 ))}
               </div>
