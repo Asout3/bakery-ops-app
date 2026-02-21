@@ -94,7 +94,7 @@ export default function SalesPage() {
             <DollarSign size={24} />
           </div>
           <div className="stat-content">
-            <h3>${filteredSales.reduce((sum, sale) => sum + parseFloat(sale.total_amount || 0), 0).toFixed(2)}</h3>
+            <h3>ETB {filteredSales.reduce((sum, sale) => sum + parseFloat(sale.total_amount || 0), 0).toFixed(2)}</h3>
             <p>Total Sales</p>
           </div>
         </div>
@@ -114,7 +114,7 @@ export default function SalesPage() {
             <Calendar size={24} />
           </div>
           <div className="stat-content">
-            <h3>${filteredSales.length > 0 ? (filteredSales.reduce((sum, sale) => sum + parseFloat(sale.total_amount || 0), 0) / filteredSales.length).toFixed(2) : '0.00'}</h3>
+            <h3>ETB {filteredSales.length > 0 ? (filteredSales.reduce((sum, sale) => sum + parseFloat(sale.total_amount || 0), 0) / filteredSales.length).toFixed(2) : '0.00'}</h3>
             <p>Avg. Transaction</p>
           </div>
         </div>
@@ -141,7 +141,7 @@ export default function SalesPage() {
                   <tr key={sale.id}>
                     <td>{sale.receipt_number}</td>
                     <td>{new Date(sale.sale_date).toLocaleDateString()}</td>
-                    <td>${Number(sale.total_amount).toFixed(2)}</td>
+                    <td>ETB {Number(sale.total_amount).toFixed(2)}</td>
                     <td>
                       <span className={`badge ${sale.payment_method === 'cash' ? 'badge-success' : sale.payment_method === 'card' ? 'badge-primary' : 'badge-info'}`}>
                         {sale.payment_method}
@@ -155,7 +155,7 @@ export default function SalesPage() {
                       )}
                     </td>
                     <td>{sale.location_id}</td>
-                    <td>{sale.cashier_id}</td>
+                    <td>{sale.cashier_name || sale.cashier_id}</td>
                     <td>
                       <button 
                         className="btn btn-sm btn-outline-primary"
@@ -184,12 +184,12 @@ export default function SalesPage() {
                 <div className="col-md-6">
                   <h5>Transaction Info</h5>
                   <p><strong>Date:</strong> {new Date(selectedSale.sale_date).toLocaleDateString()}</p>
-                  <p><strong>Amount:</strong> ${Number(selectedSale.total_amount).toFixed(2)}</p>
+                  <p><strong>Amount:</strong> ETB {Number(selectedSale.total_amount).toFixed(2)}</p>
                   <p><strong>Payment Method:</strong> {selectedSale.payment_method}</p>
                 </div>
                 <div className="col-md-6">
                   <h5>Staff & Location</h5>
-                  <p><strong>Cashier ID:</strong> {selectedSale.cashier_id}</p>
+                  <p><strong>Cashier:</strong> {selectedSale.cashier_name || selectedSale.cashier_id}</p>
                   <p><strong>Location ID:</strong> {selectedSale.location_id}</p>
                 </div>
               </div>

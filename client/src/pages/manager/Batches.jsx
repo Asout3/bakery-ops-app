@@ -98,6 +98,7 @@ export default function ManagerBatches() {
                   <th>Items</th>
                   <th>Total Cost</th>
                   <th>Created By</th>
+                  <th>Sync Source</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -110,6 +111,7 @@ export default function ManagerBatches() {
                     <td>{batch.items_count}</td>
                     <td>ETB {Number(batch.total_cost || 0).toFixed(2)}</td>
                     <td>{batch.created_by_name}</td>
+                    <td>{batch.is_offline ? <span className="badge badge-warning">Offline</span> : <span className="badge badge-success">Online</span>}</td>
                     <td style={{ display: 'flex', gap: '0.4rem' }}>
                       <button className="btn btn-sm btn-outline-primary" onClick={() => fetchBatchDetails(batch.id)}>
                         <Eye size={14} /> View

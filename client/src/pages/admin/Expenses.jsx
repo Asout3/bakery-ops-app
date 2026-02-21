@@ -76,7 +76,7 @@ export default function ExpensesPage() {
   };
 
   const categories = [
-    'Utilities', 'Rent', 'Salaries', 'Supplies', 'Marketing', 
+    'Utilities', 'Rent', 'Supplies', 'Marketing', 
     'Maintenance', 'Insurance', 'Loan Payment', 'Taxes', 'Other'
   ];
 

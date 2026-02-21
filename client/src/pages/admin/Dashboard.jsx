@@ -79,28 +79,28 @@ export default function Dashboard() {
       return [
         {
           title: 'Daily Sales',
-          value: `$${Number(report.sales?.total_sales || 0).toFixed(2)}`,
+          value: `ETB ${Number(report.sales?.total_sales || 0).toFixed(2)}`,
           icon: DollarSign,
           color: 'primary',
           subtext: `${report.sales?.total_transactions || 0} transactions`
         },
         {
           title: 'Daily Expenses',
-          value: `$${Number(report.expenses?.total_expenses || 0).toFixed(2)}`,
+          value: `ETB ${Number(report.expenses?.total_expenses || 0).toFixed(2)}`,
           icon: TrendingDown,
           color: 'danger',
           subtext: `${report.expenses?.expense_count || 0} expense entries`
         },
         {
           title: 'Staff Payments',
-          value: `$${Number(report.staff_payments?.total_staff_payments || 0).toFixed(2)}`,
+          value: `ETB ${Number(report.staff_payments?.total_staff_payments || 0).toFixed(2)}`,
           icon: Users,
           color: 'warning',
           subtext: `${report.staff_payments?.payment_count || 0} payments`
         },
         {
           title: 'Net Profit',
-          value: `$${Number(report.profit?.net_profit || 0).toFixed(2)}`,
+          value: `ETB ${Number(report.profit?.net_profit || 0).toFixed(2)}`,
           icon: TrendingUp,
           color: Number(report.profit?.net_profit || 0) >= 0 ? 'success' : 'danger',
           subtext: 'Revenue - All costs'
@@ -112,28 +112,28 @@ export default function Dashboard() {
       return [
         {
           title: 'Weekly Sales',
-          value: `$${Number(report.summary?.total_sales || 0).toFixed(2)}`,
+          value: `ETB ${Number(report.summary?.total_sales || 0).toFixed(2)}`,
           icon: DollarSign,
           color: 'primary',
           subtext: `${report.summary?.total_transactions || 0} transactions`
         },
         {
           title: 'Weekly Expenses',
-          value: `$${Number(report.summary?.total_expenses || 0).toFixed(2)}`,
+          value: `ETB ${Number(report.summary?.total_expenses || 0).toFixed(2)}`,
           icon: TrendingDown,
           color: 'danger',
           subtext: `${report.summary?.expense_count || 0} expense entries`
         },
         {
           title: 'Staff Payments',
-          value: `$${Number(report.summary?.total_staff_payments || 0).toFixed(2)}`,
+          value: `ETB ${Number(report.summary?.total_staff_payments || 0).toFixed(2)}`,
           icon: Users,
           color: 'warning',
           subtext: `${report.summary?.staff_payment_count || 0} payments`
         },
         {
           title: 'Net Profit',
-          value: `$${Number(report.summary?.net_profit || 0).toFixed(2)}`,
+          value: `ETB ${Number(report.summary?.net_profit || 0).toFixed(2)}`,
           icon: TrendingUp,
           color: Number(report.summary?.net_profit || 0) >= 0 ? 'success' : 'danger',
           subtext: 'Revenue - All costs'
@@ -145,28 +145,28 @@ export default function Dashboard() {
       return [
         {
           title: 'Monthly Sales',
-          value: `$${Number(report.sales?.total_sales || 0).toFixed(2)}`,
+          value: `ETB ${Number(report.sales?.total_sales || 0).toFixed(2)}`,
           icon: DollarSign,
           color: 'primary',
           subtext: `${report.sales?.total_transactions || 0} transactions`
         },
         {
           title: 'Monthly Expenses',
-          value: `$${Number(report.expenses?.total_expenses || 0).toFixed(2)}`,
+          value: `ETB ${Number(report.expenses?.total_expenses || 0).toFixed(2)}`,
           icon: TrendingDown,
           color: 'danger',
           subtext: `${report.expenses?.expense_count || 0} expense entries`
         },
         {
           title: 'Staff Payments',
-          value: `$${Number(report.staff_payments?.total_staff_payments || 0).toFixed(2)}`,
+          value: `ETB ${Number(report.staff_payments?.total_staff_payments || 0).toFixed(2)}`,
           icon: Users,
           color: 'warning',
           subtext: `${report.staff_payments?.payment_count || 0} payments`
         },
         {
           title: 'Net Profit',
-          value: `$${Number(report.profit?.net_profit || 0).toFixed(2)}`,
+          value: `ETB ${Number(report.profit?.net_profit || 0).toFixed(2)}`,
           icon: TrendingUp,
           color: Number(report.profit?.net_profit || 0) >= 0 ? 'success' : 'danger',
           subtext: `Margin: ${report.profit?.margin_percent || 0}%`
@@ -289,7 +289,7 @@ export default function Dashboard() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
                     <YAxis />
-                    <Tooltip formatter={(value) => `$${Number(value).toFixed(2)}`} />
+                    <Tooltip formatter={(value) => `ETB ${Number(value).toFixed(2)}`} />
                     <Legend />
                     <Bar dataKey="revenue" fill="var(--success)" name="Revenue" />
                   </BarChart>
@@ -307,7 +307,7 @@ export default function Dashboard() {
                   />
                   <YAxis />
                   <Tooltip 
-                    formatter={(value) => `$${Number(value).toFixed(2)}`}
+                    formatter={(value) => `ETB ${Number(value).toFixed(2)}`}
                     labelFormatter={(date) => new Date(date).toLocaleDateString()}
                   />
                   <Legend />
@@ -346,6 +346,67 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+
+
+      {report && (
+        <div className="card mb-4">
+          <div className="card-header"><h3>Detailed Transparency</h3></div>
+          <div className="card-body">
+            <div className="row g-4">
+              <div className="col-lg-6">
+                <h4>Products Sold</h4>
+                <div className="table-responsive">
+                  <table className="table table-hover">
+                    <thead><tr><th>Product</th><th>Units</th><th>Revenue</th></tr></thead>
+                    <tbody>
+                      {(report.top_products || []).map((item, idx) => (
+                        <tr key={`${item.name}-${idx}`}><td>{item.name}</td><td>{item.total_sold}</td><td>ETB {Number(item.revenue || 0).toFixed(2)}</td></tr>
+                      ))}
+                      {(!report.top_products || report.top_products.length === 0) && <tr><td colSpan={3} className="text-center">No product sales in this period.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div className="col-lg-6">
+                <h4>Cashier Performance</h4>
+                <div className="table-responsive">
+                  <table className="table table-hover">
+                    <thead><tr><th>Cashier</th><th>Sales</th><th>Txns</th><th>Items</th><th>Cash</th><th>Mobile</th></tr></thead>
+                    <tbody>
+                      {(report.details?.cashier_performance || []).map((row, idx) => (
+                        <tr key={`${row.cashier_id}-${idx}`}>
+                          <td>{row.cashier_name}</td><td>ETB {Number(row.total_sales || 0).toFixed(2)}</td><td>{row.transactions}</td><td>{row.items_sold}</td><td>ETB {Number(row.cash_sales || 0).toFixed(2)}</td><td>ETB {Number(row.mobile_sales || 0).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                      {(!report.details?.cashier_performance || report.details.cashier_performance.length === 0) && <tr><td colSpan={6} className="text-center">No cashier sales in this period.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="row g-4" style={{ marginTop: '0.5rem' }}>
+              <div className="col-lg-6">
+                <h4>Expense Records</h4>
+                <ul style={{ marginLeft: '1rem' }}>
+                  {(report.details?.expenses || []).slice(0, 10).map((exp) => (
+                    <li key={exp.id}>{exp.expense_date}: {exp.category} - ETB {Number(exp.amount || 0).toFixed(2)} ({exp.created_by_name || 'System'})</li>
+                  ))}
+                  {(!report.details?.expenses || report.details.expenses.length === 0) && <li>No expense records in this period.</li>}
+                </ul>
+              </div>
+              <div className="col-lg-6">
+                <h4>Cost Components</h4>
+                <p><strong>Batch Cost:</strong> ETB {Number(report.details?.batches?.total_batch_cost || 0).toFixed(2)} ({Number(report.details?.batches?.batch_count || 0)} batches)</p>
+                <p><strong>Manual Expenses:</strong> ETB {Number(report.expenses?.total_expenses || report.summary?.total_expenses || 0).toFixed(2)}</p>
+                <p><strong>Staff Payments:</strong> ETB {Number(report.staff_payments?.total_staff_payments || report.summary?.total_staff_payments || 0).toFixed(2)}</p>
+                <p><strong>Net Profit:</strong> ETB {Number(report.profit?.net_profit || report.summary?.net_profit || 0).toFixed(2)}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {branchSummary.length > 0 && (
         <div className="card mb-4">

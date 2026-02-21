@@ -171,6 +171,8 @@ router.post(
     const { items, notes } = req.body;
     const retryCount = Number(req.headers['x-retry-count'] || 0);
     const idempotencyKey = req.headers['x-idempotency-key'];
+    const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
+    const queuedCreatedAtHeader = req.headers['x-queued-created-at'];
 
     try {
       const locationId = await getTargetLocationId(req, query);
@@ -186,11 +188,15 @@ router.post(
           }
         }
 
+        const queuedCreatedAt = queuedCreatedAtHeader ? new Date(queuedCreatedAtHeader) : null;
+        const hasValidQueuedCreatedAt = queuedCreatedAt instanceof Date && !Number.isNaN(queuedCreatedAt.getTime()) && queuedCreatedAt.getTime() <= Date.now();
+        const effectiveCreatedAt = hasValidQueuedCreatedAt ? queuedCreatedAt.toISOString() : new Date().toISOString();
+
         const batchResult = await tx.query(
-          `INSERT INTO inventory_batches (location_id, created_by, batch_date, status, notes)
-           VALUES ($1, $2, CURRENT_DATE, 'sent', $3)
+          `INSERT INTO inventory_batches (location_id, created_by, batch_date, status, notes, is_offline, created_at)
+           VALUES ($1, $2, $3::date, 'sent', $4, $5, $3::timestamp)
            RETURNING *`,
-          [locationId, req.user.id, notes || null]
+          [locationId, req.user.id, effectiveCreatedAt, notes || null, isFromOfflineQueue]
         );
 
         const createdBatch = batchResult.rows[0];

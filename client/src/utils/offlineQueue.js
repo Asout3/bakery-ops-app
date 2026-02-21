@@ -217,6 +217,7 @@ export async function flushQueue(api) {
           ...(op.headers || {}),
           'X-Idempotency-Key': op.idempotencyKey || op.id,
           'X-Queued-Request': 'true',
+          'X-Queued-Created-At': op.created_at,
           'X-Retry-Count': String(op.retries || 0),
         },
         timeout: getRequestTimeout(op.retries || 0),
@@ -242,6 +243,8 @@ export async function flushQueue(api) {
     } catch (error) {
       const status = error?.response?.status;
       const isClientError = Number.isInteger(status) && status >= 400 && status < 500;
+      const isAuthOrSessionIssue = status === 401;
+      const isDeterministicClientError = isClientError && !isAuthOrSessionIssue;
       const isConflict = status === 409;
       const isTransientHttp = TRANSIENT_HTTP_CODES.has(status);
       const retries = (op.retries || 0) + 1;
@@ -249,7 +252,7 @@ export async function flushQueue(api) {
       const db = await openDb();
       const tx = db.transaction(OPS_STORE, 'readwrite');
 
-      if (isConflict || status === 422 || isClientError) {
+      if (isConflict || status === 422 || isDeterministicClientError) {
         const updatedOp = {
           ...op,
           retries,
@@ -287,7 +290,7 @@ export async function flushQueue(api) {
       await appendHistory({
         id: `${op.id}-failed-${Date.now()}`,
         operation_id: op.id,
-        status: isClientError ? 'conflict' : (retries >= MAX_RETRIES ? 'failed' : 'retrying'),
+        status: isDeterministicClientError ? 'conflict' : (retries >= MAX_RETRIES ? 'failed' : 'retrying'),
         message: resolveSyncErrorMessage(error),
         created_at: new Date().toISOString(),
         retryCount: retries,
