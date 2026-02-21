@@ -12,6 +12,8 @@ A production-oriented, role-based bakery management system with multi-branch ope
 - [Environment Configuration](#environment-configuration)
 - [Development Workflow](#development-workflow)
 - [Testing and Quality Gates](#testing-and-quality-gates)
+- [Production-like Local Run (Frontend + Backend)](#production-like-local-run-frontend--backend)
+- [Deployment Strategy (No Feature Loss)](#deployment-strategy-no-feature-loss)
 - [Deployment Checklist](#deployment-checklist)
 
 ## Overview
@@ -188,6 +190,50 @@ npm test
 npm run lint
 npm run build
 ```
+
+## Production-like Local Run (Frontend + Backend)
+
+Use this flow when validating offline-refresh behavior and backend APIs together.
+
+1) Terminal A: run backend API
+
+```bash
+cd /workspace/bakery-ops-app
+npm run server
+```
+
+2) Terminal B: build and preview frontend
+
+```bash
+cd /workspace/bakery-ops-app/client
+npm run build
+npm run preview
+```
+
+3) Open the preview URL (usually `http://localhost:4173`).
+
+4) Make sure frontend can call backend:
+- If needed, set `VITE_API_URL=http://localhost:5000/api` in `client/.env` for preview/deploy environments.
+- If your platform uses different domains, ensure `ALLOWED_ORIGINS` on backend includes the frontend origin.
+
+Notes:
+- `npm run preview` exists in `client/package.json`, not root `package.json`.
+- Offline-refresh testing should be done with preview/deployed build, not Vite dev mode.
+
+## Deployment Strategy (No Feature Loss)
+
+To avoid losing offline and sync behavior when frontend/backend are deployed separately:
+
+- Deploy backend API and frontend app as separate artifacts/environments.
+- Keep API contract stable (`Authorization`, `X-Location-Id`, `X-Idempotency-Key`, error format).
+- Keep service worker and offline queue enabled in production frontend build.
+- Ensure frontend base API URL targets the deployed backend (`VITE_API_URL`).
+- Ensure backend CORS (`ALLOWED_ORIGINS`) allows deployed frontend origins.
+- Validate key acceptance flows after each release:
+  - normal online sale,
+  - offline sale queue,
+  - reconnect + sync replay,
+  - offline refresh on already-visited route.
 
 ## Deployment Checklist
 
