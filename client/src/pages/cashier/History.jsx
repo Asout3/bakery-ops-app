@@ -158,6 +158,7 @@ export default function CashierHistory() {
                   <th>Receipt #</th>
                   <th>Date & Time</th>
                   <th>Amount</th>
+                  <th>Cashier</th>
                   <th>Payment</th>
                   <th>Status</th>
                   <th>Sync</th>
@@ -191,6 +192,7 @@ export default function CashierHistory() {
                           ETB {Number(sale.total_amount).toFixed(2)}
                         </span>
                       </td>
+                      <td>{sale.cashier_name || 'Unknown'}</td>
                       <td>
                         <span className={`badge ${sale.payment_method === 'cash' ? 'badge-success' : sale.payment_method === 'card' ? 'badge-primary' : 'badge-info'}`}>
                           {sale.payment_method}
@@ -276,6 +278,7 @@ export default function CashierHistory() {
                   <h5>Transaction Info</h5>
                   <p><strong>Date & Time:</strong> {new Date(selectedSale.sale_date).toLocaleString()}</p>
                   <p><strong>Amount:</strong> ETB {Number(selectedSale.total_amount).toFixed(2)}</p>
+                  <p><strong>Cashier:</strong> {selectedSale.cashier_name || 'Unknown'}</p>
                   <p><strong>Payment Method:</strong> {selectedSale.payment_method}</p>
                   {selectedSale.status === 'voided' && (
                     <div className="alert alert-warning">

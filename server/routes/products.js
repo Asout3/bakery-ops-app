@@ -88,6 +88,16 @@ router.post('/',
         [req.user.id, req.user.location_id, 'product_created', `Created product: ${name}`]
       );
 
+
+      const admins = await query(
+        `SELECT id FROM users WHERE role = 'admin' AND is_active = true`
+      );
+      await Promise.all(admins.rows.map((admin) => query(
+        `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [admin.id, req.user.location_id || null, 'New product needs inventory setup', `Product "${name}" was created by ${req.user.username || `user ${req.user.id}`}. Add it to inventory to make it available for operations.`, 'inventory_setup']
+      )));
+
       res.status(201).json(result.rows[0]);
     } catch (err) {
       console.error('Create product error:', err);
@@ -140,7 +150,7 @@ router.put('/:id',
 // Delete product (soft delete)
 router.delete('/:id',
   authenticateToken,
-  authorizeRoles('admin'),
+  authorizeRoles('admin', 'manager'),
   async (req, res) => {
     try {
       const result = await query(

@@ -166,6 +166,14 @@ export default function AdminInventory() {
     }
   };
 
+
+  const availableProductsForCreate = products.filter((product) => {
+    if (editingItem) {
+      return true;
+    }
+    return !inventory.some((item) => Number(item.product_id) === Number(product.id));
+  });
+
   if (loading) {
     return <div className="loading-container"><div className="spinner"></div></div>;
   }
@@ -194,7 +202,7 @@ export default function AdminInventory() {
         <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><TrendingDown size={24} /></div><div className="stat-content"><h3>{inventory.filter((item) => Number(item.quantity || 0) <= 5).length}</h3><p>Low Stock</p></div></div>
       </div>
 
-      <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>ID</th><th>Product</th><th>Location</th><th>Quantity</th><th>Last Updated</th><th>Source</th><th>Actions</th></tr></thead><tbody>
+      <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>ID</th><th>Product</th><th>Location</th><th>Quantity</th><th>Last Updated</th><th>Updated By</th><th>Source</th><th>Actions</th></tr></thead><tbody>
         {inventory.map((item) => (
           <tr key={item.id}>
             <td>{item.id}</td>
@@ -202,6 +210,7 @@ export default function AdminInventory() {
             <td>{locations.find((l) => l.id === item.location_id)?.name || item.location_id}</td>
             <td><span className={`badge ${Number(item.quantity) <= 5 ? 'badge-warning' : 'badge-success'}`}>{item.quantity}</span>{item.is_pending_sync && <span className="badge badge-info" style={{ marginLeft: '0.4rem' }}>Pending Sync</span>}</td>
             <td>{new Date(item.last_updated).toLocaleDateString()}</td>
+            <td>{item.last_updated_by_name || 'System'}</td>
             <td><span className={`badge ${item.source === 'baked' ? 'badge-info' : 'badge-secondary'}`}>{item.source}</span></td>
             <td>
               <button className="btn btn-sm btn-outline-primary me-2" onClick={() => { setEditingItem(item); setFormData({ product_id: item.product_id, location_id: item.location_id, quantity: item.quantity, source: item.source || 'baked' }); setShowForm(true); }}><Edit size={14} /></button>
@@ -216,7 +225,7 @@ export default function AdminInventory() {
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header"><h3>{editingItem ? 'Edit Inventory Item' : 'Add New Inventory Item'}</h3><button className="close-btn" onClick={resetForm}>×</button></div>
             <form onSubmit={handleSubmit} className="modal-body">
-              <div className="mb-3"><label className="form-label">Product *</label><select className="form-select" value={formData.product_id} onChange={(e) => setFormData({ ...formData, product_id: e.target.value })} required><option value="">Select Product</option>{products.map((product) => (<option key={product.id} value={product.id}>{product.name}</option>))}</select></div>
+              <div className="mb-3"><label className="form-label">Product *</label><select className="form-select" value={formData.product_id} onChange={(e) => setFormData({ ...formData, product_id: e.target.value })} required><option value="">Select Product</option>{availableProductsForCreate.map((product) => (<option key={product.id} value={product.id}>{product.name}</option>))}</select></div>
               <div className="mb-3"><label className="form-label">Location *</label><select className="form-select" value={formData.location_id} onChange={(e) => setFormData({ ...formData, location_id: e.target.value })} required><option value="">Select Location</option>{locations.map((location) => (<option key={location.id} value={location.id}>{location.name}</option>))}</select></div>
               <div className="mb-3"><label className="form-label">Quantity *</label><input type="number" className="form-control" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} required /></div>
               <div className="mb-3"><label className="form-label">Source *</label><select className="form-select" value={formData.source} onChange={(e) => setFormData({ ...formData, source: e.target.value })} required><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div>
