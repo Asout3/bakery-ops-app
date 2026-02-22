@@ -7,6 +7,26 @@ import { getTargetLocationId } from '../utils/location.js';
 const router = express.Router();
 const BATCH_EDIT_WINDOW_MINUTES = 20;
 
+let hasOfflineFlagColumnCache = null;
+
+async function hasInventoryBatchOfflineColumn(db) {
+  if (hasOfflineFlagColumnCache !== null) {
+    return hasOfflineFlagColumnCache;
+  }
+
+  const result = await db.query(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM information_schema.columns
+       WHERE table_name = 'inventory_batches' AND column_name = 'is_offline'
+     ) as exists`
+  );
+
+  hasOfflineFlagColumnCache = result.rows[0]?.exists === true;
+  return hasOfflineFlagColumnCache;
+}
+
+
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
@@ -192,12 +212,20 @@ router.post(
         const hasValidQueuedCreatedAt = queuedCreatedAt instanceof Date && !Number.isNaN(queuedCreatedAt.getTime()) && queuedCreatedAt.getTime() <= Date.now();
         const effectiveCreatedAt = hasValidQueuedCreatedAt ? queuedCreatedAt.toISOString() : new Date().toISOString();
 
-        const batchResult = await tx.query(
-          `INSERT INTO inventory_batches (location_id, created_by, batch_date, status, notes, is_offline, created_at)
-           VALUES ($1, $2, $3::date, 'sent', $4, $5, $3::timestamp)
-           RETURNING *`,
-          [locationId, req.user.id, effectiveCreatedAt, notes || null, isFromOfflineQueue]
-        );
+        const supportsOfflineFlag = await hasInventoryBatchOfflineColumn(tx);
+        const batchResult = supportsOfflineFlag
+          ? await tx.query(
+              `INSERT INTO inventory_batches (location_id, created_by, batch_date, status, notes, is_offline, created_at)
+               VALUES ($1, $2, $3::date, 'sent', $4, $5, $3::timestamp)
+               RETURNING *`,
+              [locationId, req.user.id, effectiveCreatedAt, notes || null, isFromOfflineQueue]
+            )
+          : await tx.query(
+              `INSERT INTO inventory_batches (location_id, created_by, batch_date, status, notes, created_at)
+               VALUES ($1, $2, $3::date, 'sent', $4, $3::timestamp)
+               RETURNING *, false as is_offline`,
+              [locationId, req.user.id, effectiveCreatedAt, notes || null]
+            );
 
         const createdBatch = batchResult.rows[0];
 
@@ -269,22 +297,36 @@ router.get('/batches', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
     const limit = parseInt(req.query.limit, 10) || 50;
+    const startDate = req.query.start_date;
+    const endDate = req.query.end_date;
 
-    const result = await query(
-      `SELECT b.*, u.username as created_by_name,
+    let queryText = `SELECT b.*, u.username as created_by_name,
               (SELECT COUNT(*) FROM batch_items WHERE batch_id = b.id) as items_count,
               COALESCE((SELECT SUM(bi.quantity * COALESCE(p.cost, 0))
                         FROM batch_items bi
                         JOIN products p ON p.id = bi.product_id
                         WHERE bi.batch_id = b.id), 0) as total_cost,
-              (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60) <= $3 as can_edit
+              (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60) <= $2 as can_edit
        FROM inventory_batches b
        JOIN users u ON b.created_by = u.id
-       WHERE b.location_id = $1
-       ORDER BY b.created_at DESC
-       LIMIT $2`,
-      [locationId, limit, BATCH_EDIT_WINDOW_MINUTES]
-    );
+       WHERE b.location_id = $1`;
+
+    const params = [locationId, BATCH_EDIT_WINDOW_MINUTES];
+
+    if (startDate) {
+      params.push(startDate);
+      queryText += ` AND DATE(b.created_at) >= $${params.length}`;
+    }
+
+    if (endDate) {
+      params.push(endDate);
+      queryText += ` AND DATE(b.created_at) <= $${params.length}`;
+    }
+
+    queryText += ` ORDER BY b.created_at DESC LIMIT $${params.length + 1}`;
+    params.push(limit);
+
+    const result = await query(queryText, params);
 
     res.json(result.rows);
   } catch (err) {

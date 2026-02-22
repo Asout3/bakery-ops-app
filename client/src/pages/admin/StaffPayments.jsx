@@ -147,7 +147,16 @@ export default function StaffPaymentsPage() {
     }
   };
 
-  const paymentTypes = ['salary', 'bonus', 'commission', 'advance', 'other'];
+  const paymentTypeOptions = [
+    { value: 'salary', label: 'Salary', description: 'Regular salary payment for the pay period.' },
+    { value: 'bonus', label: 'Bonus', description: 'Additional performance or incentive payment.' },
+    { value: 'commission', label: 'Commission', description: 'Sales-based variable payment.' },
+    { value: 'advance', label: 'Advance', description: 'Advance paid before the standard payday.' },
+    { value: 'prorated_exit', label: 'Final Exit Payment (Prorated)', description: 'Final payment for partial days worked before staff exit.' },
+    { value: 'other', label: 'Other', description: 'Any other payment type with notes.' },
+  ];
+
+  const paymentTypeLabel = (value) => paymentTypeOptions.find((option) => option.value === value)?.label || value;
 
   const uniqueStaffCount = useMemo(() => new Set(payments.map((pay) => pay.user_id)).size, [payments]);
 
@@ -239,7 +248,7 @@ export default function StaffPaymentsPage() {
                     <strong>ETB {Number(payment.amount).toFixed(2)}</strong>
                   </td>
                   <td>
-                    <span className="badge badge-primary">{payment.payment_type}</span>{payment.is_pending_sync && <span className="badge badge-warning" style={{ marginLeft: '0.4rem' }}>Pending Sync</span>}
+                    <span className="badge badge-primary">{paymentTypeLabel(payment.payment_type)}</span>{payment.is_pending_sync && <span className="badge badge-warning" style={{ marginLeft: '0.4rem' }}>Pending Sync</span>}
                   </td>
                   <td>{locations.find((l) => l.id === payment.location_id)?.name || payment.location_id || '—'}</td>
                   <td style={{ display: 'flex', gap: '0.5rem' }}>
@@ -308,6 +317,10 @@ export default function StaffPaymentsPage() {
                 />
               </div>
 
+              <div className="alert alert-info" role="note">
+                {paymentTypeOptions.find((option) => option.value === formData.payment_type)?.description}
+              </div>
+
               <div className="row">
                 <div className="col-md-6 mb-3">
                   <label className="form-label">Payment Type *</label>
@@ -317,9 +330,9 @@ export default function StaffPaymentsPage() {
                     onChange={(e) => setFormData({ ...formData, payment_type: e.target.value })}
                     required
                   >
-                    {paymentTypes.map((type) => (
-                      <option key={type} value={type}>
-                        {type.charAt(0).toUpperCase() + type.slice(1)}
+                    {paymentTypeOptions.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
                       </option>
                     ))}
                   </select>

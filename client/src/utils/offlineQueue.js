@@ -108,6 +108,9 @@ function resolveSyncErrorMessage(error) {
 export async function enqueueOperation(operation) {
   const db = await openDb();
   const id = operation.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const sessionUser = typeof localStorage !== 'undefined'
+    ? JSON.parse(localStorage.getItem('user') || 'null')
+    : null;
   const op = {
     id,
     retries: 0,
@@ -116,6 +119,8 @@ export async function enqueueOperation(operation) {
     nextRetry: Date.now(),
     lastAttempt: null,
     lastError: null,
+    actorId: sessionUser?.id || null,
+    actorName: sessionUser?.username || null,
     ...operation,
   };
 
@@ -218,6 +223,7 @@ export async function flushQueue(api) {
           'X-Idempotency-Key': op.idempotencyKey || op.id,
           'X-Queued-Request': 'true',
           'X-Queued-Created-At': op.created_at,
+          'X-Offline-Actor-Id': op.actorId ? String(op.actorId) : undefined,
           'X-Retry-Count': String(op.retries || 0),
         },
         timeout: getRequestTimeout(op.retries || 0),

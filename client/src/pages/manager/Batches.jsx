@@ -10,14 +10,20 @@ export default function ManagerBatches() {
   const [editingItems, setEditingItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(null);
+  const [selectedDay, setSelectedDay] = useState('');
 
   useEffect(() => {
     fetchBatches();
-  }, [selectedLocationId]);
+  }, [selectedLocationId, selectedDay]);
 
   const fetchBatches = async () => {
     try {
-      const response = await api.get('/inventory/batches?limit=100');
+      const response = await api.get('/inventory/batches', {
+        params: {
+          limit: 100,
+          ...(selectedDay ? { start_date: selectedDay, end_date: selectedDay } : {}),
+        },
+      });
       setBatches(response.data || []);
     } catch (err) {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to fetch batches.') });
@@ -78,6 +84,22 @@ export default function ManagerBatches() {
       </div>
 
       {message && <div className={`alert alert-${message.type} mb-3`}>{message.text}</div>}
+
+
+      <div className="card mb-4">
+        <div className="card-body d-flex align-items-end gap-3 flex-wrap">
+          <div>
+            <label className="form-label">Filter by Day</label>
+            <input
+              type="date"
+              className="form-control"
+              value={selectedDay}
+              onChange={(e) => setSelectedDay(e.target.value)}
+            />
+          </div>
+          <button className="btn btn-outline-secondary" onClick={() => setSelectedDay('')}>Clear Day Filter</button>
+        </div>
+      </div>
 
       <div className="stats-grid mb-4">
         <div className="stat-card card bg-light">

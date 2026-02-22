@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { Search, Plus, Eye, DollarSign, CreditCard, Calendar } from 'lucide-react';
+import { Eye, DollarSign, CreditCard, Calendar } from 'lucide-react';
 
 export default function SalesPage() {
   const { selectedLocationId } = useBranch();
@@ -13,14 +13,16 @@ export default function SalesPage() {
     endDate: '',
     paymentMethod: ''
   });
+  const [selectedDay, setSelectedDay] = useState('');
 
   useEffect(() => {
     fetchSales();
-  }, [selectedLocationId]);
+  }, [selectedLocationId, selectedDay]);
 
   const fetchSales = async () => {
     try {
-      const response = await api.get('/sales');
+      const params = selectedDay ? { start_date: selectedDay, end_date: selectedDay } : {};
+      const response = await api.get('/sales', { params });
       setSales(response.data);
     } catch (err) {
       console.error('Failed to fetch sales:', err);
@@ -71,7 +73,7 @@ export default function SalesPage() {
                 onChange={(e) => setFilters({...filters, endDate: e.target.value})}
               />
             </div>
-            <div className="col-md-4">
+            <div className="col-md-3">
               <label className="form-label">Payment Method</label>
               <select
                 className="form-select"
@@ -83,6 +85,15 @@ export default function SalesPage() {
                 <option value="card">Card</option>
                 <option value="mobile">Mobile Payment</option>
               </select>
+            </div>
+            <div className="col-md-3">
+              <label className="form-label">Specific Day</label>
+              <input
+                type="date"
+                className="form-control"
+                value={selectedDay}
+                onChange={(e) => setSelectedDay(e.target.value)}
+              />
             </div>
           </div>
         </div>
@@ -196,6 +207,15 @@ export default function SalesPage() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setSelectedSale(null)}>Close</button>
+            </div>
+            <div className="col-md-3">
+              <label className="form-label">Specific Day</label>
+              <input
+                type="date"
+                className="form-control"
+                value={selectedDay}
+                onChange={(e) => setSelectedDay(e.target.value)}
+              />
             </div>
           </div>
         </div>

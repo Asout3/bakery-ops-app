@@ -11,6 +11,7 @@ export default function ExpensesPage() {
   const [showForm, setShowForm] = useState(false);
   const [message, setMessage] = useState(null);
   const [editingExpense, setEditingExpense] = useState(null);
+  const [selectedDay, setSelectedDay] = useState('');
   const [formData, setFormData] = useState({
     category: '',
     description: '',
@@ -21,11 +22,12 @@ export default function ExpensesPage() {
 
   useEffect(() => {
     fetchExpenses();
-  }, [selectedLocationId]);
+  }, [selectedLocationId, selectedDay]);
 
   const fetchExpenses = async () => {
     try {
-      const response = await api.get('/expenses');
+      const params = selectedDay ? { start_date: selectedDay, end_date: selectedDay } : {};
+      const response = await api.get('/expenses', { params });
       setExpenses(response.data);
     } catch (err) {
       console.error('Failed to fetch expenses:', err);
@@ -109,6 +111,26 @@ export default function ExpensesPage() {
         >
           <Plus size={18} /> Add Expense
         </button>
+      </div>
+
+
+      <div className="card mb-4">
+        <div className="card-body">
+          <div className="row g-3 align-items-end">
+            <div className="col-md-4">
+              <label className="form-label">Filter by Day</label>
+              <input
+                type="date"
+                className="form-control"
+                value={selectedDay}
+                onChange={(e) => setSelectedDay(e.target.value)}
+              />
+            </div>
+            <div className="col-md-4">
+              <button className="btn btn-outline-secondary" onClick={() => setSelectedDay('')}>Clear Day Filter</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="stats-grid mb-4">
