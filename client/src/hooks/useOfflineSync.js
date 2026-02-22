@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useMemo, useState } from 'react';
 import api from '../api/axios';
+import { useAuth } from '../context/AuthContext';
 import { flushQueue, getSyncStats, isOnline, getConnectionQuality } from '../utils/offlineQueue';
 
 const BASE_SYNC_INTERVAL_MS = 10000;
@@ -12,13 +13,30 @@ function resolveSyncInterval(queueStats) {
 }
 
 export function useOfflineSync() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [isOnlineState, setIsOnlineState] = useState(isOnline());
   const [queueStats, setQueueStats] = useState({ total: 0, pending: 0, conflict: 0, failed: 0 });
   const [syncInProgress, setSyncInProgress] = useState(false);
-  const [lastSyncResult, setLastSyncResult] = useState(null);
+  const [lastSyncResult, setLastSyncResult] = useState(() => {
+    const cached = localStorage.getItem('offline_sync_last_result');
+    return cached ? JSON.parse(cached) : null;
+  });
 
   const runSync = useCallback(async () => {
-    if (syncInProgress || !navigator.onLine) return;
+    if (syncInProgress) return;
+
+    if (!isAdmin) {
+      const stats = await getSyncStats();
+      setQueueStats(stats);
+      return;
+    }
+
+    if (!navigator.onLine) {
+      const stats = await getSyncStats();
+      setQueueStats(stats);
+      return;
+    }
 
     setSyncInProgress(true);
     try {
@@ -45,7 +63,7 @@ export function useOfflineSync() {
     } finally {
       setSyncInProgress(false);
     }
-  }, [syncInProgress]);
+  }, [isAdmin, syncInProgress]);
 
   const updateOnlineStatus = useCallback(async () => {
     const online = navigator.onLine;
@@ -75,7 +93,7 @@ export function useOfflineSync() {
     updateQueueStats();
 
     const interval = setInterval(() => {
-      if (navigator.onLine) {
+      if (navigator.onLine && isAdmin) {
         runSync();
       }
       updateQueueStats();
@@ -87,20 +105,30 @@ export function useOfflineSync() {
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
         updateQueueStats();
-        if (navigator.onLine) {
+        if (navigator.onLine && isAdmin) {
           runSync();
         }
       }
     };
     document.addEventListener('visibilitychange', onVisible);
 
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const onConnectionChange = () => {
+      updateQueueStats();
+      if (navigator.onLine && isAdmin) {
+        runSync();
+      }
+    };
+    connection?.addEventListener?.('change', onConnectionChange);
+
     return () => {
       clearInterval(interval);
       window.removeEventListener('online', updateOnlineStatus);
       window.removeEventListener('offline', updateOnlineStatus);
       document.removeEventListener('visibilitychange', onVisible);
+      connection?.removeEventListener?.('change', onConnectionChange);
     };
-  }, [runSync, syncInterval, updateOnlineStatus, updateQueueStats]);
+  }, [isAdmin, runSync, syncInterval, updateOnlineStatus, updateQueueStats]);
 
   return {
     isOnline: isOnlineState,

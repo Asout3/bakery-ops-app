@@ -71,6 +71,59 @@ router.get('/daily', authenticateToken, async (req, res) => {
       [locationId, date]
     );
 
+
+    const cashierPerformanceResult = await query(
+      `SELECT u.username as cashier_name,
+              u.role as cashier_role,
+              s.cashier_id,
+              COUNT(*) as transactions,
+              COALESCE(SUM(s.total_amount), 0) as total_sales,
+              COALESCE(SUM(CASE WHEN s.payment_method = 'cash' THEN s.total_amount ELSE 0 END), 0) as cash_sales,
+              COALESCE(SUM(CASE WHEN s.payment_method = 'mobile' THEN s.total_amount ELSE 0 END), 0) as mobile_sales,
+              COALESCE(SUM(si.quantity), 0) as items_sold
+       FROM sales s
+       JOIN users u ON u.id = s.cashier_id
+       LEFT JOIN sale_items si ON si.sale_id = s.id
+       WHERE s.location_id = $1 AND DATE(s.sale_date) = $2
+         AND u.is_active = true
+         AND u.role IN ('cashier', 'manager')
+       GROUP BY s.cashier_id, u.username, u.role
+       ORDER BY total_sales DESC`,
+      [locationId, date]
+    );
+
+    const expenseListResult = await query(
+      `SELECT e.id, e.category, e.description, e.amount, e.expense_date, u.username as created_by_name
+       FROM expenses e
+       LEFT JOIN users u ON u.id = e.created_by
+       WHERE e.location_id = $1 AND e.expense_date = $2
+       ORDER BY e.created_at DESC`,
+      [locationId, date]
+    );
+
+    const batchCostResult = await query(
+      `SELECT COALESCE(SUM(bi.quantity * COALESCE(p.cost, 0)), 0) as total_batch_cost,
+              COUNT(DISTINCT b.id) as batch_count
+       FROM inventory_batches b
+       JOIN batch_items bi ON bi.batch_id = b.id
+       JOIN products p ON p.id = bi.product_id
+       WHERE b.location_id = $1 AND DATE(b.created_at) = $2 AND b.status <> 'voided'`,
+      [locationId, date]
+    );
+
+    const staffPaymentListResult = await query(
+      `SELECT sp.id, sp.amount, sp.payment_date, sp.payment_type,
+              COALESCE(st.full_name, u.username) as staff_name,
+              creator.username as created_by_name
+       FROM staff_payments sp
+       LEFT JOIN staff_profiles st ON st.id = sp.staff_profile_id
+       LEFT JOIN users u ON u.id = sp.user_id
+       LEFT JOIN users creator ON creator.id = sp.created_by
+       WHERE sp.location_id = $1 AND sp.payment_date = $2
+       ORDER BY sp.created_at DESC`,
+      [locationId, date]
+    );
+
     const sales = salesResult.rows[0];
     const expenses = expensesResult.rows[0];
     const staffPayments = staffPaymentsResult.rows[0];
@@ -102,7 +155,16 @@ router.get('/daily', authenticateToken, async (req, res) => {
         total_costs: totalCosts
       },
       top_products: topProductsResult.rows,
-      payment_methods: paymentMethodsResult.rows
+      payment_methods: paymentMethodsResult.rows,
+      details: {
+        cashier_performance: cashierPerformanceResult.rows,
+        expenses: expenseListResult.rows,
+        staff_payments: staffPaymentListResult.rows,
+        batches: {
+          total_batch_cost: Number(batchCostResult.rows[0]?.total_batch_cost || 0),
+          batch_count: Number(batchCostResult.rows[0]?.batch_count || 0)
+        }
+      }
     });
   } catch (err) {
     console.error('Daily report error:', err);
@@ -201,7 +263,39 @@ router.get('/weekly', authenticateToken, async (req, res) => {
       [locationId, startDate, endDate]
     );
 
+
+    const cashierPerformanceResult = await query(
+      `SELECT u.username as cashier_name,
+              u.role as cashier_role,
+              s.cashier_id,
+              COUNT(*) as transactions,
+              COALESCE(SUM(s.total_amount), 0) as total_sales,
+              COALESCE(SUM(CASE WHEN s.payment_method = 'cash' THEN s.total_amount ELSE 0 END), 0) as cash_sales,
+              COALESCE(SUM(CASE WHEN s.payment_method = 'mobile' THEN s.total_amount ELSE 0 END), 0) as mobile_sales,
+              COALESCE(SUM(si.quantity), 0) as items_sold
+       FROM sales s
+       JOIN users u ON u.id = s.cashier_id
+       LEFT JOIN sale_items si ON si.sale_id = s.id
+       WHERE s.location_id = $1 AND DATE(s.sale_date) BETWEEN $2 AND $3
+         AND u.is_active = true
+         AND u.role IN ('cashier', 'manager')
+       GROUP BY s.cashier_id, u.username, u.role
+       ORDER BY total_sales DESC`,
+      [locationId, startDate, endDate]
+    );
+
+    const batchCostResult = await query(
+      `SELECT COALESCE(SUM(bi.quantity * COALESCE(p.cost, 0)), 0) as total_batch_cost,
+              COUNT(DISTINCT b.id) as batch_count
+       FROM inventory_batches b
+       JOIN batch_items bi ON bi.batch_id = b.id
+       JOIN products p ON p.id = bi.product_id
+       WHERE b.location_id = $1 AND DATE(b.created_at) BETWEEN $2 AND $3 AND b.status <> 'voided'`,
+      [locationId, startDate, endDate]
+    );
+
     const transactions = salesByDayResult.rows.reduce((acc, row) => acc + Number(row.transactions || 0), 0);
+
 
     res.json({
       period: { start_date: startDate, end_date: endDate },
@@ -219,7 +313,14 @@ router.get('/weekly', authenticateToken, async (req, res) => {
       sales_by_day: salesByDayResult.rows,
       sales_by_category: categoryResult.rows,
       payment_methods: paymentMethodsResult.rows,
-      top_products: topProductsResult.rows
+      top_products: topProductsResult.rows,
+      details: {
+        cashier_performance: cashierPerformanceResult.rows,
+        batches: {
+          total_batch_cost: Number(batchCostResult.rows[0]?.total_batch_cost || 0),
+          batch_count: Number(batchCostResult.rows[0]?.batch_count || 0)
+        }
+      }
     });
   } catch (err) {
     console.error('Weekly report error:', err);
@@ -340,6 +441,53 @@ router.get('/monthly', authenticateToken, async (req, res) => {
       [locationId, year, month]
     );
 
+
+    const paymentMethodsResult = await query(
+      `SELECT payment_method, COUNT(*) as count, SUM(total_amount) as total
+       FROM sales
+       WHERE location_id = $1
+         AND EXTRACT(YEAR FROM sale_date) = $2
+         AND EXTRACT(MONTH FROM sale_date) = $3
+       GROUP BY payment_method
+       ORDER BY total DESC`,
+      [locationId, year, month]
+    );
+
+    const cashierPerformanceResult = await query(
+      `SELECT u.username as cashier_name,
+              u.role as cashier_role,
+              s.cashier_id,
+              COUNT(*) as transactions,
+              COALESCE(SUM(s.total_amount), 0) as total_sales,
+              COALESCE(SUM(CASE WHEN s.payment_method = 'cash' THEN s.total_amount ELSE 0 END), 0) as cash_sales,
+              COALESCE(SUM(CASE WHEN s.payment_method = 'mobile' THEN s.total_amount ELSE 0 END), 0) as mobile_sales,
+              COALESCE(SUM(si.quantity), 0) as items_sold
+       FROM sales s
+       JOIN users u ON u.id = s.cashier_id
+       LEFT JOIN sale_items si ON si.sale_id = s.id
+       WHERE s.location_id = $1
+         AND EXTRACT(YEAR FROM s.sale_date) = $2
+         AND EXTRACT(MONTH FROM s.sale_date) = $3
+         AND u.is_active = true
+         AND u.role IN ('cashier', 'manager')
+       GROUP BY s.cashier_id, u.username, u.role
+       ORDER BY total_sales DESC`,
+      [locationId, year, month]
+    );
+
+    const batchCostResult = await query(
+      `SELECT COALESCE(SUM(bi.quantity * COALESCE(p.cost, 0)), 0) as total_batch_cost,
+              COUNT(DISTINCT b.id) as batch_count
+       FROM inventory_batches b
+       JOIN batch_items bi ON bi.batch_id = b.id
+       JOIN products p ON p.id = bi.product_id
+       WHERE b.location_id = $1
+         AND EXTRACT(YEAR FROM b.created_at) = $2
+         AND EXTRACT(MONTH FROM b.created_at) = $3
+         AND b.status <> 'voided'`,
+      [locationId, year, month]
+    );
+
     const sales = salesResult.rows[0];
     const staffPayments = staffPaymentsResult.rows[0];
     const totalExpenses = expensesByCategoryResult.rows.reduce((sum, row) => sum + parseFloat(row.total), 0);
@@ -372,7 +520,15 @@ router.get('/monthly', authenticateToken, async (req, res) => {
         net_profit: netProfit,
         margin_percent: totalRevenue > 0 ? (netProfit / totalRevenue * 100).toFixed(2) : 0
       },
-      top_products: topProductsResult.rows
+      top_products: topProductsResult.rows,
+      payment_methods: paymentMethodsResult.rows,
+      details: {
+        cashier_performance: cashierPerformanceResult.rows,
+        batches: {
+          total_batch_cost: Number(batchCostResult.rows[0]?.total_batch_cost || 0),
+          batch_count: Number(batchCostResult.rows[0]?.batch_count || 0)
+        }
+      }
     });
   } catch (err) {
     console.error('Monthly report error:', err);

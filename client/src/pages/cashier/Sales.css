@@ -219,3 +219,41 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+.product-card-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  border-color: var(--border);
+  transform: none;
+  box-shadow: none;
+}
+
+.product-card-disabled:hover {
+  border-color: var(--border);
+  transform: none;
+  box-shadow: none;
+}
+
+.product-stock {
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.product-stock-empty {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.payment-method-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.payment-method-select .input {
+  width: 190px;
+}

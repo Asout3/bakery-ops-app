@@ -5,7 +5,9 @@ import { LanguageProvider } from './context/LanguageContext';
 import { useOfflineSync } from './hooks/useOfflineSync';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import Layout from './components/Layout';
+import AppErrorBoundary from './components/AppErrorBoundary';
 import Login from './pages/Login';
+import NotFound from './pages/NotFound';
 
 // Admin pages
 import AdminDashboard from './pages/admin/Dashboard';
@@ -87,6 +89,7 @@ function AppInner() {
               <p>You don't have permission to access this page.</p>
             </div>
           } />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
@@ -97,7 +100,9 @@ function App() {
   return (
     <LanguageProvider>
       <BranchProvider>
-        <AppInner />
+        <AppErrorBoundary>
+          <AppInner />
+        </AppErrorBoundary>
       </BranchProvider>
     </LanguageProvider>
   );

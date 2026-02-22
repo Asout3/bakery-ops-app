@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { Search, Plus, Eye, DollarSign, CreditCard, Calendar } from 'lucide-react';
+import { Eye, DollarSign, CreditCard, Calendar } from 'lucide-react';
 
 export default function SalesPage() {
   const { selectedLocationId } = useBranch();
@@ -13,14 +13,16 @@ export default function SalesPage() {
     endDate: '',
     paymentMethod: ''
   });
+  const [selectedDay, setSelectedDay] = useState('');
 
   useEffect(() => {
     fetchSales();
-  }, [selectedLocationId]);
+  }, [selectedLocationId, selectedDay]);
 
   const fetchSales = async () => {
     try {
-      const response = await api.get('/sales');
+      const params = selectedDay ? { start_date: selectedDay, end_date: selectedDay } : {};
+      const response = await api.get('/sales', { params });
       setSales(response.data);
     } catch (err) {
       console.error('Failed to fetch sales:', err);
@@ -71,7 +73,7 @@ export default function SalesPage() {
                 onChange={(e) => setFilters({...filters, endDate: e.target.value})}
               />
             </div>
-            <div className="col-md-4">
+            <div className="col-md-3">
               <label className="form-label">Payment Method</label>
               <select
                 className="form-select"
@@ -84,6 +86,15 @@ export default function SalesPage() {
                 <option value="mobile">Mobile Payment</option>
               </select>
             </div>
+            <div className="col-md-3">
+              <label className="form-label">Specific Day</label>
+              <input
+                type="date"
+                className="form-control"
+                value={selectedDay}
+                onChange={(e) => setSelectedDay(e.target.value)}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -94,7 +105,7 @@ export default function SalesPage() {
             <DollarSign size={24} />
           </div>
           <div className="stat-content">
-            <h3>${filteredSales.reduce((sum, sale) => sum + parseFloat(sale.total_amount || 0), 0).toFixed(2)}</h3>
+            <h3>ETB {filteredSales.reduce((sum, sale) => sum + parseFloat(sale.total_amount || 0), 0).toFixed(2)}</h3>
             <p>Total Sales</p>
           </div>
         </div>
@@ -114,7 +125,7 @@ export default function SalesPage() {
             <Calendar size={24} />
           </div>
           <div className="stat-content">
-            <h3>${filteredSales.length > 0 ? (filteredSales.reduce((sum, sale) => sum + parseFloat(sale.total_amount || 0), 0) / filteredSales.length).toFixed(2) : '0.00'}</h3>
+            <h3>ETB {filteredSales.length > 0 ? (filteredSales.reduce((sum, sale) => sum + parseFloat(sale.total_amount || 0), 0) / filteredSales.length).toFixed(2) : '0.00'}</h3>
             <p>Avg. Transaction</p>
           </div>
         </div>
@@ -141,7 +152,7 @@ export default function SalesPage() {
                   <tr key={sale.id}>
                     <td>{sale.receipt_number}</td>
                     <td>{new Date(sale.sale_date).toLocaleDateString()}</td>
-                    <td>${Number(sale.total_amount).toFixed(2)}</td>
+                    <td>ETB {Number(sale.total_amount).toFixed(2)}</td>
                     <td>
                       <span className={`badge ${sale.payment_method === 'cash' ? 'badge-success' : sale.payment_method === 'card' ? 'badge-primary' : 'badge-info'}`}>
                         {sale.payment_method}
@@ -155,7 +166,7 @@ export default function SalesPage() {
                       )}
                     </td>
                     <td>{sale.location_id}</td>
-                    <td>{sale.cashier_id}</td>
+                    <td>{sale.cashier_name || sale.cashier_id}</td>
                     <td>
                       <button 
                         className="btn btn-sm btn-outline-primary"
@@ -184,18 +195,27 @@ export default function SalesPage() {
                 <div className="col-md-6">
                   <h5>Transaction Info</h5>
                   <p><strong>Date:</strong> {new Date(selectedSale.sale_date).toLocaleDateString()}</p>
-                  <p><strong>Amount:</strong> ${Number(selectedSale.total_amount).toFixed(2)}</p>
+                  <p><strong>Amount:</strong> ETB {Number(selectedSale.total_amount).toFixed(2)}</p>
                   <p><strong>Payment Method:</strong> {selectedSale.payment_method}</p>
                 </div>
                 <div className="col-md-6">
                   <h5>Staff & Location</h5>
-                  <p><strong>Cashier ID:</strong> {selectedSale.cashier_id}</p>
+                  <p><strong>Cashier:</strong> {selectedSale.cashier_name || selectedSale.cashier_id}</p>
                   <p><strong>Location ID:</strong> {selectedSale.location_id}</p>
                 </div>
               </div>
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setSelectedSale(null)}>Close</button>
+            </div>
+            <div className="col-md-3">
+              <label className="form-label">Specific Day</label>
+              <input
+                type="date"
+                className="form-control"
+                value={selectedDay}
+                onChange={(e) => setSelectedDay(e.target.value)}
+              />
             </div>
           </div>
         </div>

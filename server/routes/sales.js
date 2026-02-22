@@ -21,19 +21,31 @@ router.post(
     }
 
     const { items, payment_method, cashier_timing_ms } = req.body;
-    const cashierId = req.user.id;
+    const queuedActorIdHeader = req.headers['x-offline-actor-id'];
     const idempotencyKey = req.headers['x-idempotency-key'];
     const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
 
     try {
       const locationId = await getTargetLocationId(req, query);
       const sale = await withTransaction(async (tx) => {
+        let effectiveCashierId = req.user.id;
+
+        if (isFromOfflineQueue && queuedActorIdHeader) {
+          const actorResult = await tx.query(
+            `SELECT id FROM users WHERE id = $1 AND location_id = $2 AND is_active = true`,
+            [queuedActorIdHeader, locationId]
+          );
+          if (actorResult.rows.length > 0) {
+            effectiveCashierId = Number(actorResult.rows[0].id);
+          }
+        }
+
         if (idempotencyKey) {
-          await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`sales:${cashierId}:${idempotencyKey}`]);
+          await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`sales:${effectiveCashierId}:${idempotencyKey}`]);
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
              WHERE user_id = $1 AND idempotency_key = $2`,
-            [cashierId, idempotencyKey]
+            [effectiveCashierId, idempotencyKey]
           );
           if (existing.rows.length > 0) {
             const existingPayload = existing.rows[0].response_payload;
@@ -74,7 +86,7 @@ router.post(
           `INSERT INTO sales (location_id, cashier_id, total_amount, payment_method, receipt_number, is_offline)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING *`,
-          [locationId, cashierId, totalAmount, payment_method || 'cash', receiptNumber, isFromOfflineQueue]
+          [locationId, effectiveCashierId, totalAmount, payment_method || 'cash', receiptNumber, isFromOfflineQueue]
         );
 
         const createdSale = saleResult.rows[0];
@@ -114,7 +126,7 @@ router.post(
             `INSERT INTO inventory_movements
              (location_id, product_id, movement_type, quantity_change, source, reference_type, reference_id, created_by, metadata)
              VALUES ($1, $2, 'sale_out', $3, 'sale', 'sale', $4, $5, $6)`,
-            [locationId, item.product_id, -item.quantity, createdSale.id, cashierId, JSON.stringify({ remaining_quantity: remainingQty })]
+            [locationId, item.product_id, -item.quantity, createdSale.id, effectiveCashierId, JSON.stringify({ remaining_quantity: remainingQty, synced_by_user_id: req.user.id })]
           );
 
           if (remainingQty < lowStockThreshold) {
@@ -136,7 +148,7 @@ router.post(
            VALUES ($1, $2, 'sale_created', $3, $4, $5, $6)`,
           [
             locationId,
-            cashierId,
+            effectiveCashierId,
             totalAmount,
             'cashier_order_processing_time',
             Number(cashier_timing_ms) || null,
@@ -165,7 +177,7 @@ router.post(
           `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
            VALUES ($1, $2, $3, $4, $5)`,
           [
-            cashierId,
+            effectiveCashierId,
             locationId,
             'sale_created',
             `Sale ${receiptNumber} - Total: ${totalAmount}`,
@@ -180,7 +192,7 @@ router.post(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
-            [cashierId, locationId, idempotencyKey, '/api/sales', JSON.stringify(completeSale)]
+            [effectiveCashierId, locationId, idempotencyKey, '/api/sales', JSON.stringify(completeSale)]
           );
         }
 

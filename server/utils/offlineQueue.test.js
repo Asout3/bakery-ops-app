@@ -236,3 +236,75 @@ test('sync history logs failure and success events for traceability', async () =
   assert.ok(history.some((entry) => entry.status === 'retrying'));
   assert.ok(history.some((entry) => entry.status === 'synced'));
 });
+
+
+test('flushQueue returns offline state and keeps queue intact when navigator is offline', async () => {
+  await enqueueOperation({ id: 'offline-op', url: '/api/sales', method: 'post', data: { n: 1 } });
+  globalThis.navigator.onLine = false;
+
+  const api = {
+    async request() {
+      throw new Error('should not be called while offline');
+    },
+  };
+
+  const result = await flushQueue(api);
+  const queued = await listQueuedOperations();
+
+  assert.equal(result.offline, true);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].id, 'offline-op');
+});
+
+test('flushQueue uses payload store data when operation object data is missing', async () => {
+  await enqueueOperation({ id: 'payload-op', url: '/api/sales', method: 'post', data: { n: 42 } });
+
+  const requests = [];
+  const api = {
+    async request(config) {
+      requests.push(config);
+      return { data: { ok: true } };
+    },
+  };
+
+  await flushQueue(api);
+
+  assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0].data, { n: 42 });
+});
+
+test('flushQueue adapts request timeout for slow connections', async () => {
+  await enqueueOperation({ id: 'slow-conn-op', url: '/api/sales', method: 'post', data: { n: 1 } });
+  globalThis.navigator.connection.effectiveType = '2g';
+
+  const requests = [];
+  const api = {
+    async request(config) {
+      requests.push(config);
+      return { data: { ok: true } };
+    },
+  };
+
+  await flushQueue(api);
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].timeout, 25000);
+});
+
+test('flushQueue pauses batch after HTTP 429 and keeps remaining operations pending', async () => {
+  await enqueueOperation({ id: 'rate-op-1', url: '/api/sales', method: 'post', data: { n: 1 } });
+  await enqueueOperation({ id: 'rate-op-2', url: '/api/sales', method: 'post', data: { n: 2 } });
+
+  const { api, requests } = createApiStub([
+    { type: 'error', status: 429, message: 'Too many requests' },
+    { type: 'success' },
+  ]);
+
+  const result = await flushQueue(api);
+  const queued = await listQueuedOperations();
+
+  assert.equal(requests.length, 1);
+  assert.equal(result.failed, 1);
+  assert.equal(queued.length, 2);
+  assert.equal(queued.find((op) => op.id === 'rate-op-2').status, 'pending');
+});

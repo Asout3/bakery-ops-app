@@ -156,3 +156,25 @@
     font-size: 1.5rem;
   }
 }
+
+.transparency-table {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.transparency-table thead th {
+  background: var(--bg-secondary);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+}
+
+.transparency-table tbody tr td {
+  vertical-align: middle;
+}
+
+.transparency-table tbody tr.table-light td {
+  background: rgba(59, 130, 246, 0.08);
+}
