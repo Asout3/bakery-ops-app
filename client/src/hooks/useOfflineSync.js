@@ -16,7 +16,7 @@ export function useOfflineSync() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const [isOnlineState, setIsOnlineState] = useState(isOnline());
-  const [queueStats, setQueueStats] = useState({ total: 0, pending: 0, conflict: 0, failed: 0 });
+  const [queueStats, setQueueStats] = useState({ total: 0, pending: 0, conflict: 0, needsReview: 0, failed: 0 });
   const [syncInProgress, setSyncInProgress] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState(() => {
     const cached = localStorage.getItem('offline_sync_last_result');

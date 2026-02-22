@@ -198,7 +198,7 @@ export async function flushQueue(api) {
 
     const now = Date.now();
   const readyToSync = queue
-    .filter(op => op.nextRetry <= now && op.status !== 'conflict')
+    .filter(op => op.nextRetry <= now && op.status !== 'conflict' && op.status !== 'needs_review')
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
     .slice(0, MAX_BATCH_PER_FLUSH);
   
@@ -249,7 +249,7 @@ export async function flushQueue(api) {
     } catch (error) {
       const status = error?.response?.status;
       const isClientError = Number.isInteger(status) && status >= 400 && status < 500;
-      const isAuthOrSessionIssue = status === 401;
+      const isAuthOrSessionIssue = status === 401 || status === 403;
       const isDeterministicClientError = isClientError && !isAuthOrSessionIssue;
       const isConflict = status === 409;
       const isTransientHttp = TRANSIENT_HTTP_CODES.has(status);
@@ -258,7 +258,16 @@ export async function flushQueue(api) {
       const db = await openDb();
       const tx = db.transaction(OPS_STORE, 'readwrite');
 
-      if (isConflict || status === 422 || isDeterministicClientError) {
+      if (isAuthOrSessionIssue) {
+        const updatedOp = {
+          ...op,
+          retries,
+          status: 'needs_review',
+          lastError: 'Original user session expired - requires admin review',
+          lastAttempt: new Date().toISOString(),
+        };
+        tx.objectStore(OPS_STORE).put(updatedOp);
+      } else if (isConflict || status === 422 || isDeterministicClientError) {
         const updatedOp = {
           ...op,
           retries,
@@ -293,11 +302,15 @@ export async function flushQueue(api) {
       db.close();
       failed += 1;
 
+      const historyStatus = isAuthOrSessionIssue
+        ? 'needs_review'
+        : (isDeterministicClientError ? 'conflict' : (retries >= MAX_RETRIES ? 'failed' : 'retrying'));
+
       await appendHistory({
         id: `${op.id}-failed-${Date.now()}`,
         operation_id: op.id,
-        status: isDeterministicClientError ? 'conflict' : (retries >= MAX_RETRIES ? 'failed' : 'retrying'),
-        message: resolveSyncErrorMessage(error),
+        status: historyStatus,
+        message: isAuthOrSessionIssue ? 'Original user session expired - requires admin review' : resolveSyncErrorMessage(error),
         created_at: new Date().toISOString(),
         retryCount: retries,
         statusCode: status,
@@ -397,6 +410,7 @@ export async function getSyncStats() {
     pending: queue.filter(op => op.status === 'pending').length,
     retrying: queue.filter(op => op.status === 'retrying').length,
     conflict: queue.filter(op => op.status === 'conflict').length,
+    needsReview: queue.filter(op => op.status === 'needs_review').length,
     failed: queue.filter(op => op.status === 'failed').length,
   };
 }

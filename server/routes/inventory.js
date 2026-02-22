@@ -7,25 +7,31 @@ import { getTargetLocationId } from '../utils/location.js';
 const router = express.Router();
 const BATCH_EDIT_WINDOW_MINUTES = 20;
 
-let hasOfflineFlagColumnCache = null;
+let inventoryBatchColumnsCache = null;
 
-async function hasInventoryBatchOfflineColumn(db) {
-  if (hasOfflineFlagColumnCache !== null) {
-    return hasOfflineFlagColumnCache;
+async function getInventoryBatchColumns(db) {
+  if (inventoryBatchColumnsCache) {
+    return inventoryBatchColumnsCache;
   }
 
   const result = await db.query(
-    `SELECT EXISTS (
-       SELECT 1
-       FROM information_schema.columns
-       WHERE table_name = 'inventory_batches' AND column_name = 'is_offline'
-     ) as exists`
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_name = 'inventory_batches'`
   );
 
-  hasOfflineFlagColumnCache = result.rows[0]?.exists === true;
-  return hasOfflineFlagColumnCache;
-}
+  const columns = new Set(result.rows.map((row) => row.column_name));
+  inventoryBatchColumnsCache = {
+    hasOfflineFlag: columns.has('is_offline'),
+    hasOriginalActorId: columns.has('original_actor_id'),
+    hasOriginalActorName: columns.has('original_actor_name'),
+    hasSyncedById: columns.has('synced_by_id'),
+    hasSyncedByName: columns.has('synced_by_name'),
+    hasSyncedAt: columns.has('synced_at'),
+  };
 
+  return inventoryBatchColumnsCache;
+}
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
@@ -193,6 +199,7 @@ router.post(
     const idempotencyKey = req.headers['x-idempotency-key'];
     const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
     const queuedCreatedAtHeader = req.headers['x-queued-created-at'];
+    const queuedActorIdHeader = req.headers['x-offline-actor-id'];
 
     try {
       const locationId = await getTargetLocationId(req, query);
@@ -212,20 +219,68 @@ router.post(
         const hasValidQueuedCreatedAt = queuedCreatedAt instanceof Date && !Number.isNaN(queuedCreatedAt.getTime()) && queuedCreatedAt.getTime() <= Date.now();
         const effectiveCreatedAt = hasValidQueuedCreatedAt ? queuedCreatedAt.toISOString() : new Date().toISOString();
 
-        const supportsOfflineFlag = await hasInventoryBatchOfflineColumn(tx);
-        const batchResult = supportsOfflineFlag
-          ? await tx.query(
-              `INSERT INTO inventory_batches (location_id, created_by, batch_date, status, notes, is_offline, created_at)
-               VALUES ($1, $2, $3::date, 'sent', $4, $5, $3::timestamp)
-               RETURNING *`,
-              [locationId, req.user.id, effectiveCreatedAt, notes || null, isFromOfflineQueue]
-            )
-          : await tx.query(
-              `INSERT INTO inventory_batches (location_id, created_by, batch_date, status, notes, created_at)
-               VALUES ($1, $2, $3::date, 'sent', $4, $3::timestamp)
-               RETURNING *, false as is_offline`,
-              [locationId, req.user.id, effectiveCreatedAt, notes || null]
-            );
+        const batchColumns = await getInventoryBatchColumns(tx);
+
+        let effectiveCreatedBy = req.user.id;
+        let originalActorName = req.user.username;
+
+        if (isFromOfflineQueue && queuedActorIdHeader) {
+          const actorResult = await tx.query(
+            `SELECT id, username FROM users WHERE id = $1 AND location_id = $2`,
+            [queuedActorIdHeader, locationId]
+          );
+          if (actorResult.rows.length > 0) {
+            effectiveCreatedBy = Number(actorResult.rows[0].id);
+            originalActorName = actorResult.rows[0].username;
+          }
+        }
+
+        const insertColumns = ['location_id', 'created_by', 'batch_date', 'status', 'notes', 'created_at'];
+        const insertValues = ['$1', '$2', '$3::date', "'sent'", '$4', '$3::timestamp'];
+        const params = [locationId, effectiveCreatedBy, effectiveCreatedAt, notes || null];
+
+        if (batchColumns.hasOfflineFlag) {
+          insertColumns.push('is_offline');
+          insertValues.push(`$${params.length + 1}`);
+          params.push(isFromOfflineQueue);
+        }
+
+        if (batchColumns.hasOriginalActorId) {
+          insertColumns.push('original_actor_id');
+          insertValues.push(`$${params.length + 1}`);
+          params.push(effectiveCreatedBy);
+        }
+
+        if (batchColumns.hasOriginalActorName) {
+          insertColumns.push('original_actor_name');
+          insertValues.push(`$${params.length + 1}`);
+          params.push(originalActorName);
+        }
+
+        if (batchColumns.hasSyncedById) {
+          insertColumns.push('synced_by_id');
+          insertValues.push(`$${params.length + 1}`);
+          params.push(isFromOfflineQueue ? req.user.id : null);
+        }
+
+        if (batchColumns.hasSyncedByName) {
+          insertColumns.push('synced_by_name');
+          insertValues.push(`$${params.length + 1}`);
+          params.push(isFromOfflineQueue ? req.user.username : null);
+        }
+
+        if (batchColumns.hasSyncedAt) {
+          insertColumns.push('synced_at');
+          insertValues.push(`$${params.length + 1}`);
+          params.push(isFromOfflineQueue ? new Date().toISOString() : null);
+        }
+
+        const batchResult = await tx.query(
+          `INSERT INTO inventory_batches (${insertColumns.join(', ')})
+           VALUES (${insertValues.join(', ')})
+           RETURNING *`,
+          params
+        );
 
         const createdBatch = batchResult.rows[0];
 
@@ -299,8 +354,18 @@ router.get('/batches', authenticateToken, async (req, res) => {
     const limit = parseInt(req.query.limit, 10) || 50;
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
+    const batchColumns = await getInventoryBatchColumns({ query });
+
+    const displayCreatorExpr = batchColumns.hasOriginalActorName
+      ? 'COALESCE(b.original_actor_name, u.username)'
+      : 'u.username';
+    const syncedByNameExpr = batchColumns.hasSyncedByName ? 'b.synced_by_name' : 'NULL';
+    const wasSyncedExpr = batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false';
 
     let queryText = `SELECT b.*, u.username as created_by_name,
+              ${displayCreatorExpr} as display_creator_name,
+              ${syncedByNameExpr} as synced_by_name,
+              ${wasSyncedExpr} as was_synced,
               (SELECT COUNT(*) FROM batch_items WHERE batch_id = b.id) as items_count,
               COALESCE((SELECT SUM(bi.quantity * COALESCE(p.cost, 0))
                         FROM batch_items bi
@@ -337,8 +402,18 @@ router.get('/batches', authenticateToken, async (req, res) => {
 
 router.get('/batches/:id', authenticateToken, async (req, res) => {
   try {
+    const batchColumns = await getInventoryBatchColumns({ query });
+    const displayCreatorExpr = batchColumns.hasOriginalActorName
+      ? 'COALESCE(b.original_actor_name, u.username)'
+      : 'u.username';
+    const syncedByNameExpr = batchColumns.hasSyncedByName ? 'b.synced_by_name' : 'NULL';
+    const wasSyncedExpr = batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false';
+
     const batchResult = await query(
       `SELECT b.*, u.username as created_by_name,
+              ${displayCreatorExpr} as display_creator_name,
+              ${syncedByNameExpr} as synced_by_name,
+              ${wasSyncedExpr} as was_synced,
               (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60) <= $2 as can_edit
        FROM inventory_batches b
        JOIN users u ON b.created_by = u.id

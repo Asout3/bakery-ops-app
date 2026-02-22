@@ -17,6 +17,7 @@ import api from '../api/axios';
 import { useBranch } from '../context/BranchContext';
 import { useLanguage } from '../context/LanguageContext';
 import OfflineIndicator from './OfflineIndicator';
+import { getQueueSize } from '../utils/offlineQueue';
 import './Layout.css';
 
 export default function Layout() {
@@ -26,10 +27,22 @@ export default function Layout() {
   const [locations, setLocations] = useState([]);
   const { selectedLocationId, setLocation } = useBranch();
   const { language, setLang, t } = useLanguage();
+  const [showLogoutWarning, setShowLogoutWarning] = useState(false);
+  const [pendingLogoutCount, setPendingLogoutCount] = useState(0);
 
-  const handleLogout = () => {
+  const doLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handleLogout = async () => {
+    const pendingCount = await getQueueSize();
+    if (pendingCount > 0) {
+      setPendingLogoutCount(pendingCount);
+      setShowLogoutWarning(true);
+      return;
+    }
+    doLogout();
   };
 
 
@@ -181,6 +194,33 @@ export default function Layout() {
       )}
       
       <OfflineIndicator />
+
+      {showLogoutWarning && (
+        <div className="modal-overlay" onClick={() => setShowLogoutWarning(false)}>
+          <div className="modal-content modal-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Pending Offline Actions</h3>
+              <button className="close-btn" onClick={() => setShowLogoutWarning(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p>
+                You have <strong>{pendingLogoutCount}</strong> offline action(s) pending.
+                These will be forwarded to admin for syncing when online.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowLogoutWarning(false)}>Cancel</button>
+              <button className="btn btn-danger" onClick={() => {
+                setShowLogoutWarning(false);
+                doLogout();
+              }}>
+                Logout Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

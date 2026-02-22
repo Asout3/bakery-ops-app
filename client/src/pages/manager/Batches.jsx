@@ -132,7 +132,12 @@ export default function ManagerBatches() {
                     <td><span className={`badge ${batch.status === 'voided' ? 'badge-danger' : 'badge-success'}`}>{batch.status}</span></td>
                     <td>{batch.items_count}</td>
                     <td>ETB {Number(batch.total_cost || 0).toFixed(2)}</td>
-                    <td>{batch.created_by_name}</td>
+                    <td>
+                      {batch.display_creator_name || batch.created_by_name}
+                      {batch.was_synced && batch.synced_by_name && (
+                        <span className="text-muted d-block" style={{ fontSize: '0.75rem' }}>(Synced by: {batch.synced_by_name})</span>
+                      )}
+                    </td>
                     <td>{batch.is_offline ? <span className="badge badge-warning">Offline</span> : <span className="badge badge-success">Online</span>}</td>
                     <td style={{ display: 'flex', gap: '0.4rem' }}>
                       <button className="btn btn-sm btn-outline-primary" onClick={() => fetchBatchDetails(batch.id)}>
@@ -161,7 +166,10 @@ export default function ManagerBatches() {
             </div>
             <div className="modal-body">
               <p><Clock size={14} /> {new Date(selectedBatch.created_at).toLocaleString()}</p>
-              <p><User size={14} /> {selectedBatch.created_by_name}</p>
+              <p><User size={14} /> {selectedBatch.display_creator_name || selectedBatch.created_by_name}</p>
+              {selectedBatch.was_synced && selectedBatch.synced_by_name && (
+                <p className="text-muted" style={{ marginTop: '-0.4rem' }}>Synced by: {selectedBatch.synced_by_name}</p>
+              )}
               <p>Status: <strong>{selectedBatch.status}</strong></p>
               <p>Total Cost: <strong>ETB {Number(selectedBatch.total_cost || 0).toFixed(2)}</strong></p>
               <hr />

@@ -1,19 +1,41 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
-import { flushQueue, listQueuedOperations, listSyncHistory } from '../../utils/offlineQueue';
+import { flushQueue, getSyncStats, listQueuedOperations, listSyncHistory } from '../../utils/offlineQueue';
+
+const getStatusLabel = (status) => {
+  if (status === 'needs_review') return 'Needs Review';
+  if (status === 'conflict') return 'Conflict';
+  if (status === 'failed') return 'Failed';
+  if (status === 'synced') return 'Synced';
+  if (status === 'retrying') return 'Retrying';
+  if (status === 'pending') return 'Pending';
+  return status;
+};
+
+const getStatusBadgeClass = (status) => {
+  if (status === 'needs_review') return 'badge-warning';
+  if (status === 'conflict') return 'badge-danger';
+  if (status === 'failed') return 'badge-danger';
+  if (status === 'synced') return 'badge-success';
+  if (status === 'retrying') return 'badge-info';
+  if (status === 'pending') return 'badge-primary';
+  return 'badge-secondary';
+};
 
 export default function SyncQueuePage() {
   const [queued, setQueued] = useState([]);
   const [history, setHistory] = useState([]);
+  const [stats, setStats] = useState({ total: 0, pending: 0, conflict: 0, needsReview: 0, failed: 0 });
   const [loading, setLoading] = useState(true);
   const [syncResult, setSyncResult] = useState(null);
 
   const refresh = async () => {
     setLoading(true);
     try {
-      const [q, h] = await Promise.all([listQueuedOperations(), listSyncHistory(200)]);
+      const [q, h, s] = await Promise.all([listQueuedOperations(), listSyncHistory(200), getSyncStats()]);
       setQueued(q);
       setHistory(h);
+      setStats(s);
     } finally {
       setLoading(false);
     }
@@ -46,15 +68,32 @@ export default function SyncQueuePage() {
         </div>
       )}
 
+      <div className="stats-grid mb-4">
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{stats.total}</h3><p>Total Queued</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{stats.pending}</h3><p>Pending</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{stats.needsReview || 0}</h3><p>Needs Review</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{stats.conflict}</h3><p>Conflicts</p></div></div>
+      </div>
+
       <div className="card mb-4">
         <div className="card-header"><h3>Queued Operations ({queued.length})</h3></div>
         <div className="card-body">
           {queued.length === 0 ? <p className="text-muted">No queued operations.</p> : (
-            <ul>
-              {queued.map((op) => (
-                <li key={op.id}>{op.method?.toUpperCase()} {op.url} — retries: {op.retries || 0}</li>
-              ))}
-            </ul>
+            <div className="table-responsive">
+              <table className="table table-hover">
+                <thead><tr><th>Operation</th><th>Status</th><th>Retries</th><th>Last Error</th></tr></thead>
+                <tbody>
+                  {queued.map((op) => (
+                    <tr key={op.id}>
+                      <td>{op.method?.toUpperCase()} {op.url}</td>
+                      <td><span className={`badge ${getStatusBadgeClass(op.status)}`}>{getStatusLabel(op.status)}</span></td>
+                      <td>{op.retries || 0}</td>
+                      <td>{op.lastError || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>
@@ -70,7 +109,7 @@ export default function SyncQueuePage() {
                   {history.map((item) => (
                     <tr key={item.id}>
                       <td>{new Date(item.created_at).toLocaleString()}</td>
-                      <td><span className="badge badge-secondary">{item.status}</span></td>
+                      <td><span className={`badge ${getStatusBadgeClass(item.status)}`}>{getStatusLabel(item.status)}</span></td>
                       <td>{item.operation_id}</td>
                       <td>{item.message}</td>
                     </tr>

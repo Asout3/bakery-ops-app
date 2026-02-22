@@ -19,14 +19,14 @@ export default function OfflineIndicator() {
       return;
     }
     const ops = await listQueuedOperations();
-    setConflictOps(ops.filter((op) => op.status === 'conflict' || op.status === 'failed'));
+    setConflictOps(ops.filter((op) => op.status === 'conflict' || op.status === 'failed' || op.status === 'needs_review'));
   }, [isAdmin]);
 
   useEffect(() => {
-    if (isAdmin && (queueStats.conflict > 0 || queueStats.failed > 0)) {
+    if (isAdmin && (queueStats.conflict > 0 || queueStats.failed > 0 || queueStats.needsReview > 0)) {
       loadConflicts();
     }
-  }, [isAdmin, queueStats.conflict, queueStats.failed, loadConflicts]);
+  }, [isAdmin, queueStats.conflict, queueStats.failed, queueStats.needsReview, loadConflicts]);
 
   const handleRetry = async (operationId) => {
     await retryOperation(operationId);
@@ -43,7 +43,7 @@ export default function OfflineIndicator() {
     return null;
   }
 
-  const issueCount = isAdmin ? (queueStats.conflict + queueStats.failed) : 0;
+  const issueCount = isAdmin ? (queueStats.conflict + queueStats.failed + (queueStats.needsReview || 0)) : 0;
 
   return (
     <div className={`offline-indicator ${!isOnline ? 'offline' : ''} ${issueCount > 0 ? 'has-conflicts' : ''}`}>
@@ -82,6 +82,7 @@ export default function OfflineIndicator() {
           <div className="sync-status">
             <div className="status-row"><span>Status:</span><span>{isOnline ? 'Online' : 'Offline'}</span></div>
             <div className="status-row"><span>Pending:</span><span>{queueStats.pending}</span></div>
+            {isAdmin && <div className="status-row"><span>Needs Review:</span><span className={queueStats.needsReview > 0 ? 'text-warning' : ''}>{queueStats.needsReview || 0}</span></div>}
             {isAdmin && <div className="status-row"><span>Conflicts:</span><span className={queueStats.conflict > 0 ? 'text-warning' : ''}>{queueStats.conflict}</span></div>}
             {isAdmin && <div className="status-row"><span>Failed:</span><span className={queueStats.failed > 0 ? 'text-danger' : ''}>{queueStats.failed}</span></div>}
           </div>
