@@ -15,9 +15,6 @@ if ('serviceWorker' in navigator) {
 
     if (import.meta.env.DEV) {
       await Promise.all(registrations.map((registration) => registration.unregister()))
-      navigator.serviceWorker.register(`/sw.js?dev=${Date.now()}`).catch((error) => {
-        console.error('Dev service worker registration failed:', error)
-      })
       return
     }
 

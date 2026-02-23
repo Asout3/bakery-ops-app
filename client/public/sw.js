@@ -74,7 +74,9 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (isStaticAsset(requestUrl)) {
-    event.respondWith(cacheFirst(event.request).catch(() => caches.match(event.request)));
+    event.respondWith(
+      networkThenCache(event.request).catch(async () => (await caches.match(event.request)) || Response.error())
+    );
     return;
   }
 

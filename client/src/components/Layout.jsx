@@ -17,11 +17,13 @@ import api from '../api/axios';
 import { useBranch } from '../context/BranchContext';
 import { useLanguage } from '../context/LanguageContext';
 import OfflineIndicator from './OfflineIndicator';
+import { useOfflineSync } from '../hooks/useOfflineSync';
 import { getQueueSize } from '../utils/offlineQueue';
 import './Layout.css';
 
 export default function Layout() {
   const { user, logout } = useAuth();
+  useOfflineSync();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [locations, setLocations] = useState([]);
