@@ -88,8 +88,14 @@ CREATE TABLE IF NOT EXISTS inventory_batches (
     location_id INTEGER REFERENCES locations(id),
     created_by INTEGER REFERENCES users(id),
     batch_date DATE NOT NULL,
-    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'received')),
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'received', 'edited', 'voided')),
     notes TEXT,
+    is_offline BOOLEAN DEFAULT false,
+    original_actor_id INTEGER REFERENCES users(id),
+    original_actor_name VARCHAR(100),
+    synced_by_id INTEGER REFERENCES users(id),
+    synced_by_name VARCHAR(100),
+    synced_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -110,6 +116,7 @@ CREATE TABLE IF NOT EXISTS sales (
     cashier_id INTEGER REFERENCES users(id),
     total_amount DECIMAL(10, 2) NOT NULL,
     payment_method VARCHAR(20) DEFAULT 'cash',
+    is_offline BOOLEAN DEFAULT false,
     sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     receipt_number VARCHAR(50) UNIQUE
 );

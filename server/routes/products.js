@@ -24,7 +24,7 @@ router.get('/', authenticateToken, async (req, res) => {
           `SELECT DISTINCT p.*, c.name as category_name
            FROM products p
            LEFT JOIN categories c ON p.category_id = c.id
-           JOIN inventory i ON i.product_id = p.id AND i.location_id = $1
+           LEFT JOIN inventory i ON i.product_id = p.id AND i.location_id = $1
            WHERE p.is_active = true
            ORDER BY c.name, p.name`,
           [locationId]
@@ -88,6 +88,16 @@ router.post('/',
         [req.user.id, req.user.location_id, 'product_created', `Created product: ${name}`]
       );
 
+
+      const admins = await query(
+        `SELECT id FROM users WHERE role = 'admin' AND is_active = true`
+      );
+      await Promise.all(admins.rows.map((admin) => query(
+        `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [admin.id, req.user.location_id || null, 'New product needs inventory setup', `Product "${name}" was created by ${req.user.username || `user ${req.user.id}`}. Add it to inventory to make it available for operations.`, 'inventory_setup']
+      )));
+
       res.status(201).json(result.rows[0]);
     } catch (err) {
       console.error('Create product error:', err);
@@ -140,7 +150,7 @@ router.put('/:id',
 // Delete product (soft delete)
 router.delete('/:id',
   authenticateToken,
-  authorizeRoles('admin'),
+  authorizeRoles('admin', 'manager'),
   async (req, res) => {
     try {
       const result = await query(

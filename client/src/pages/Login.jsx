@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
+import { getErrorMessage } from '../api/axios';
 import './Login.css';
 
 export default function Login() {
@@ -30,7 +31,7 @@ export default function Login() {
         navigate('/cashier/sales');
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed');
+      setError(getErrorMessage(err, 'Login failed'));
     } finally {
       setLoading(false);
     }

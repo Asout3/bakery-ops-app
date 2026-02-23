@@ -24,6 +24,7 @@ The platform is designed for real bakery operations where intermittent connectiv
 - replay-safe offline synchronization,
 - transaction-safe backend operations,
 - standardized API error responses with request tracing.
+- standardized client-facing error messages (request IDs, fallback handling, and status-aware text).
 - browser-level offline page boot support for refresh scenarios.
 
 ## Architecture
@@ -85,7 +86,7 @@ This section documents the reliability hardening added specifically to prevent t
 ### 1) Offline Replay Safety
 
 - Sales requests use `X-Idempotency-Key` to prevent duplicate writes.
-- In production builds, a service worker caches the app shell (`index.html` + static assets) so users can refresh and still open the app UI while offline.
+- A service worker caches the app shell (`index.html` + static assets) so users can refresh and still open the app UI while offline.
 - Offline operations are persisted in IndexedDB and replayed with the same idempotency identity.
 - Queue flushes are guarded against overlap (`flushInProgress`) to prevent concurrent duplicate replay loops.
 - Batches are capped (`MAX_BATCH_PER_FLUSH`) so one flush cycle does not overload a degraded backend.
@@ -129,6 +130,21 @@ sequenceDiagram
   API->>DB: Check/insert idempotency_keys
   API-->>Client: Deterministic single-sale outcome
 ```
+
+
+### 6) Client Error UX and Route Safety
+
+- Axios response normalization maps technical/network failures into user-facing messages and preserves server `code`/`requestId` context.
+- A global UI error boundary is enabled so fatal render issues land in a controlled fallback screen.
+- A dedicated `404` route catches unknown paths with a professional not-found page instead of a blank/unstyled fallback.
+
+### 7) Manager Offline Continuity
+
+- Manager inventory/product lists are now cached per branch in local storage.
+- Optimistic offline inventory/product adjustments are persisted to local caches so refresh does not resurrect already-consumed stock.
+- When offline, manager screens restore cached products/inventory so batch preparation can continue.
+- Offline batch sends are queued with idempotency keys for replay.
+- Admin product/inventory changes also queue offline and are rendered as pending sync in the UI.
 
 ## Security Controls
 
@@ -219,6 +235,7 @@ npm run preview
 Notes:
 - `npm run preview` exists in `client/package.json`, not root `package.json`.
 - Offline-refresh testing should be done with preview/deployed build, not Vite dev mode.
+- In this repo, service worker registration is enabled in development too for branch-level offline regression testing.
 
 ## Deployment Strategy (No Feature Loss)
 
@@ -243,3 +260,11 @@ To avoid losing offline and sync behavior when frontend/backend are deployed sep
 - Configure `ALLOWED_ORIGINS`
 - Apply database migrations before startup
 - Verify health probes: `/api/health`, `/api/ready`, `/api/live`
+
+
+## Offline Refresh & Sync Notes
+
+- In **development (`npm run dev`)**, the app now refreshes service worker registration on every page load to prevent stale cached chunks while still enabling offline-refresh testing.
+- In **preview/production**, service worker registration remains standard and caches app shell/static assets for offline refresh behavior.
+- If you see old UI chunks during local testing, perform a hard refresh (`Ctrl+Shift+R`) after restarting the dev server.
+- Offline queue replay is now available from any logged-in role when back online. Auth/session failures are classified as **Needs Review** for admin follow-up.

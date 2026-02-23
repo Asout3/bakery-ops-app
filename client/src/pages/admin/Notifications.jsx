@@ -3,6 +3,7 @@ import api from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { useAuth } from '../../context/AuthContext';
 import { Bell, Check, X, Search } from 'lucide-react';
+import './Notifications.css';
 
 export default function NotificationsPage() {
   const { selectedLocationId } = useBranch();
@@ -126,6 +127,12 @@ export default function NotificationsPage() {
         )}
       </div>
 
+      <div className="notifications-summary mb-4">
+        <div className="summary-chip">Total: {notifications.length}</div>
+        <div className="summary-chip summary-chip-warning">Unread: {unreadCount}</div>
+        <div className="summary-chip">Read: {notifications.length - unreadCount}</div>
+      </div>
+
       <div className="card mb-4">
         <div className="card-body">
           <div className="row g-3">
@@ -171,6 +178,12 @@ export default function NotificationsPage() {
       </div>
 
 
+      <div className="notifications-summary mb-4">
+        <div className="summary-chip">Total: {notifications.length}</div>
+        <div className="summary-chip summary-chip-warning">Unread: {unreadCount}</div>
+        <div className="summary-chip">Read: {notifications.length - unreadCount}</div>
+      </div>
+
       {user?.role === 'admin' && (
       <div className="card mb-4">
         <div className="card-header">
@@ -191,10 +204,10 @@ export default function NotificationsPage() {
               <button className="btn btn-primary" onClick={createRule}>Add Rule</button>
             </div>
           </div>
-          <div>
+          <div className="rule-list">
             {rules.map((rule) => (
-              <div key={rule.id} className="d-flex justify-content-between align-items-center mb-2">
-                <span>{rule.event_type} ≥ {rule.threshold}</span>
+              <div key={rule.id} className="rule-item">
+                <span className="rule-text">{rule.event_type} ≥ {rule.threshold}</span>
                 <button className={`btn btn-sm ${rule.enabled ? 'btn-success' : 'btn-secondary'}`} onClick={() => toggleRule(rule)}>
                   {rule.enabled ? 'Enabled' : 'Disabled'}
                 </button>

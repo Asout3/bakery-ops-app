@@ -7,6 +7,7 @@ const PAYLOAD_STORE = 'payloads';
 const MAX_RETRIES = 5;
 const BASE_RETRY_DELAY_MS = 1000;
 const MAX_BATCH_PER_FLUSH = 20;
+const TRANSIENT_HTTP_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 let flushInProgress = false;
 
 function openDb() {
@@ -100,9 +101,18 @@ function getRequestTimeout(retries) {
   return 15000;
 }
 
+
+function resolveSyncErrorMessage(error) {
+  return error?.response?.data?.error || error?.userMessage || error?.message || 'Sync failed';
+}
 export async function enqueueOperation(operation) {
   const db = await openDb();
   const id = operation.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const sessionUser = typeof localStorage !== 'undefined'
+    ? JSON.parse(localStorage.getItem('user') || 'null')
+    : null;
+  const selectedLocationId = typeof localStorage !== 'undefined' ? localStorage.getItem('selectedLocationId') : null;
+
   const op = {
     id,
     retries: 0,
@@ -111,6 +121,12 @@ export async function enqueueOperation(operation) {
     nextRetry: Date.now(),
     lastAttempt: null,
     lastError: null,
+    actorId: sessionUser?.id || null,
+    actorName: sessionUser?.username || null,
+    headers: {
+      ...(operation.headers || {}),
+      ...(selectedLocationId ? { 'X-Location-Id': selectedLocationId } : {}),
+    },
     ...operation,
   };
 
@@ -188,7 +204,7 @@ export async function flushQueue(api) {
 
     const now = Date.now();
   const readyToSync = queue
-    .filter(op => op.nextRetry <= now && op.status !== 'conflict')
+    .filter(op => op.nextRetry <= now && op.status !== 'conflict' && op.status !== 'needs_review')
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
     .slice(0, MAX_BATCH_PER_FLUSH);
   
@@ -207,11 +223,13 @@ export async function flushQueue(api) {
       const response = await api.request({
         url: op.url,
         method: op.method,
-        data: payload || op.data,
+        data: payload ?? op.data,
         headers: {
           ...(op.headers || {}),
           'X-Idempotency-Key': op.idempotencyKey || op.id,
           'X-Queued-Request': 'true',
+          'X-Queued-Created-At': op.created_at,
+          'X-Offline-Actor-Id': op.actorId ? String(op.actorId) : undefined,
           'X-Retry-Count': String(op.retries || 0),
         },
         timeout: getRequestTimeout(op.retries || 0),
@@ -237,18 +255,30 @@ export async function flushQueue(api) {
     } catch (error) {
       const status = error?.response?.status;
       const isClientError = Number.isInteger(status) && status >= 400 && status < 500;
+      const isAuthOrSessionIssue = status === 401 || status === 403;
+      const isDeterministicClientError = isClientError && !isAuthOrSessionIssue;
       const isConflict = status === 409;
+      const isTransientHttp = TRANSIENT_HTTP_CODES.has(status);
       const retries = (op.retries || 0) + 1;
 
       const db = await openDb();
       const tx = db.transaction(OPS_STORE, 'readwrite');
 
-      if (isConflict || status === 422 || isClientError) {
+      if (isAuthOrSessionIssue) {
+        const updatedOp = {
+          ...op,
+          retries,
+          status: 'needs_review',
+          lastError: 'Original user session expired - requires admin review',
+          lastAttempt: new Date().toISOString(),
+        };
+        tx.objectStore(OPS_STORE).put(updatedOp);
+      } else if (isConflict || status === 422 || isDeterministicClientError) {
         const updatedOp = {
           ...op,
           retries,
           status: 'conflict',
-          lastError: error.response?.data?.error || error.message,
+          lastError: resolveSyncErrorMessage(error),
           lastAttempt: new Date().toISOString(),
         };
         tx.objectStore(OPS_STORE).put(updatedOp);
@@ -257,7 +287,7 @@ export async function flushQueue(api) {
           ...op,
           retries,
           status: 'failed',
-          lastError: error.message || 'Max retries exceeded',
+          lastError: resolveSyncErrorMessage(error) || 'Max retries exceeded',
           lastAttempt: new Date().toISOString(),
         };
         tx.objectStore(OPS_STORE).put(updatedOp);
@@ -268,7 +298,7 @@ export async function flushQueue(api) {
           retries,
           status: 'pending',
           nextRetry,
-          lastError: error.message,
+          lastError: resolveSyncErrorMessage(error),
           lastAttempt: new Date().toISOString(),
         };
         tx.objectStore(OPS_STORE).put(updatedOp);
@@ -278,17 +308,21 @@ export async function flushQueue(api) {
       db.close();
       failed += 1;
 
+      const historyStatus = isAuthOrSessionIssue
+        ? 'needs_review'
+        : (isDeterministicClientError ? 'conflict' : (retries >= MAX_RETRIES ? 'failed' : 'retrying'));
+
       await appendHistory({
         id: `${op.id}-failed-${Date.now()}`,
         operation_id: op.id,
-        status: isClientError ? 'conflict' : (retries >= MAX_RETRIES ? 'failed' : 'retrying'),
-        message: `${error.response?.data?.error || error.message || 'Sync failed'}`,
+        status: historyStatus,
+        message: isAuthOrSessionIssue ? 'Original user session expired - requires admin review' : resolveSyncErrorMessage(error),
         created_at: new Date().toISOString(),
         retryCount: retries,
         statusCode: status,
       });
 
-      const isServerUnavailable = !status || status >= 500 || status === 429;
+      const isServerUnavailable = !status || isTransientHttp;
       if (isServerUnavailable) {
         shouldPauseBatch = true;
       }
@@ -382,6 +416,7 @@ export async function getSyncStats() {
     pending: queue.filter(op => op.status === 'pending').length,
     retrying: queue.filter(op => op.status === 'retrying').length,
     conflict: queue.filter(op => op.status === 'conflict').length,
+    needsReview: queue.filter(op => op.status === 'needs_review').length,
     failed: queue.filter(op => op.status === 'failed').length,
   };
 }

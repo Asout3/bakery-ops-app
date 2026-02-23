@@ -11,6 +11,49 @@ const api = axios.create({
   timeout: REQUEST_TIMEOUT,
 });
 
+function resolveAdaptiveTimeout(config) {
+  if (config.timeout) return config.timeout;
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const effectiveType = connection?.effectiveType || 'unknown';
+  if (effectiveType === 'slow-2g' || effectiveType === '2g') return 30000;
+  if (effectiveType === '3g') return 20000;
+  return REQUEST_TIMEOUT;
+}
+
+function toUserMessage(error) {
+  const requestId = error?.response?.data?.requestId;
+  const code = error?.response?.data?.code;
+  const serverMessage = error?.response?.data?.error;
+
+  if (!error.response) {
+    if (error.code === 'ECONNABORTED') {
+      return 'Request timed out. The connection is slow. Please retry.';
+    }
+    if (!navigator.onLine) {
+      return 'You are offline. Your action can be queued and synced when online.';
+    }
+    return 'Network error. Please check connectivity and try again.';
+  }
+
+  if (error.response.status === 404) {
+    return 'The requested resource was not found.';
+  }
+
+  if (error.response.status === 429) {
+    return 'Too many requests. Please wait and retry.';
+  }
+
+  if (error.response.status >= 500) {
+    return `Server error. Please retry in a moment${requestId ? ` (Ref: ${requestId})` : ''}.`;
+  }
+
+  if (serverMessage) {
+    return `${serverMessage}${code ? ` (${code})` : ''}${requestId ? ` [${requestId}]` : ''}`;
+  }
+
+  return error.message || 'Something went wrong.';
+}
+
 const attachLocationContext = (config) => {
   const selectedLocationId = localStorage.getItem('selectedLocationId');
   if (!selectedLocationId) return config;
@@ -30,31 +73,19 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    
-    if (!navigator.onLine && !config.headers['X-Queued-Request']) {
-      console.log('[API] Offline mode - request will be queued');
-    }
-    
+
+    config.timeout = resolveAdaptiveTimeout(config);
+
     return attachLocationContext(config);
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (!error.response) {
-      if (error.code === 'ECONNABORTED') {
-        error.message = 'Request timed out. Please check your connection.';
-      } else if (!navigator.onLine) {
-        error.message = 'You are offline. Request will be synced when back online.';
-      } else {
-        error.message = 'Network error. Please check your connection.';
-      }
-    }
-    
+    error.userMessage = toUserMessage(error);
+
     if (error.response?.status === 401) {
       const currentPath = window.location.pathname;
       if (!currentPath.includes('/login')) {
@@ -63,10 +94,14 @@ api.interceptors.response.use(
         window.location.href = '/login';
       }
     }
-    
+
     return Promise.reject(error);
   }
 );
+
+export function getErrorMessage(error, fallback = 'Something went wrong.') {
+  return error?.userMessage || error?.response?.data?.error || error?.message || fallback;
+}
 
 export default api;
 

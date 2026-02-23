@@ -17,19 +17,35 @@ import api from '../api/axios';
 import { useBranch } from '../context/BranchContext';
 import { useLanguage } from '../context/LanguageContext';
 import OfflineIndicator from './OfflineIndicator';
+import { useOfflineSync } from '../hooks/useOfflineSync';
+import { getQueueSize } from '../utils/offlineQueue';
 import './Layout.css';
 
 export default function Layout() {
   const { user, logout } = useAuth();
+  useOfflineSync();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [locations, setLocations] = useState([]);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const { selectedLocationId, setLocation } = useBranch();
   const { language, setLang, t } = useLanguage();
+  const [showLogoutWarning, setShowLogoutWarning] = useState(false);
+  const [pendingLogoutCount, setPendingLogoutCount] = useState(0);
 
-  const handleLogout = () => {
+  const doLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handleLogout = async () => {
+    const pendingCount = await getQueueSize();
+    if (pendingCount > 0) {
+      setPendingLogoutCount(pendingCount);
+      setShowLogoutWarning(true);
+      return;
+    }
+    doLogout();
   };
 
 
@@ -52,6 +68,25 @@ export default function Layout() {
     fetchLocations();
   }, [user?.role, selectedLocationId, setLocation]);
 
+
+  useEffect(() => {
+    const fetchUnreadNotifications = async () => {
+      if (!user || user.role === 'cashier') {
+        setUnreadNotifications(0);
+        return;
+      }
+      try {
+        const response = await api.get('/notifications');
+        const list = response.data || [];
+        setUnreadNotifications(list.filter((item) => !item.is_read).length);
+      } catch (err) {
+        setUnreadNotifications(0);
+      }
+    };
+
+    fetchUnreadNotifications();
+  }, [user?.id, user?.role, selectedLocationId]);
+
   const getNavItems = () => {
     const role = user?.role;
     
@@ -64,7 +99,7 @@ export default function Layout() {
         { to: '/admin/expenses', icon: DollarSign, label: 'Expenses' },
         { to: '/admin/staff-payments', icon: Users, label: 'Staff Payments' },
         { to: '/admin/reports', icon: BarChart3, label: 'Reports' },
-        { to: '/admin/notifications', icon: Bell, label: 'Notifications' },
+        { to: '/admin/notifications', icon: Bell, label: 'Notifications', showBadge: true },
         { to: '/admin/sync', icon: BarChart3, label: 'Sync Queue' },
         { to: '/admin/team', icon: Users, label: 'Branch & Accounts' },
         { to: '/admin/staff', icon: Users, label: 'Staff Management' },
@@ -74,7 +109,7 @@ export default function Layout() {
         { to: '/manager/inventory', icon: Package, label: 'Inventory' },
         { to: '/manager/batches', icon: Package, label: 'Batches' },
         { to: '/manager/products', icon: Package, label: 'Products' },
-        { to: '/manager/notifications', icon: Bell, label: 'Notifications' },
+        { to: '/manager/notifications', icon: Bell, label: 'Notifications', showBadge: true },
       ];
     } else if (role === 'cashier') {
       return [
@@ -112,7 +147,12 @@ export default function Layout() {
               onClick={() => setSidebarOpen(false)}
             >
               <item.icon size={20} />
-              <span>{item.label}</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+                {item.label}
+                {item.showBadge && unreadNotifications > 0 && (
+                  <span className="badge badge-danger" style={{ fontSize: '0.68rem' }}>{unreadNotifications}</span>
+                )}
+              </span>
             </NavLink>
           ))}
         </nav>
@@ -181,6 +221,33 @@ export default function Layout() {
       )}
       
       <OfflineIndicator />
+
+      {showLogoutWarning && (
+        <div className="modal-overlay" onClick={() => setShowLogoutWarning(false)}>
+          <div className="modal-content modal-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Pending Offline Actions</h3>
+              <button className="close-btn" onClick={() => setShowLogoutWarning(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p>
+                You have <strong>{pendingLogoutCount}</strong> offline action(s) pending.
+                These will be forwarded to admin for syncing when online.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowLogoutWarning(false)}>Cancel</button>
+              <button className="btn btn-danger" onClick={() => {
+                setShowLogoutWarning(false);
+                doLogout();
+              }}>
+                Logout Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

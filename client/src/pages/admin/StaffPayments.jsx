@@ -1,7 +1,8 @@
 import { useMemo, useState, useEffect } from 'react';
-import api from '../../api/axios';
+import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Plus, Edit, Trash2, DollarSign, Calendar, User, X } from 'lucide-react';
+import { enqueueOperation } from '../../utils/offlineQueue';
 
 const initialForm = {
   staff_profile_id: '',
@@ -41,7 +42,7 @@ export default function StaffPaymentsPage() {
       setStaffMembers((staffRes.data || []).filter((staff) => staff.is_active));
     } catch (err) {
       console.error('Failed to fetch data:', err);
-      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Failed to load payments data.' });
+      setFeedback({ type: 'danger', message: getErrorMessage(err, 'Failed to load payments data.') });
     } finally {
       setLoading(false);
     }
@@ -53,6 +54,7 @@ export default function StaffPaymentsPage() {
       setFormData(prev => ({
         ...prev,
         staff_profile_id: staffId,
+        user_id: selected.user_id ? String(selected.user_id) : prev.user_id,
         amount: selected.monthly_salary ? String(selected.monthly_salary) : prev.amount,
         location_id: selected.location_id ? String(selected.location_id) : prev.location_id,
       }));
@@ -106,8 +108,25 @@ export default function StaffPaymentsPage() {
       setEditingPayment(null);
       setFormData(initialForm);
     } catch (err) {
-      console.error('Failed to save payment:', err);
-      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Failed to save payment.' });
+      if (!editingPayment && !err.response) {
+        const idempotencyKey = `payment-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        await enqueueOperation({ id: idempotencyKey, url: '/payments', method: 'post', data: payload, idempotencyKey });
+        setPayments((current) => [{
+          id: idempotencyKey,
+          payment_date: payload.payment_date,
+          staff_name: staffMembers.find((staff) => Number(staff.id) === Number(formData.staff_profile_id))?.full_name || 'Pending staff payment',
+          user_id: payload.user_id,
+          amount: payload.amount,
+          payment_type: payload.payment_type,
+          location_id: payload.location_id || Number(selectedLocationId),
+          is_pending_sync: true,
+        }, ...current]);
+        setFeedback({ type: 'warning', message: 'Offline: payment queued for sync.' });
+        setShowForm(false);
+        setFormData(initialForm);
+      } else {
+        setFeedback({ type: 'danger', message: getErrorMessage(err, 'Failed to save payment.') });
+      }
     }
   };
 
@@ -122,13 +141,22 @@ export default function StaffPaymentsPage() {
       setFeedback({ type: 'success', message: 'Payment deleted successfully.' });
     } catch (err) {
       console.error('Failed to delete payment:', err);
-      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Failed to delete payment.' });
+      setFeedback({ type: 'danger', message: getErrorMessage(err, 'Failed to delete payment.') });
     } finally {
       setDeleteTarget(null);
     }
   };
 
-  const paymentTypes = ['salary', 'bonus', 'commission', 'advance', 'other'];
+  const paymentTypeOptions = [
+    { value: 'salary', label: 'Salary', description: 'Regular salary payment for the pay period.' },
+    { value: 'bonus', label: 'Bonus', description: 'Additional performance or incentive payment.' },
+    { value: 'commission', label: 'Commission', description: 'Sales-based variable payment.' },
+    { value: 'advance', label: 'Advance', description: 'Advance paid before the standard payday.' },
+    { value: 'prorated_exit', label: 'Final Exit Payment (Prorated)', description: 'Final payment for partial days worked before staff exit.' },
+    { value: 'other', label: 'Other', description: 'Any other payment type with notes.' },
+  ];
+
+  const paymentTypeLabel = (value) => paymentTypeOptions.find((option) => option.value === value)?.label || value;
 
   const uniqueStaffCount = useMemo(() => new Set(payments.map((pay) => pay.user_id)).size, [payments]);
 
@@ -161,7 +189,7 @@ export default function StaffPaymentsPage() {
             <DollarSign size={24} />
           </div>
           <div className="stat-content">
-            <h3>${payments.reduce((sum, pay) => sum + parseFloat(pay.amount || 0), 0).toFixed(2)}</h3>
+            <h3>ETB {payments.reduce((sum, pay) => sum + parseFloat(pay.amount || 0), 0).toFixed(2)}</h3>
             <p>Total Payments</p>
           </div>
         </div>
@@ -182,7 +210,7 @@ export default function StaffPaymentsPage() {
           </div>
           <div className="stat-content">
             <h3>
-              ${
+              ETB {
                 payments.length > 0
                   ? (
                       payments.reduce((sum, pay) => sum + parseFloat(pay.amount || 0), 0) /
@@ -217,10 +245,10 @@ export default function StaffPaymentsPage() {
                   <td>{new Date(payment.payment_date).toLocaleDateString()}</td>
                   <td>{payment.staff_name || `User #${payment.user_id}`}</td>
                   <td>
-                    <strong>${Number(payment.amount).toFixed(2)}</strong>
+                    <strong>ETB {Number(payment.amount).toFixed(2)}</strong>
                   </td>
                   <td>
-                    <span className="badge badge-primary">{payment.payment_type}</span>
+                    <span className="badge badge-primary">{paymentTypeLabel(payment.payment_type)}</span>{payment.is_pending_sync && <span className="badge badge-warning" style={{ marginLeft: '0.4rem' }}>Pending Sync</span>}
                   </td>
                   <td>{locations.find((l) => l.id === payment.location_id)?.name || payment.location_id || '—'}</td>
                   <td style={{ display: 'flex', gap: '0.5rem' }}>
@@ -259,7 +287,7 @@ export default function StaffPaymentsPage() {
                 <label className="form-label">Staff Member *</label>
                 <select
                   className="form-select"
-                  value={formData.user_id}
+                  value={formData.staff_profile_id}
                   onChange={(e) => handleStaffSelect(e.target.value)}
                   required
                 >
@@ -270,9 +298,9 @@ export default function StaffPaymentsPage() {
                     </option>
                   ))}
                 </select>
-                {formData.user_id && (
+                {formData.staff_profile_id && (
                   <small className="text-muted">
-                    Monthly Salary: ${Number(staffMembers.find(s => s.id === Number(formData.user_id))?.monthly_salary || 0).toFixed(2)}
+                    Monthly Salary: ETB {Number(staffMembers.find((s) => s.id === Number(formData.staff_profile_id))?.monthly_salary || 0).toFixed(2)}
                   </small>
                 )}
               </div>
@@ -289,6 +317,10 @@ export default function StaffPaymentsPage() {
                 />
               </div>
 
+              <div className="alert alert-info" role="note">
+                {paymentTypeOptions.find((option) => option.value === formData.payment_type)?.description}
+              </div>
+
               <div className="row">
                 <div className="col-md-6 mb-3">
                   <label className="form-label">Payment Type *</label>
@@ -298,9 +330,9 @@ export default function StaffPaymentsPage() {
                     onChange={(e) => setFormData({ ...formData, payment_type: e.target.value })}
                     required
                   >
-                    {paymentTypes.map((type) => (
-                      <option key={type} value={type}>
-                        {type.charAt(0).toUpperCase() + type.slice(1)}
+                    {paymentTypeOptions.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
                       </option>
                     ))}
                   </select>

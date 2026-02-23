@@ -16,17 +16,19 @@ export default function CashierHistory() {
   const [filters, setFilters] = useState({
     startDate: '',
     endDate: '',
-    searchTerm: ''
+    searchTerm: '',
+    specificDay: ''
   });
 
   useEffect(() => {
     fetchSales();
-  }, [selectedLocationId]);
+  }, [selectedLocationId, filters.specificDay]);
 
   const fetchSales = async () => {
     setLoading(true);
     try {
-      const response = await api.get('/sales');
+      const params = filters.specificDay ? { start_date: filters.specificDay, end_date: filters.specificDay } : {};
+      const response = await api.get('/sales', { params });
       setSales(response.data);
     } catch (err) {
       console.error('Failed to fetch sales:', err);
@@ -76,8 +78,8 @@ export default function CashierHistory() {
   };
 
   const filteredSales = sales.filter(sale => {
-    if (filters.startDate && new Date(sale.sale_date) < new Date(filters.startDate)) return false;
-    if (filters.endDate && new Date(sale.sale_date) > new Date(filters.endDate + 'T23:59:59')) return false;
+    if (!filters.specificDay && filters.startDate && new Date(sale.sale_date) < new Date(filters.startDate)) return false;
+    if (!filters.specificDay && filters.endDate && new Date(sale.sale_date) > new Date(filters.endDate + 'T23:59:59')) return false;
     if (filters.searchTerm && 
         !sale.receipt_number.toLowerCase().includes(filters.searchTerm.toLowerCase()) &&
         !sale.total_amount.toString().includes(filters.searchTerm)) return false;
@@ -114,7 +116,7 @@ export default function CashierHistory() {
       <div className="card mb-4">
         <div className="card-body">
           <div className="row g-3">
-            <div className="col-md-4">
+            <div className="col-md-3">
               <label className="form-label">Start Date</label>
               <input
                 type="date"
@@ -123,7 +125,7 @@ export default function CashierHistory() {
                 onChange={(e) => setFilters({...filters, startDate: e.target.value})}
               />
             </div>
-            <div className="col-md-4">
+            <div className="col-md-3">
               <label className="form-label">End Date</label>
               <input
                 type="date"
@@ -132,7 +134,17 @@ export default function CashierHistory() {
                 onChange={(e) => setFilters({...filters, endDate: e.target.value})}
               />
             </div>
-            <div className="col-md-4">
+
+            <div className="col-md-3">
+              <label className="form-label">Specific Day (exact)</label>
+              <input
+                type="date"
+                className="form-control"
+                value={filters.specificDay}
+                onChange={(e) => setFilters({...filters, specificDay: e.target.value})}
+              />
+            </div>
+            <div className="col-md-3">
               <label className="form-label">Search</label>
               <div className="input-group">
                 <input
@@ -158,6 +170,7 @@ export default function CashierHistory() {
                   <th>Receipt #</th>
                   <th>Date & Time</th>
                   <th>Amount</th>
+                  <th>Cashier</th>
                   <th>Payment</th>
                   <th>Status</th>
                   <th>Sync</th>
@@ -188,9 +201,10 @@ export default function CashierHistory() {
                       </td>
                       <td>
                         <span className={`fw-bold ${sale.status === 'voided' ? 'text-muted text-decoration-line-through' : 'text-success'}`}>
-                          ${Number(sale.total_amount).toFixed(2)}
+                          ETB {Number(sale.total_amount).toFixed(2)}
                         </span>
                       </td>
+                      <td>{sale.cashier_name || 'Unknown'}</td>
                       <td>
                         <span className={`badge ${sale.payment_method === 'cash' ? 'badge-success' : sale.payment_method === 'card' ? 'badge-primary' : 'badge-info'}`}>
                           {sale.payment_method}
@@ -275,7 +289,8 @@ export default function CashierHistory() {
                 <div className="col-md-6">
                   <h5>Transaction Info</h5>
                   <p><strong>Date & Time:</strong> {new Date(selectedSale.sale_date).toLocaleString()}</p>
-                  <p><strong>Amount:</strong> ${Number(selectedSale.total_amount).toFixed(2)}</p>
+                  <p><strong>Amount:</strong> ETB {Number(selectedSale.total_amount).toFixed(2)}</p>
+                  <p><strong>Cashier:</strong> {selectedSale.cashier_name || 'Unknown'}</p>
                   <p><strong>Payment Method:</strong> {selectedSale.payment_method}</p>
                   {selectedSale.status === 'voided' && (
                     <div className="alert alert-warning">
@@ -306,14 +321,14 @@ export default function CashierHistory() {
                           <td>{item.product_name}</td>
                           <td>{item.quantity}</td>
                           <td>${Number(item.unit_price).toFixed(2)}</td>
-                          <td>${Number(item.subtotal).toFixed(2)}</td>
+                          <td>ETB {Number(item.subtotal).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot>
                       <tr>
                         <th colSpan="3">Total:</th>
-                        <th>${Number(selectedSale.total_amount).toFixed(2)}</th>
+                        <th>ETB {Number(selectedSale.total_amount).toFixed(2)}</th>
                       </tr>
                     </tfoot>
                   </table>

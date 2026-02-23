@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import api from '../../api/axios';
+import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Plus, Edit, Trash2, TrendingDown, DollarSign, Calendar } from 'lucide-react';
 import { enqueueOperation } from '../../utils/offlineQueue';
@@ -11,6 +11,7 @@ export default function ExpensesPage() {
   const [showForm, setShowForm] = useState(false);
   const [message, setMessage] = useState(null);
   const [editingExpense, setEditingExpense] = useState(null);
+  const [selectedDay, setSelectedDay] = useState('');
   const [formData, setFormData] = useState({
     category: '',
     description: '',
@@ -21,11 +22,12 @@ export default function ExpensesPage() {
 
   useEffect(() => {
     fetchExpenses();
-  }, [selectedLocationId]);
+  }, [selectedLocationId, selectedDay]);
 
   const fetchExpenses = async () => {
     try {
-      const response = await api.get('/expenses');
+      const params = selectedDay ? { start_date: selectedDay, end_date: selectedDay } : {};
+      const response = await api.get('/expenses', { params });
       setExpenses(response.data);
     } catch (err) {
       console.error('Failed to fetch expenses:', err);
@@ -59,7 +61,7 @@ export default function ExpensesPage() {
         setMessage({ type: 'warning', text: 'Offline: expense queued for sync.' });
         setShowForm(false);
       } else {
-        console.error('Failed to save expense:', err);
+        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to save expense.') });
       }
     }
   };
@@ -70,13 +72,13 @@ export default function ExpensesPage() {
         await api.delete(`/expenses/${id}`);
         fetchExpenses();
       } catch (err) {
-        console.error('Failed to delete expense:', err);
+        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to delete expense.') });
       }
     }
   };
 
   const categories = [
-    'Utilities', 'Rent', 'Salaries', 'Supplies', 'Marketing', 
+    'Utilities', 'Rent', 'Supplies', 'Marketing', 
     'Maintenance', 'Insurance', 'Loan Payment', 'Taxes', 'Other'
   ];
 
@@ -111,13 +113,33 @@ export default function ExpensesPage() {
         </button>
       </div>
 
+
+      <div className="card mb-4">
+        <div className="card-body">
+          <div className="row g-3 align-items-end">
+            <div className="col-md-4">
+              <label className="form-label">Filter by Day</label>
+              <input
+                type="date"
+                className="form-control"
+                value={selectedDay}
+                onChange={(e) => setSelectedDay(e.target.value)}
+              />
+            </div>
+            <div className="col-md-4">
+              <button className="btn btn-outline-secondary" onClick={() => setSelectedDay('')}>Clear Day Filter</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="stats-grid mb-4">
         <div className="stat-card card bg-light">
           <div className="stat-icon bg-danger text-white">
             <TrendingDown size={24} />
           </div>
           <div className="stat-content">
-            <h3>${expenses.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0).toFixed(2)}</h3>
+            <h3>ETB {expenses.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0).toFixed(2)}</h3>
             <p>Total Expenses</p>
           </div>
         </div>
@@ -137,7 +159,7 @@ export default function ExpensesPage() {
             <Calendar size={24} />
           </div>
           <div className="stat-content">
-            <h3>${expenses.length > 0 ? (expenses.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0) / expenses.length).toFixed(2) : '0.00'}</h3>
+            <h3>ETB {expenses.length > 0 ? (expenses.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0) / expenses.length).toFixed(2) : '0.00'}</h3>
             <p>Avg. Expense</p>
           </div>
         </div>
@@ -171,7 +193,7 @@ export default function ExpensesPage() {
                     <td>{expense.description}</td>
                     <td>
                       <span className="text-danger fw-bold">
-                        ${Number(expense.amount).toFixed(2)}
+                        ETB {Number(expense.amount).toFixed(2)}
                       </span>
                     </td>
                     <td>{expense.location_id}</td>
