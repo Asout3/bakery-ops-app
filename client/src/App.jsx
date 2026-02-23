@@ -32,12 +32,16 @@ import ManagerNotifications from './pages/admin/Notifications'; // Reuse admin c
 import CashierSales from './pages/cashier/Sales';
 import CashierHistory from './pages/cashier/History';
 
-function AppInner() {
+function OfflineSyncBootstrap() {
   useOfflineSync();
+  return null;
+}
 
+function AppInner() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <OfflineSyncBootstrap />
         <Routes>
           <Route path="/login" element={<Login />} />
           
