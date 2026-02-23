@@ -11,14 +11,18 @@ createRoot(document.getElementById('root')).render(
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
-    if (import.meta.env.PROD) {
-      navigator.serviceWorker.register('/sw.js').catch((error) => {
-        console.error('Service worker registration failed:', error)
+    const registrations = await navigator.serviceWorker.getRegistrations()
+
+    if (import.meta.env.DEV) {
+      await Promise.all(registrations.map((registration) => registration.unregister()))
+      navigator.serviceWorker.register(`/sw.js?dev=${Date.now()}`).catch((error) => {
+        console.error('Dev service worker registration failed:', error)
       })
       return
     }
 
-    const registrations = await navigator.serviceWorker.getRegistrations()
-    await Promise.all(registrations.map((registration) => registration.unregister()))
+    navigator.serviceWorker.register('/sw.js').catch((error) => {
+      console.error('Service worker registration failed:', error)
+    })
   })
 }

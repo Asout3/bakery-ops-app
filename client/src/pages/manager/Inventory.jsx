@@ -92,9 +92,10 @@ export default function Inventory() {
 
   const applyPendingBatchesToInventory = async (baseInventory) => {
     const queue = await listQueuedOperations();
-    const pendingBatches = queue.filter((op) => op.url === '/inventory/batches' && op.method === 'post' && op.status !== 'conflict');
+    const pendingBatches = queue.filter((op) => op.url === '/inventory/batches' && op.method === 'post' && op.status !== 'conflict' && op.status !== 'needs_review' && String(op.headers?.['X-Location-Id'] || '') === String(selectedLocationId || ''));
     return pendingBatches.reduce((acc, op) => applyBatchItemsToInventory(acc, op.data?.items || []), baseInventory);
   };
+
   const addToCart = (product, source) => {
     const existing = cart.find(
       (item) => item.product_id === product.id && item.source === source

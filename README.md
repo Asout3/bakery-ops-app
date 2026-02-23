@@ -260,3 +260,11 @@ To avoid losing offline and sync behavior when frontend/backend are deployed sep
 - Configure `ALLOWED_ORIGINS`
 - Apply database migrations before startup
 - Verify health probes: `/api/health`, `/api/ready`, `/api/live`
+
+
+## Offline Refresh & Sync Notes
+
+- In **development (`npm run dev`)**, the app now refreshes service worker registration on every page load to prevent stale cached chunks while still enabling offline-refresh testing.
+- In **preview/production**, service worker registration remains standard and caches app shell/static assets for offline refresh behavior.
+- If you see old UI chunks during local testing, perform a hard refresh (`Ctrl+Shift+R`) after restarting the dev server.
+- Offline queue replay is now available from any logged-in role when back online. Auth/session failures are classified as **Needs Review** for admin follow-up.

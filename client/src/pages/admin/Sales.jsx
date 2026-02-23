@@ -32,8 +32,8 @@ export default function SalesPage() {
   };
 
   const filteredSales = sales.filter(sale => {
-    if (filters.startDate && new Date(sale.sale_date) < new Date(filters.startDate)) return false;
-    if (filters.endDate && new Date(sale.sale_date) > new Date(filters.endDate)) return false;
+    if (!selectedDay && filters.startDate && new Date(sale.sale_date) < new Date(filters.startDate)) return false;
+    if (!selectedDay && filters.endDate && new Date(sale.sale_date) > new Date(filters.endDate + 'T23:59:59')) return false;
     if (filters.paymentMethod && sale.payment_method !== filters.paymentMethod) return false;
     return true;
   });
@@ -87,13 +87,16 @@ export default function SalesPage() {
               </select>
             </div>
             <div className="col-md-3">
-              <label className="form-label">Specific Day</label>
+              <label className="form-label">Specific Day (exact)</label>
               <input
                 type="date"
                 className="form-control"
                 value={selectedDay}
                 onChange={(e) => setSelectedDay(e.target.value)}
               />
+            </div>
+            <div className="col-md-12">
+              <button className="btn btn-outline-secondary btn-sm" onClick={() => setSelectedDay('')}>Clear Specific Day</button>
             </div>
           </div>
         </div>
@@ -209,13 +212,16 @@ export default function SalesPage() {
               <button className="btn btn-secondary" onClick={() => setSelectedSale(null)}>Close</button>
             </div>
             <div className="col-md-3">
-              <label className="form-label">Specific Day</label>
+              <label className="form-label">Specific Day (exact)</label>
               <input
                 type="date"
                 className="form-control"
                 value={selectedDay}
                 onChange={(e) => setSelectedDay(e.target.value)}
               />
+            </div>
+            <div className="col-md-12">
+              <button className="btn btn-outline-secondary btn-sm" onClick={() => setSelectedDay('')}>Clear Specific Day</button>
             </div>
           </div>
         </div>

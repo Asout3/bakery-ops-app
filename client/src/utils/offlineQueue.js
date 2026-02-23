@@ -111,6 +111,8 @@ export async function enqueueOperation(operation) {
   const sessionUser = typeof localStorage !== 'undefined'
     ? JSON.parse(localStorage.getItem('user') || 'null')
     : null;
+  const selectedLocationId = typeof localStorage !== 'undefined' ? localStorage.getItem('selectedLocationId') : null;
+
   const op = {
     id,
     retries: 0,
@@ -121,6 +123,10 @@ export async function enqueueOperation(operation) {
     lastError: null,
     actorId: sessionUser?.id || null,
     actorName: sessionUser?.username || null,
+    headers: {
+      ...(operation.headers || {}),
+      ...(selectedLocationId ? { 'X-Location-Id': selectedLocationId } : {}),
+    },
     ...operation,
   };
 

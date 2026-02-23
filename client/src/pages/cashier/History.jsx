@@ -16,17 +16,19 @@ export default function CashierHistory() {
   const [filters, setFilters] = useState({
     startDate: '',
     endDate: '',
-    searchTerm: ''
+    searchTerm: '',
+    specificDay: ''
   });
 
   useEffect(() => {
     fetchSales();
-  }, [selectedLocationId]);
+  }, [selectedLocationId, filters.specificDay]);
 
   const fetchSales = async () => {
     setLoading(true);
     try {
-      const response = await api.get('/sales');
+      const params = filters.specificDay ? { start_date: filters.specificDay, end_date: filters.specificDay } : {};
+      const response = await api.get('/sales', { params });
       setSales(response.data);
     } catch (err) {
       console.error('Failed to fetch sales:', err);
@@ -76,8 +78,8 @@ export default function CashierHistory() {
   };
 
   const filteredSales = sales.filter(sale => {
-    if (filters.startDate && new Date(sale.sale_date) < new Date(filters.startDate)) return false;
-    if (filters.endDate && new Date(sale.sale_date) > new Date(filters.endDate + 'T23:59:59')) return false;
+    if (!filters.specificDay && filters.startDate && new Date(sale.sale_date) < new Date(filters.startDate)) return false;
+    if (!filters.specificDay && filters.endDate && new Date(sale.sale_date) > new Date(filters.endDate + 'T23:59:59')) return false;
     if (filters.searchTerm && 
         !sale.receipt_number.toLowerCase().includes(filters.searchTerm.toLowerCase()) &&
         !sale.total_amount.toString().includes(filters.searchTerm)) return false;
@@ -114,7 +116,7 @@ export default function CashierHistory() {
       <div className="card mb-4">
         <div className="card-body">
           <div className="row g-3">
-            <div className="col-md-4">
+            <div className="col-md-3">
               <label className="form-label">Start Date</label>
               <input
                 type="date"
@@ -123,7 +125,7 @@ export default function CashierHistory() {
                 onChange={(e) => setFilters({...filters, startDate: e.target.value})}
               />
             </div>
-            <div className="col-md-4">
+            <div className="col-md-3">
               <label className="form-label">End Date</label>
               <input
                 type="date"
@@ -132,7 +134,17 @@ export default function CashierHistory() {
                 onChange={(e) => setFilters({...filters, endDate: e.target.value})}
               />
             </div>
-            <div className="col-md-4">
+
+            <div className="col-md-3">
+              <label className="form-label">Specific Day (exact)</label>
+              <input
+                type="date"
+                className="form-control"
+                value={filters.specificDay}
+                onChange={(e) => setFilters({...filters, specificDay: e.target.value})}
+              />
+            </div>
+            <div className="col-md-3">
               <label className="form-label">Search</label>
               <div className="input-group">
                 <input

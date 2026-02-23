@@ -25,6 +25,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [locations, setLocations] = useState([]);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const { selectedLocationId, setLocation } = useBranch();
   const { language, setLang, t } = useLanguage();
   const [showLogoutWarning, setShowLogoutWarning] = useState(false);
@@ -65,6 +66,25 @@ export default function Layout() {
     fetchLocations();
   }, [user?.role, selectedLocationId, setLocation]);
 
+
+  useEffect(() => {
+    const fetchUnreadNotifications = async () => {
+      if (!user || user.role === 'cashier') {
+        setUnreadNotifications(0);
+        return;
+      }
+      try {
+        const response = await api.get('/notifications');
+        const list = response.data || [];
+        setUnreadNotifications(list.filter((item) => !item.is_read).length);
+      } catch (err) {
+        setUnreadNotifications(0);
+      }
+    };
+
+    fetchUnreadNotifications();
+  }, [user?.id, user?.role, selectedLocationId]);
+
   const getNavItems = () => {
     const role = user?.role;
     
@@ -77,7 +97,7 @@ export default function Layout() {
         { to: '/admin/expenses', icon: DollarSign, label: 'Expenses' },
         { to: '/admin/staff-payments', icon: Users, label: 'Staff Payments' },
         { to: '/admin/reports', icon: BarChart3, label: 'Reports' },
-        { to: '/admin/notifications', icon: Bell, label: 'Notifications' },
+        { to: '/admin/notifications', icon: Bell, label: 'Notifications', showBadge: true },
         { to: '/admin/sync', icon: BarChart3, label: 'Sync Queue' },
         { to: '/admin/team', icon: Users, label: 'Branch & Accounts' },
         { to: '/admin/staff', icon: Users, label: 'Staff Management' },
@@ -87,7 +107,7 @@ export default function Layout() {
         { to: '/manager/inventory', icon: Package, label: 'Inventory' },
         { to: '/manager/batches', icon: Package, label: 'Batches' },
         { to: '/manager/products', icon: Package, label: 'Products' },
-        { to: '/manager/notifications', icon: Bell, label: 'Notifications' },
+        { to: '/manager/notifications', icon: Bell, label: 'Notifications', showBadge: true },
       ];
     } else if (role === 'cashier') {
       return [
@@ -125,7 +145,12 @@ export default function Layout() {
               onClick={() => setSidebarOpen(false)}
             >
               <item.icon size={20} />
-              <span>{item.label}</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+                {item.label}
+                {item.showBadge && unreadNotifications > 0 && (
+                  <span className="badge badge-danger" style={{ fontSize: '0.68rem' }}>{unreadNotifications}</span>
+                )}
+              </span>
             </NavLink>
           ))}
         </nav>

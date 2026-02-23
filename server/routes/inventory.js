@@ -306,21 +306,21 @@ router.post(
             `INSERT INTO inventory_movements
              (location_id, product_id, movement_type, quantity_change, source, reference_type, reference_id, created_by, metadata)
              VALUES ($1, $2, 'batch_in', $3, $4, 'batch', $5, $6, $7)`,
-            [locationId, item.product_id, item.quantity, item.source, createdBatch.id, req.user.id, JSON.stringify({ notes: notes || null })]
+            [locationId, item.product_id, item.quantity, item.source, createdBatch.id, effectiveCreatedBy, JSON.stringify({ notes: notes || null, synced_by_user_id: req.user.id })]
           );
         }
 
         await tx.query(
           `INSERT INTO kpi_events (location_id, user_id, event_type, event_value, metric_key, metadata)
            VALUES ($1, $2, 'batch_sent', $3, $4, $5)`,
-          [locationId, req.user.id, items.length, 'batch_retry_count', JSON.stringify({ batch_id: createdBatch.id, retry_count: retryCount })]
+          [locationId, effectiveCreatedBy, items.length, 'batch_retry_count', JSON.stringify({ batch_id: createdBatch.id, retry_count: retryCount, synced_by_user_id: req.user.id })]
         );
 
         await tx.query(
           `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
            VALUES ($1, $2, $3, $4, $5)`,
           [
-            req.user.id,
+            effectiveCreatedBy,
             locationId,
             'batch_sent',
             `Sent inventory batch #${createdBatch.id}`,

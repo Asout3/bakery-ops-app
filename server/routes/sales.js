@@ -226,12 +226,12 @@ router.get('/', authenticateToken, async (req, res) => {
 
     if (startDate) {
       params.push(startDate);
-      queryText += ` AND s.sale_date >= $${params.length}`;
+      queryText += ` AND DATE(s.sale_date) >= $${params.length}`;
     }
 
     if (endDate) {
       params.push(endDate);
-      queryText += ` AND s.sale_date <= $${params.length}`;
+      queryText += ` AND DATE(s.sale_date) <= $${params.length}`;
     }
 
     queryText += ` ORDER BY s.sale_date DESC LIMIT $${params.length + 1}`;

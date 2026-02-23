@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Package, Clock, User, Eye, Edit, Ban } from 'lucide-react';
+import './Batches.css';
 
 export default function ManagerBatches() {
   const { selectedLocationId } = useBranch();
@@ -108,10 +109,10 @@ export default function ManagerBatches() {
         </div>
       </div>
 
-      <div className="card">
+      <div className="card modern-batch-card">
         <div className="card-body">
           <div className="table-responsive">
-            <table className="table table-hover">
+            <table className="table table-hover modern-batch-table">
               <thead>
                 <tr>
                   <th>Batch ID</th>
