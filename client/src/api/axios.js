@@ -88,10 +88,15 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401) {
       const currentPath = window.location.pathname;
-      if (!currentPath.includes('/login')) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        window.location.href = '/login';
+      const isAuthEndpoint = error.config?.url?.includes('/auth/') || error.config?.url?.includes('/login');
+      
+      if (!currentPath.includes('/login') && !isAuthEndpoint) {
+        const token = localStorage.getItem('token');
+        if (token) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          window.location.href = '/login?reason=session_expired';
+        }
       }
     }
 

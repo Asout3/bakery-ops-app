@@ -9,8 +9,8 @@ const BATCH_EDIT_WINDOW_MINUTES = 20;
 
 let inventoryBatchColumnsCache = null;
 
-async function getInventoryBatchColumns(db) {
-  if (inventoryBatchColumnsCache) {
+async function getInventoryBatchColumns(db, forceRefresh = false) {
+  if (inventoryBatchColumnsCache && !forceRefresh) {
     return inventoryBatchColumnsCache;
   }
 
@@ -219,7 +219,7 @@ router.post(
         const hasValidQueuedCreatedAt = queuedCreatedAt instanceof Date && !Number.isNaN(queuedCreatedAt.getTime()) && queuedCreatedAt.getTime() <= Date.now();
         const effectiveCreatedAt = hasValidQueuedCreatedAt ? queuedCreatedAt.toISOString() : new Date().toISOString();
 
-        const batchColumns = await getInventoryBatchColumns(tx);
+        const batchColumns = await getInventoryBatchColumns(tx, true);
 
         let effectiveCreatedBy = req.user.id;
         let originalActorName = req.user.username;
@@ -377,18 +377,20 @@ router.get('/batches', authenticateToken, async (req, res) => {
     const limit = parseInt(req.query.limit, 10) || 50;
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
-    const batchColumns = await getInventoryBatchColumns({ query });
+    const batchColumns = await getInventoryBatchColumns({ query }, true);
 
     const displayCreatorExpr = batchColumns.hasOriginalActorName
       ? 'COALESCE(b.original_actor_name, u.username)'
       : 'u.username';
     const syncedByNameExpr = batchColumns.hasSyncedByName ? 'b.synced_by_name' : 'NULL';
     const wasSyncedExpr = batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false';
+    const isOfflineExpr = batchColumns.hasOfflineFlag ? 'b.is_offline' : 'false';
 
     let queryText = `SELECT b.*, u.username as created_by_name,
               ${displayCreatorExpr} as display_creator_name,
               ${syncedByNameExpr} as synced_by_name,
               ${wasSyncedExpr} as was_synced,
+              ${isOfflineExpr} as is_offline,
               (SELECT COUNT(*) FROM batch_items WHERE batch_id = b.id) as items_count,
               COALESCE((SELECT SUM(bi.quantity * COALESCE(p.cost, 0))
                         FROM batch_items bi
@@ -425,18 +427,20 @@ router.get('/batches', authenticateToken, async (req, res) => {
 
 router.get('/batches/:id', authenticateToken, async (req, res) => {
   try {
-    const batchColumns = await getInventoryBatchColumns({ query });
+    const batchColumns = await getInventoryBatchColumns({ query }, true);
     const displayCreatorExpr = batchColumns.hasOriginalActorName
       ? 'COALESCE(b.original_actor_name, u.username)'
       : 'u.username';
     const syncedByNameExpr = batchColumns.hasSyncedByName ? 'b.synced_by_name' : 'NULL';
     const wasSyncedExpr = batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false';
+    const isOfflineExpr = batchColumns.hasOfflineFlag ? 'b.is_offline' : 'false';
 
     const batchResult = await query(
       `SELECT b.*, u.username as created_by_name,
               ${displayCreatorExpr} as display_creator_name,
               ${syncedByNameExpr} as synced_by_name,
               ${wasSyncedExpr} as was_synced,
+              ${isOfflineExpr} as is_offline,
               (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60) <= $2 as can_edit
        FROM inventory_batches b
        JOIN users u ON b.created_by = u.id

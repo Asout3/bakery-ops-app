@@ -1,7 +1,7 @@
-import { useEffect, useCallback, useMemo, useState } from 'react';
+import { useEffect, useCallback, useMemo, useState, useRef } from 'react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
-import { flushQueue, getSyncStats, isOnline, getConnectionQuality } from '../utils/offlineQueue';
+import { flushQueue, getSyncStats, isOnline, getConnectionQuality, listQueuedOperations } from '../utils/offlineQueue';
 
 const BASE_SYNC_INTERVAL_MS = 10000;
 
@@ -14,16 +14,18 @@ function resolveSyncInterval(queueStats) {
 
 export function useOfflineSync() {
   const { user } = useAuth();
-  const [isOnlineState, setIsOnlineState] = useState(isOnline());
+  const [isOnlineState, setIsOnlineState] = useState(() => isOnline());
   const [queueStats, setQueueStats] = useState({ total: 0, pending: 0, conflict: 0, needsReview: 0, failed: 0 });
   const [syncInProgress, setSyncInProgress] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState(() => {
     const cached = localStorage.getItem('offline_sync_last_result');
     return cached ? JSON.parse(cached) : null;
   });
+  const [appInitialized, setAppInitialized] = useState(false);
+  const initializedRef = useRef(false);
 
-  const runSync = useCallback(async () => {
-    if (syncInProgress) return;
+  const runSync = useCallback(async (force = false) => {
+    if (syncInProgress && !force) return;
 
     if (!navigator.onLine) {
       const stats = await getSyncStats();
@@ -58,12 +60,12 @@ export function useOfflineSync() {
     }
   }, [syncInProgress]);
 
-  const updateOnlineStatus = useCallback(async () => {
+  const updateOnlineStatus = useCallback(async (eventType) => {
     const online = navigator.onLine;
     setIsOnlineState(online);
 
-    if (online) {
-      await runSync();
+    if (online && eventType === 'online') {
+      await runSync(true);
     }
   }, [runSync]);
 
@@ -72,18 +74,31 @@ export function useOfflineSync() {
       const stats = await getSyncStats();
       setQueueStats(stats);
     } catch (err) {
-      setLastSyncResult((prev) => ({
-        ...(prev || {}),
-        error: err.message,
-        at: new Date().toISOString(),
-      }));
+      console.error('Failed to update queue stats:', err);
     }
   }, []);
 
   const syncInterval = useMemo(() => resolveSyncInterval(queueStats), [queueStats]);
 
   useEffect(() => {
-    updateQueueStats();
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+
+    const init = async () => {
+      await updateQueueStats();
+      
+      if (navigator.onLine) {
+        await runSync(true);
+      }
+      
+      setAppInitialized(true);
+    };
+    
+    init();
+  }, []);
+
+  useEffect(() => {
+    if (!appInitialized) return;
 
     const interval = setInterval(() => {
       if (navigator.onLine) {
@@ -92,45 +107,49 @@ export function useOfflineSync() {
       updateQueueStats();
     }, syncInterval);
 
-    window.addEventListener('online', updateOnlineStatus);
-    window.addEventListener('offline', updateOnlineStatus);
+    const handleOnline = () => updateOnlineStatus('online');
+    const handleOffline = () => updateOnlineStatus('offline');
 
-    const onVisible = () => {
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         updateQueueStats();
         if (navigator.onLine) {
-          runSync();
+          runSync(true);
         }
       }
     };
-    document.addEventListener('visibilitychange', onVisible);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    const onConnectionChange = () => {
+    const handleConnectionChange = () => {
       updateQueueStats();
       if (navigator.onLine) {
-        runSync();
+        runSync(true);
       }
     };
-    connection?.addEventListener?.('change', onConnectionChange);
+    connection?.addEventListener?.('change', handleConnectionChange);
 
     return () => {
       clearInterval(interval);
-      window.removeEventListener('online', updateOnlineStatus);
-      window.removeEventListener('offline', updateOnlineStatus);
-      document.removeEventListener('visibilitychange', onVisible);
-      connection?.removeEventListener?.('change', onConnectionChange);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      connection?.removeEventListener?.('change', handleConnectionChange);
     };
-  }, [runSync, syncInterval, updateOnlineStatus, updateQueueStats]);
+  }, [appInitialized, runSync, syncInterval, updateOnlineStatus, updateQueueStats]);
 
   return {
     isOnline: isOnlineState,
     queueStats,
     syncInProgress,
     lastSyncResult,
-    runSync,
+    runSync: () => runSync(true),
     connectionQuality: getConnectionQuality(),
     syncInterval,
+    appInitialized,
   };
 }
 

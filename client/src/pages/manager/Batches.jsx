@@ -239,10 +239,15 @@ export default function ManagerBatches() {
                             <button 
                               className="btn btn-sm btn-outline-danger" 
                               onClick={() => handleVoidBatch(batch.id)}
-                              title="Void Batch"
+                              title="Void Batch (within 20 min)"
                             >
                               <Ban size={14} />
                             </button>
+                          )}
+                          {!batch.can_edit && batch.status !== 'voided' && (
+                            <span className="badge bg-secondary" title="Edit window expired">
+                              Locked
+                            </span>
                           )}
                         </div>
                       </td>

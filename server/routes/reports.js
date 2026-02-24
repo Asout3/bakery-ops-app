@@ -111,6 +111,21 @@ router.get('/daily', authenticateToken, async (req, res) => {
       [locationId, date]
     );
 
+    const batchDetailsResult = await query(
+      `SELECT b.id as batch_id, b.status, b.created_at, b.is_offline,
+              COALESCE(b.original_actor_name, u.username) as created_by_name,
+              bi.product_id, p.name as product_name, bi.quantity, bi.source,
+              COALESCE(p.cost, 0) as unit_cost,
+              (bi.quantity * COALESCE(p.cost, 0)) as line_cost
+       FROM inventory_batches b
+       JOIN batch_items bi ON bi.batch_id = b.id
+       JOIN products p ON p.id = bi.product_id
+       JOIN users u ON u.id = b.created_by
+       WHERE b.location_id = $1 AND DATE(b.created_at) = $2 AND b.status <> 'voided'
+       ORDER BY b.created_at DESC, bi.id`,
+      [locationId, date]
+    );
+
     const staffPaymentListResult = await query(
       `SELECT sp.id, sp.amount, sp.payment_date, sp.payment_type,
               COALESCE(st.full_name, u.username) as staff_name,
@@ -131,7 +146,9 @@ router.get('/daily', authenticateToken, async (req, res) => {
     const totalRevenue = parseFloat(sales.total_sales) || 0;
     const totalExpenses = parseFloat(expenses.total_expenses) || 0;
     const totalStaffPayments = parseFloat(staffPayments.total_staff_payments) || 0;
-    const totalCosts = totalExpenses + totalStaffPayments;
+    const totalBatchCosts = parseFloat(batchCostResult.rows[0]?.total_batch_cost || 0);
+    const totalCosts = totalExpenses + totalStaffPayments + totalBatchCosts;
+    const grossProfit = totalRevenue - totalExpenses;
     const netProfit = totalRevenue - totalCosts;
 
     res.json({
@@ -150,9 +167,10 @@ router.get('/daily', authenticateToken, async (req, res) => {
         total_staff_payments: totalStaffPayments
       },
       profit: {
-        gross_profit: totalRevenue - totalExpenses,
+        gross_profit: grossProfit,
         net_profit: netProfit,
-        total_costs: totalCosts
+        total_costs: totalCosts,
+        batch_costs: totalBatchCosts
       },
       top_products: topProductsResult.rows,
       payment_methods: paymentMethodsResult.rows,
@@ -162,7 +180,8 @@ router.get('/daily', authenticateToken, async (req, res) => {
         staff_payments: staffPaymentListResult.rows,
         batches: {
           total_batch_cost: Number(batchCostResult.rows[0]?.total_batch_cost || 0),
-          batch_count: Number(batchCostResult.rows[0]?.batch_count || 0)
+          batch_count: Number(batchCostResult.rows[0]?.batch_count || 0),
+          batch_list: batchDetailsResult.rows
         }
       }
     });
@@ -223,7 +242,9 @@ router.get('/weekly', authenticateToken, async (req, res) => {
     const totalRevenue = parseFloat(totals.total_sales) || 0;
     const totalExpenses = parseFloat(totals.total_expenses) || 0;
     const totalStaffPayments = parseFloat(totals.total_staff_payments) || 0;
-    const totalCosts = totalExpenses + totalStaffPayments;
+    const totalBatchCosts = parseFloat(batchCostResult.rows[0]?.total_batch_cost || 0);
+    const totalCosts = totalExpenses + totalStaffPayments + totalBatchCosts;
+    const grossProfit = totalRevenue - totalExpenses;
     const netProfit = totalRevenue - totalCosts;
 
     const topProductsResult = await query(
@@ -294,6 +315,21 @@ router.get('/weekly', authenticateToken, async (req, res) => {
       [locationId, startDate, endDate]
     );
 
+    const batchDetailsResult = await query(
+      `SELECT b.id as batch_id, b.status, b.created_at, b.is_offline,
+              COALESCE(b.original_actor_name, u.username) as created_by_name,
+              bi.product_id, p.name as product_name, bi.quantity, bi.source,
+              COALESCE(p.cost, 0) as unit_cost,
+              (bi.quantity * COALESCE(p.cost, 0)) as line_cost
+       FROM inventory_batches b
+       JOIN batch_items bi ON bi.batch_id = b.id
+       JOIN products p ON p.id = bi.product_id
+       JOIN users u ON u.id = b.created_by
+       WHERE b.location_id = $1 AND DATE(b.created_at) BETWEEN $2 AND $3 AND b.status <> 'voided'
+       ORDER BY b.created_at DESC, bi.id`,
+      [locationId, startDate, endDate]
+    );
+
     const transactions = salesByDayResult.rows.reduce((acc, row) => acc + Number(row.transactions || 0), 0);
 
 
@@ -303,7 +339,9 @@ router.get('/weekly', authenticateToken, async (req, res) => {
         total_sales: totalRevenue,
         total_expenses: totalExpenses,
         total_staff_payments: totalStaffPayments,
+        total_batch_costs: totalBatchCosts,
         total_costs: totalCosts,
+        gross_profit: grossProfit,
         net_profit: netProfit,
         total_transactions: transactions,
         expense_count: parseInt(totals.expense_count) || 0,
@@ -318,7 +356,8 @@ router.get('/weekly', authenticateToken, async (req, res) => {
         cashier_performance: cashierPerformanceResult.rows,
         batches: {
           total_batch_cost: Number(batchCostResult.rows[0]?.total_batch_cost || 0),
-          batch_count: Number(batchCostResult.rows[0]?.batch_count || 0)
+          batch_count: Number(batchCostResult.rows[0]?.batch_count || 0),
+          batch_list: batchDetailsResult.rows
         }
       }
     });
@@ -488,12 +527,32 @@ router.get('/monthly', authenticateToken, async (req, res) => {
       [locationId, year, month]
     );
 
+    const batchDetailsResult = await query(
+      `SELECT b.id as batch_id, b.status, b.created_at, b.is_offline,
+              COALESCE(b.original_actor_name, u.username) as created_by_name,
+              bi.product_id, p.name as product_name, bi.quantity, bi.source,
+              COALESCE(p.cost, 0) as unit_cost,
+              (bi.quantity * COALESCE(p.cost, 0)) as line_cost
+       FROM inventory_batches b
+       JOIN batch_items bi ON bi.batch_id = b.id
+       JOIN products p ON p.id = bi.product_id
+       JOIN users u ON u.id = b.created_by
+       WHERE b.location_id = $1
+         AND EXTRACT(YEAR FROM b.created_at) = $2
+         AND EXTRACT(MONTH FROM b.created_at) = $3
+         AND b.status <> 'voided'
+       ORDER BY b.created_at DESC, bi.id`,
+      [locationId, year, month]
+    );
+
     const sales = salesResult.rows[0];
     const staffPayments = staffPaymentsResult.rows[0];
     const totalExpenses = expensesByCategoryResult.rows.reduce((sum, row) => sum + parseFloat(row.total), 0);
     const totalStaffPayments = parseFloat(staffPayments.total_staff_payments) || 0;
-    const totalCosts = totalExpenses + totalStaffPayments;
+    const totalBatchCosts = parseFloat(batchCostResult.rows[0]?.total_batch_cost || 0);
+    const totalCosts = totalExpenses + totalStaffPayments + totalBatchCosts;
     const totalRevenue = parseFloat(sales.total_sales) || 0;
+    const grossProfit = totalRevenue - totalExpenses;
     const netProfit = totalRevenue - totalCosts;
 
     res.json({
@@ -513,11 +572,14 @@ router.get('/monthly', authenticateToken, async (req, res) => {
         total_staff_payments: totalStaffPayments
       },
       costs: {
-        total_costs: totalCosts
+        total_costs: totalCosts,
+        batch_costs: totalBatchCosts
       },
       profit: {
-        gross_profit: totalRevenue - totalExpenses,
+        gross_profit: grossProfit,
         net_profit: netProfit,
+        total_costs: totalCosts,
+        batch_costs: totalBatchCosts,
         margin_percent: totalRevenue > 0 ? (netProfit / totalRevenue * 100).toFixed(2) : 0
       },
       top_products: topProductsResult.rows,
@@ -526,7 +588,8 @@ router.get('/monthly', authenticateToken, async (req, res) => {
         cashier_performance: cashierPerformanceResult.rows,
         batches: {
           total_batch_cost: Number(batchCostResult.rows[0]?.total_batch_cost || 0),
-          batch_count: Number(batchCostResult.rows[0]?.batch_count || 0)
+          batch_count: Number(batchCostResult.rows[0]?.batch_count || 0),
+          batch_list: batchDetailsResult.rows
         }
       }
     });

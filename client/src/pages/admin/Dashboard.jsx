@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { TrendingUp, TrendingDown, DollarSign, Users, Calendar } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Users, Calendar, Package } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import './Dashboard.css';
 import { useLanguage } from '../../context/LanguageContext';
@@ -92,18 +92,25 @@ export default function Dashboard() {
           subtext: `${report.expenses?.expense_count || 0} expense entries`
         },
         {
-          title: 'Staff Payments',
-          value: `ETB ${Number(report.staff_payments?.total_staff_payments || 0).toFixed(2)}`,
-          icon: Users,
+          title: 'Batch Costs',
+          value: `ETB ${Number(report.details?.batches?.total_batch_cost || 0).toFixed(2)}`,
+          icon: Package,
           color: 'warning',
-          subtext: `${report.staff_payments?.payment_count || 0} payments`
+          subtext: `${report.details?.batches?.batch_count || 0} batches`
+        },
+        {
+          title: 'Gross Profit',
+          value: `ETB ${Number(report.profit?.gross_profit || 0).toFixed(2)}`,
+          icon: TrendingUp,
+          color: Number(report.profit?.gross_profit || 0) >= 0 ? 'success' : 'danger',
+          subtext: 'Sales - Expenses'
         },
         {
           title: 'Net Profit',
           value: `ETB ${Number(report.profit?.net_profit || 0).toFixed(2)}`,
           icon: TrendingUp,
           color: Number(report.profit?.net_profit || 0) >= 0 ? 'success' : 'danger',
-          subtext: 'Revenue - All costs'
+          subtext: 'Gross - Batch Costs - Staff'
         }
       ];
     }
@@ -125,18 +132,25 @@ export default function Dashboard() {
           subtext: `${report.summary?.expense_count || 0} expense entries`
         },
         {
-          title: 'Staff Payments',
-          value: `ETB ${Number(report.summary?.total_staff_payments || 0).toFixed(2)}`,
-          icon: Users,
+          title: 'Batch Costs',
+          value: `ETB ${Number(report.details?.batches?.total_batch_cost || 0).toFixed(2)}`,
+          icon: Package,
           color: 'warning',
-          subtext: `${report.summary?.staff_payment_count || 0} payments`
+          subtext: `${report.details?.batches?.batch_count || 0} batches`
+        },
+        {
+          title: 'Gross Profit',
+          value: `ETB ${Number(report.summary?.gross_profit || 0).toFixed(2)}`,
+          icon: TrendingUp,
+          color: Number(report.summary?.gross_profit || 0) >= 0 ? 'success' : 'danger',
+          subtext: 'Sales - Expenses'
         },
         {
           title: 'Net Profit',
           value: `ETB ${Number(report.summary?.net_profit || 0).toFixed(2)}`,
           icon: TrendingUp,
           color: Number(report.summary?.net_profit || 0) >= 0 ? 'success' : 'danger',
-          subtext: 'Revenue - All costs'
+          subtext: 'Gross - Batch Costs - Staff'
         }
       ];
     }
@@ -158,11 +172,18 @@ export default function Dashboard() {
           subtext: `${report.expenses?.expense_count || 0} expense entries`
         },
         {
-          title: 'Staff Payments',
-          value: `ETB ${Number(report.staff_payments?.total_staff_payments || 0).toFixed(2)}`,
-          icon: Users,
+          title: 'Batch Costs',
+          value: `ETB ${Number(report.details?.batches?.total_batch_cost || 0).toFixed(2)}`,
+          icon: Package,
           color: 'warning',
-          subtext: `${report.staff_payments?.payment_count || 0} payments`
+          subtext: `${report.details?.batches?.batch_count || 0} batches`
+        },
+        {
+          title: 'Gross Profit',
+          value: `ETB ${Number(report.profit?.gross_profit || 0).toFixed(2)}`,
+          icon: TrendingUp,
+          color: Number(report.profit?.gross_profit || 0) >= 0 ? 'success' : 'danger',
+          subtext: 'Sales - Expenses'
         },
         {
           title: 'Net Profit',
@@ -249,6 +270,62 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+      {report?.details?.batches?.batch_list && report.details.batches.batch_list.length > 0 && (
+        <div className="card mb-4" style={{ marginTop: '1rem' }}>
+          <div className="card-header d-flex justify-content-between align-items-center">
+            <h3 className="mb-0">
+              <Package size={20} className="me-2" />
+              {period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly'} Batch Costs
+            </h3>
+            <span className="badge bg-warning text-dark">
+              Total: ETB {Number(report.details.batches.total_batch_cost || 0).toFixed(2)} ({report.details.batches.batch_count || 0} batches)
+            </span>
+          </div>
+          <div className="card-body">
+            <div className="table-responsive">
+              <table className="table table-sm table-hover">
+                <thead>
+                  <tr>
+                    <th>Batch ID</th>
+                    <th>Date/Time</th>
+                    <th>Created By</th>
+                    <th>Product</th>
+                    <th>Source</th>
+                    <th>Qty</th>
+                    <th>Unit Cost</th>
+                    <th>Line Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.details.batches.batch_list.map((item, idx) => (
+                    <tr key={`${item.batch_id}-${item.product_id}-${idx}`}>
+                      <td>#{item.batch_id}</td>
+                      <td>{new Date(item.created_at).toLocaleDateString()} {new Date(item.created_at).toLocaleTimeString()}</td>
+                      <td>{item.created_by_name}</td>
+                      <td>{item.product_name}</td>
+                      <td>
+                        <span className={`badge ${item.source === 'baked' ? 'bg-success' : 'bg-secondary'}`}>
+                          {item.source}
+                        </span>
+                      </td>
+                      <td>{item.quantity}</td>
+                      <td>ETB {Number(item.unit_cost || 0).toFixed(2)}</td>
+                      <td><strong>ETB {Number(item.line_cost || 0).toFixed(2)}</strong></td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="table-warning">
+                    <th colSpan={7} className="text-end">Total Batch Cost:</th>
+                    <th>ETB {Number(report.details.batches.total_batch_cost || 0).toFixed(2)}</th>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {kpis && (
         <div className="stats-grid" style={{ marginTop: '1rem' }}>

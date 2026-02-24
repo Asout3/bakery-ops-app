@@ -7,7 +7,7 @@ import './OfflineIndicator.css';
 
 export default function OfflineIndicator() {
   const { user } = useAuth();
-  const { isOnline, queueStats, syncInProgress, runSync } = useOfflineSync();
+  const { isOnline, queueStats, syncInProgress, runSync, appInitialized } = useOfflineSync();
   const [expanded, setExpanded] = useState(false);
   const [conflictOps, setConflictOps] = useState([]);
 
@@ -23,10 +23,16 @@ export default function OfflineIndicator() {
   }, [isAdmin]);
 
   useEffect(() => {
+    if (!appInitialized) return;
+    
     if (isAdmin && (queueStats.conflict > 0 || queueStats.failed > 0 || queueStats.needsReview > 0)) {
       loadConflicts();
     }
-  }, [isAdmin, queueStats.conflict, queueStats.failed, queueStats.needsReview, loadConflicts]);
+  }, [isAdmin, queueStats.conflict, queueStats.failed, queueStats.needsReview, loadConflicts, appInitialized]);
+
+  if (!appInitialized) {
+    return null;
+  }
 
   const handleRetry = async (operationId) => {
     await retryOperation(operationId);
