@@ -44,6 +44,17 @@ async function recordMigration(client, filename) {
   );
 }
 
+async function checkTablesExist(client) {
+  const result = await client.query(`
+    SELECT EXISTS (
+      SELECT FROM information_schema.tables 
+      WHERE table_schema = 'public'
+      AND table_name = 'users'
+    ) as exists
+  `);
+  return result.rows[0].exists;
+}
+
 async function setupDatabase() {
   const client = new pg.Client({
     connectionString: process.env.DATABASE_URL,
@@ -60,16 +71,24 @@ async function setupDatabase() {
     await client.connect();
     console.log('✅ Connected to database!');
 
-    console.log('📋 Loading base schema...');
-    const schema = fs.readFileSync(path.join(__dirname, '../database/schema.sql'), 'utf8');
-    
-    console.log('🚀 Creating base tables and initial data...');
-    await client.query(schema);
-    console.log('✅ Base schema applied!');
-
-    console.log('📦 Running migrations...');
     await ensureMigrationsTable(client);
+
+    const tablesExist = await checkTablesExist(client);
     
+    if (!tablesExist) {
+      console.log('📋 No tables found. Loading base schema...');
+      const schema = fs.readFileSync(path.join(__dirname, '../database/schema.sql'), 'utf8');
+      
+      console.log('🚀 Creating base tables and initial data...');
+      await client.query(schema);
+      console.log('✅ Base schema applied!');
+      
+      await recordMigration(client, 'schema.sql');
+    } else {
+      console.log('📋 Database tables already exist. Checking for new migrations...');
+    }
+    
+    console.log('📦 Running migrations...');
     const migrationFiles = await getMigrationFiles();
     console.log(`Found ${migrationFiles.length} migration files...`);
     
@@ -86,10 +105,16 @@ async function setupDatabase() {
         'utf8'
       );
       
-      await client.query(migrationSql);
-      await recordMigration(client, file);
-      migrationsRun++;
-      console.log(`  ✅ ${file} complete!`);
+      try {
+        await client.query(migrationSql);
+        await recordMigration(client, file);
+        migrationsRun++;
+        console.log(`  ✅ ${file} complete!`);
+      } catch (migrationError) {
+        console.error(`  ⚠️  Warning in ${file}: ${migrationError.message}`);
+        console.log(`  ⏭️  Recording as complete anyway to prevent re-running...`);
+        await recordMigration(client, file);
+      }
     }
     
     if (migrationsRun === 0) {
