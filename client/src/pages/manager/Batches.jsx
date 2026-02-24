@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { Package, Clock, User, Eye, Edit, Ban } from 'lucide-react';
+import { Package, Clock, User, Eye, Edit, Ban, RefreshCw, Wifi, WifiOff, CheckCircle, XCircle } from 'lucide-react';
 import './Batches.css';
 
 export default function ManagerBatches() {
@@ -10,14 +10,16 @@ export default function ManagerBatches() {
   const [selectedBatch, setSelectedBatch] = useState(null);
   const [editingItems, setEditingItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState(null);
   const [selectedDay, setSelectedDay] = useState('');
 
-  useEffect(() => {
-    fetchBatches();
-  }, [selectedLocationId, selectedDay]);
-
-  const fetchBatches = async () => {
+  const fetchBatches = useCallback(async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const response = await api.get('/inventory/batches', {
         params: {
@@ -30,8 +32,15 @@ export default function ManagerBatches() {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to fetch batches.') });
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, [selectedDay]);
+
+  useEffect(() => {
+    fetchBatches();
+    const interval = setInterval(() => fetchBatches(true), 30000);
+    return () => clearInterval(interval);
+  }, [selectedLocationId, fetchBatches]);
 
   const fetchBatchDetails = async (batchId) => {
     try {
@@ -44,6 +53,9 @@ export default function ManagerBatches() {
   };
 
   const handleVoidBatch = async (batchId) => {
+    if (!window.confirm(`Are you sure you want to void batch #${batchId}? This will remove items from inventory.`)) {
+      return;
+    }
     try {
       await api.post(`/inventory/batches/${batchId}/void`);
       setMessage({ type: 'success', text: `Batch #${batchId} was voided.` });
@@ -74,6 +86,27 @@ export default function ManagerBatches() {
     }
   };
 
+  const stats = {
+    total: batches.length,
+    sent: batches.filter(b => b.status === 'sent').length,
+    voided: batches.filter(b => b.status === 'voided').length,
+    edited: batches.filter(b => b.status === 'edited').length,
+    offline: batches.filter(b => b.is_offline).length,
+    synced: batches.filter(b => b.was_synced).length,
+  };
+
+  const getStatusBadge = (status) => {
+    const statusMap = {
+      sent: { class: 'badge-success', label: 'Sent' },
+      pending: { class: 'badge-warning', label: 'Pending' },
+      edited: { class: 'badge-info', label: 'Edited' },
+      voided: { class: 'badge-danger', label: 'Voided' },
+      received: { class: 'badge-primary', label: 'Received' },
+    };
+    const s = statusMap[status] || { class: 'badge-secondary', label: status };
+    return <span className={`badge ${s.class}`}>{s.label}</span>;
+  };
+
   if (loading) {
     return <div className="loading-container"><div className="spinner"></div></div>;
   }
@@ -81,11 +114,25 @@ export default function ManagerBatches() {
   return (
     <div className="inventory-page">
       <div className="page-header">
-        <h2>Batch History</h2>
+        <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
+          <h2>Batch History</h2>
+          <button 
+            className="btn btn-outline-primary" 
+            onClick={() => fetchBatches(true)}
+            disabled={refreshing}
+          >
+            <RefreshCw size={16} className={refreshing ? 'spin' : ''} /> 
+            {refreshing ? ' Refreshing...' : ' Refresh'}
+          </button>
+        </div>
       </div>
 
-      {message && <div className={`alert alert-${message.type} mb-3`}>{message.text}</div>}
-
+      {message && (
+        <div className={`alert alert-${message.type} mb-3`}>
+          {message.text}
+          <button className="btn-close float-end" onClick={() => setMessage(null)}></button>
+        </div>
+      )}
 
       <div className="card mb-4">
         <div className="card-body d-flex align-items-end gap-3 flex-wrap">
@@ -98,114 +145,230 @@ export default function ManagerBatches() {
               onChange={(e) => setSelectedDay(e.target.value)}
             />
           </div>
-          <button className="btn btn-outline-secondary" onClick={() => setSelectedDay('')}>Clear Day Filter</button>
+          <button className="btn btn-outline-secondary" onClick={() => setSelectedDay('')}>Clear Filter</button>
         </div>
       </div>
 
       <div className="stats-grid mb-4">
         <div className="stat-card card bg-light">
           <div className="stat-icon bg-primary text-white"><Package size={24} /></div>
-          <div className="stat-content"><h3>{batches.length}</h3><p>Total Batches</p></div>
+          <div className="stat-content"><h3>{stats.total}</h3><p>Total Batches</p></div>
+        </div>
+        <div className="stat-card card bg-light">
+          <div className="stat-icon bg-success text-white"><CheckCircle size={24} /></div>
+          <div className="stat-content"><h3>{stats.sent}</h3><p>Sent</p></div>
+        </div>
+        <div className="stat-card card bg-light">
+          <div className="stat-icon bg-danger text-white"><XCircle size={24} /></div>
+          <div className="stat-content"><h3>{stats.voided}</h3><p>Voided</p></div>
+        </div>
+        <div className="stat-card card bg-light">
+          <div className="stat-icon bg-warning text-white"><WifiOff size={24} /></div>
+          <div className="stat-content"><h3>{stats.offline}</h3><p>Offline Sync</p></div>
         </div>
       </div>
 
       <div className="card modern-batch-card">
         <div className="card-body">
-          <div className="table-responsive">
-            <table className="table table-hover modern-batch-table">
-              <thead>
-                <tr>
-                  <th>Batch ID</th>
-                  <th>Date</th>
-                  <th>Status</th>
-                  <th>Items</th>
-                  <th>Total Cost</th>
-                  <th>Created By</th>
-                  <th>Sync Source</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {batches.map((batch) => (
-                  <tr key={batch.id}>
-                    <td>#{batch.id}</td>
-                    <td>{new Date(batch.created_at).toLocaleString()}</td>
-                    <td><span className={`badge ${batch.status === 'voided' ? 'badge-danger' : 'badge-success'}`}>{batch.status}</span></td>
-                    <td>{batch.items_count}</td>
-                    <td>ETB {Number(batch.total_cost || 0).toFixed(2)}</td>
-                    <td>
-                      {batch.display_creator_name || batch.created_by_name}
-                      {batch.was_synced && batch.synced_by_name && (
-                        <span className="text-muted d-block" style={{ fontSize: '0.75rem' }}>(Synced by: {batch.synced_by_name})</span>
-                      )}
-                    </td>
-                    <td>{batch.is_offline ? <span className="badge badge-warning">Offline</span> : <span className="badge badge-success">Online</span>}</td>
-                    <td style={{ display: 'flex', gap: '0.4rem' }}>
-                      <button className="btn btn-sm btn-outline-primary" onClick={() => fetchBatchDetails(batch.id)}>
-                        <Eye size={14} /> View
-                      </button>
-                      {batch.can_edit && batch.status !== 'voided' && (
-                        <button className="btn btn-sm btn-outline-danger" onClick={() => handleVoidBatch(batch.id)}>
-                          <Ban size={14} /> Void
-                        </button>
-                      )}
-                    </td>
+          {batches.length === 0 ? (
+            <div className="empty-state">
+              <Package size={48} className="text-muted" />
+              <h4>No batches found</h4>
+              <p>Sent batches will appear here.</p>
+            </div>
+          ) : (
+            <div className="table-responsive">
+              <table className="table table-hover modern-batch-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Date & Time</th>
+                    <th>Status</th>
+                    <th>Items</th>
+                    <th>Total Cost</th>
+                    <th>Created By</th>
+                    <th>Sync Info</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {batches.map((batch) => (
+                    <tr key={batch.id} className={batch.status === 'voided' ? 'table-disabled' : ''}>
+                      <td><strong>#{batch.id}</strong></td>
+                      <td>
+                        <div>{new Date(batch.created_at).toLocaleDateString()}</div>
+                        <small className="text-muted">{new Date(batch.created_at).toLocaleTimeString()}</small>
+                      </td>
+                      <td>{getStatusBadge(batch.status)}</td>
+                      <td><span className="badge bg-secondary">{batch.items_count || 0} items</span></td>
+                      <td><strong>ETB {Number(batch.total_cost || 0).toFixed(2)}</strong></td>
+                      <td>
+                        <div className="d-flex align-items-center gap-2">
+                          <User size={14} className="text-muted" />
+                          {batch.display_creator_name || batch.created_by_name}
+                        </div>
+                        {batch.was_synced && batch.synced_by_name && (
+                          <small className="text-info d-block" style={{ fontSize: '0.7rem' }}>
+                            Synced via: {batch.synced_by_name}
+                          </small>
+                        )}
+                      </td>
+                      <td>
+                        {batch.is_offline ? (
+                          <div className="d-flex align-items-center gap-1">
+                            <WifiOff size={14} className="text-warning" />
+                            <span className="badge bg-warning text-dark">Offline</span>
+                          </div>
+                        ) : (
+                          <div className="d-flex align-items-center gap-1">
+                            <Wifi size={14} className="text-success" />
+                            <span className="badge bg-success">Online</span>
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <div className="d-flex gap-1">
+                          <button 
+                            className="btn btn-sm btn-outline-primary" 
+                            onClick={() => fetchBatchDetails(batch.id)}
+                            title="View Details"
+                          >
+                            <Eye size={14} />
+                          </button>
+                          {batch.can_edit && batch.status !== 'voided' && (
+                            <button 
+                              className="btn btn-sm btn-outline-danger" 
+                              onClick={() => handleVoidBatch(batch.id)}
+                              title="Void Batch"
+                            >
+                              <Ban size={14} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 
       {selectedBatch && (
         <div className="modal-overlay" onClick={() => setSelectedBatch(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content modal-lg" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Batch #{selectedBatch.id}</h3>
+              <h3>
+                <Package size={20} className="me-2" />
+                Batch #{selectedBatch.id}
+              </h3>
               <button className="close-btn" onClick={() => setSelectedBatch(null)}>×</button>
             </div>
             <div className="modal-body">
-              <p><Clock size={14} /> {new Date(selectedBatch.created_at).toLocaleString()}</p>
-              <p><User size={14} /> {selectedBatch.display_creator_name || selectedBatch.created_by_name}</p>
+              <div className="row mb-4">
+                <div className="col-md-6">
+                  <div className="detail-item">
+                    <Clock size={14} className="me-2 text-muted" />
+                    <span className="text-muted">Created:</span>
+                    <strong>{new Date(selectedBatch.created_at).toLocaleString()}</strong>
+                  </div>
+                </div>
+                <div className="col-md-6">
+                  <div className="detail-item">
+                    <User size={14} className="me-2 text-muted" />
+                    <span className="text-muted">By:</span>
+                    <strong>{selectedBatch.display_creator_name || selectedBatch.created_by_name}</strong>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="row mb-4">
+                <div className="col-md-4">
+                  <div className="stat-box">
+                    <div className="stat-box-label">Status</div>
+                    <div className="stat-box-value">{getStatusBadge(selectedBatch.status)}</div>
+                  </div>
+                </div>
+                <div className="col-md-4">
+                  <div className="stat-box">
+                    <div className="stat-box-label">Total Items</div>
+                    <div className="stat-box-value">{selectedBatch.items?.length || 0}</div>
+                  </div>
+                </div>
+                <div className="col-md-4">
+                  <div className="stat-box">
+                    <div className="stat-box-label">Total Cost</div>
+                    <div className="stat-box-value">ETB {Number(selectedBatch.total_cost || 0).toFixed(2)}</div>
+                  </div>
+                </div>
+              </div>
+
               {selectedBatch.was_synced && selectedBatch.synced_by_name && (
-                <p className="text-muted" style={{ marginTop: '-0.4rem' }}>Synced by: {selectedBatch.synced_by_name}</p>
+                <div className="alert alert-info mb-4">
+                  <WifiOff size={16} className="me-2" />
+                  This batch was synced offline by <strong>{selectedBatch.synced_by_name}</strong>
+                </div>
               )}
-              <p>Status: <strong>{selectedBatch.status}</strong></p>
-              <p>Total Cost: <strong>ETB {Number(selectedBatch.total_cost || 0).toFixed(2)}</strong></p>
-              <hr />
-              <h4>Items</h4>
+
+              <h5 className="mb-3">Items in Batch</h5>
               <div className="table-responsive">
-                <table className="table">
-                  <thead>
-                    <tr><th>Product</th><th>Qty</th><th>Source</th><th>Unit Cost</th><th>Line Cost</th></tr>
+                <table className="table table-sm table-bordered">
+                  <thead className="table-light">
+                    <tr>
+                      <th>Product</th>
+                      <th>Quantity</th>
+                      <th>Source</th>
+                      <th>Unit Cost</th>
+                      <th>Line Cost</th>
+                    </tr>
                   </thead>
                   <tbody>
                     {editingItems.map((item, idx) => (
                       <tr key={item.id || idx}>
                         <td>{item.product_name}</td>
-                        <td>
+                        <td style={{ width: '100px' }}>
                           {selectedBatch.can_edit && selectedBatch.status !== 'voided' ? (
-                            <input className="form-control" type="number" min="1" value={item.quantity} onChange={(e) => {
-                              const next = [...editingItems];
-                              next[idx] = { ...next[idx], quantity: Number(e.target.value) || 1 };
-                              setEditingItems(next);
-                            }} />
-                          ) : item.quantity}
+                            <input 
+                              className="form-control form-control-sm" 
+                              type="number" 
+                              min="1" 
+                              value={item.quantity} 
+                              onChange={(e) => {
+                                const next = [...editingItems];
+                                next[idx] = { ...next[idx], quantity: Number(e.target.value) || 1 };
+                                setEditingItems(next);
+                              }} 
+                            />
+                          ) : (
+                            <strong>{item.quantity}</strong>
+                          )}
                         </td>
-                        <td>{item.source}</td>
+                        <td>
+                          <span className={`badge ${item.source === 'baked' ? 'bg-success' : 'bg-secondary'}`}>
+                            {item.source}
+                          </span>
+                        </td>
                         <td>ETB {Number(item.unit_cost || 0).toFixed(2)}</td>
-                        <td>ETB {(Number(item.unit_cost || 0) * Number(item.quantity || 0)).toFixed(2)}</td>
+                        <td><strong>ETB {(Number(item.unit_cost || 0) * Number(item.quantity || 0)).toFixed(2)}</strong></td>
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    <tr>
+                      <th colSpan="4" className="text-end">Total Cost:</th>
+                      <th>ETB {Number(selectedBatch.total_cost || 0).toFixed(2)}</th>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
             {selectedBatch.can_edit && selectedBatch.status !== 'voided' && (
               <div className="modal-footer">
                 <button className="btn btn-secondary" onClick={() => setSelectedBatch(null)}>Close</button>
-                <button className="btn btn-primary" onClick={handleSaveEdit}><Edit size={14} /> Save Changes</button>
+                <button className="btn btn-primary" onClick={handleSaveEdit}>
+                  <Edit size={14} className="me-1" /> Save Changes
+                </button>
               </div>
             )}
           </div>

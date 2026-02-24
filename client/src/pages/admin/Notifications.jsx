@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
-import api from '../../api/axios';
+import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { useAuth } from '../../context/AuthContext';
-import { Bell, Check, X, Search } from 'lucide-react';
+import { useNotifications } from '../../context/NotificationContext';
+import { Bell, Check, X, Search, RefreshCw } from 'lucide-react';
 import './Notifications.css';
 
 export default function NotificationsPage() {
   const { selectedLocationId } = useBranch();
   const { user } = useAuth();
-  const [notifications, setNotifications] = useState([]);
+  const { notifications, fetchNotifications, markAsRead, markAllAsRead, deleteNotification, unreadCount, refresh } = useNotifications();
   const [loading, setLoading] = useState(true);
   const [rules, setRules] = useState([]);
   const [newRule, setNewRule] = useState({ event_type: 'high_sale', threshold: '' });
@@ -20,51 +21,20 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     fetchNotifications();
+    setLoading(false);
   }, [user?.role]);
 
-  const fetchNotifications = async () => {
-    try {
-      const [notifRes, rulesRes] = await Promise.all([
-        api.get('/notifications'),
-        user?.role === 'admin' ? api.get('/notifications/rules').catch(() => ({ data: [] })) : Promise.resolve({ data: [] })
-      ]);
-      setNotifications(notifRes.data);
-      setRules(rulesRes.data || []);
-    } catch (err) {
-      console.error('Failed to fetch notifications:', err);
-    } finally {
-      setLoading(false);
-    }
+  const handleMarkAsRead = async (id) => {
+    await markAsRead(id);
   };
 
-  const markAsRead = async (id) => {
-    try {
-      await api.put(`/notifications/${id}`, { is_read: true });
-      setNotifications(notifications.map(notif => 
-        notif.id === id ? { ...notif, is_read: true } : notif
-      ));
-    } catch (err) {
-      console.error('Failed to mark notification as read:', err);
-    }
+  const handleMarkAllAsRead = async () => {
+    await markAllAsRead();
   };
 
-  const markAllAsRead = async () => {
-    try {
-      await api.put('/notifications/mark-all-read');
-      setNotifications(notifications.map(notif => ({ ...notif, is_read: true })));
-    } catch (err) {
-      console.error('Failed to mark all as read:', err);
-    }
-  };
-
-  const deleteNotification = async (id) => {
+  const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this notification?')) {
-      try {
-        await api.delete(`/notifications/${id}`);
-        setNotifications(notifications.filter(notif => notif.id !== id));
-      } catch (err) {
-        console.error('Failed to delete notification:', err);
-      }
+      await deleteNotification(id);
     }
   };
 
@@ -106,7 +76,7 @@ export default function NotificationsPage() {
     return matchesType && matchesStatus && matchesSearch;
   });
 
-  const unreadCount = notifications.filter(n => !n.is_read).length;
+  const localUnreadCount = notifications.filter(n => !n.is_read).length;
 
   if (loading) {
     return (
@@ -119,18 +89,25 @@ export default function NotificationsPage() {
   return (
     <div className="notifications-page">
       <div className="page-header">
-        <h2>Notifications</h2>
-        {unreadCount > 0 && (
-          <button className="btn btn-outline-primary" onClick={markAllAsRead}>
-            Mark All as Read ({unreadCount})
-          </button>
-        )}
+        <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
+          <h2>Notifications</h2>
+          <div className="d-flex gap-2">
+            <button className="btn btn-outline-secondary btn-sm" onClick={() => refresh()}>
+              <RefreshCw size={16} /> Refresh
+            </button>
+            {localUnreadCount > 0 && (
+              <button className="btn btn-outline-primary" onClick={handleMarkAllAsRead}>
+                Mark All as Read ({localUnreadCount})
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="notifications-summary mb-4">
         <div className="summary-chip">Total: {notifications.length}</div>
-        <div className="summary-chip summary-chip-warning">Unread: {unreadCount}</div>
-        <div className="summary-chip">Read: {notifications.length - unreadCount}</div>
+        <div className="summary-chip summary-chip-warning">Unread: {localUnreadCount}</div>
+        <div className="summary-chip">Read: {notifications.length - localUnreadCount}</div>
       </div>
 
       <div className="card mb-4">
@@ -250,7 +227,7 @@ export default function NotificationsPage() {
                   {!notification.is_read && (
                     <button 
                       className="btn btn-sm btn-outline-success"
-                      onClick={() => markAsRead(notification.id)}
+                      onClick={() => handleMarkAsRead(notification.id)}
                       title="Mark as read"
                     >
                       <Check size={14} />
@@ -258,7 +235,7 @@ export default function NotificationsPage() {
                   )}
                   <button 
                     className="btn btn-sm btn-outline-danger"
-                    onClick={() => deleteNotification(notification.id)}
+                    onClick={() => handleDelete(notification.id)}
                     title="Delete"
                   >
                     <X size={14} />

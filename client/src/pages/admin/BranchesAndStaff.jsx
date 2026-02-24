@@ -85,18 +85,40 @@ export default function BranchesAndStaff() {
         setSavingAccount(false);
         return;
       }
-      
-      await api.post('/admin/users', {
+
+      const payload = {
         ...accountForm,
         location_id: Number(accountForm.location_id),
         staff_profile_id: Number(accountForm.staff_profile_id),
-      });
-      showFeedback('success', 'Staff account created successfully.');
-      setAccountForm(emptyAccount);
-      loadData();
+      };
+
+      try {
+        await api.post('/admin/users', payload);
+        showFeedback('success', 'Staff account created successfully.');
+        setAccountForm(emptyAccount);
+        loadData();
+      } catch (err) {
+        if (err.response?.data?.code === 'ARCHIVED_ACCOUNT_EXISTS_RECONFIRM') {
+          const archivedUsername = accountForm.username;
+          const confirmReactivate = window.confirm(
+            `An archived account "${archivedUsername}" already exists. Do you want to reactivate this account with the new details?`
+          );
+          if (confirmReactivate) {
+            payload.reactivate_confirm = true;
+            await api.post('/admin/users', payload);
+            showFeedback('success', `Staff account "${archivedUsername}" reactivated successfully.`);
+            setAccountForm(emptyAccount);
+            loadData();
+          } else {
+            showFeedback('info', 'Account reactivation cancelled.');
+          }
+        } else {
+          const validationText = err.response?.data?.errors?.map((x) => x.msg).join(', ');
+          showFeedback('danger', validationText || err.response?.data?.error || 'Could not create staff account');
+        }
+      }
     } catch (err) {
-      const validationText = err.response?.data?.errors?.map((x) => x.msg).join(', ');
-      showFeedback('danger', validationText || err.response?.data?.error || 'Could not create staff account');
+      showFeedback('danger', err.response?.data?.error || 'An unexpected error occurred');
     } finally {
       setSavingAccount(false);
     }

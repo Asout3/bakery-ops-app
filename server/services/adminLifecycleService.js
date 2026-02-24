@@ -39,6 +39,15 @@ export async function createStaffAccount(payload, repository) {
       if (linkedProfile) {
         throw toError('Archived account is linked to another staff profile', 409, 'ACCOUNT_LINKED_TO_OTHER_STAFF');
       }
+      
+      if (!payload.reactivate_confirm) {
+        throw toError(
+          `An archived account "${payload.username}" exists. To reactivate this account, please confirm by passing "reactivate_confirm: true" in the request.`,
+          409,
+          'ARCHIVED_ACCOUNT_EXISTS_RECONFIRM'
+        );
+      }
+      
       user = await repo.reactivateUser({
         user_id: existingUser.id,
         username: payload.username,
@@ -74,7 +83,7 @@ export async function createStaffAccount(payload, repository) {
     await repo.upsertUserLocation(user.id, payload.location_id);
     await repo.linkStaffProfile(user.id, payload.staff_profile_id);
 
-    return { user, staff_profile_id: payload.staff_profile_id };
+    return { user, staff_profile_id: payload.staff_profile_id, reactivated: !!existingUser };
   });
 }
 

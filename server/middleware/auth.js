@@ -28,7 +28,7 @@ export const authenticateToken = (req, res, next) => {
 
   jwt.verify(token, JWT_SECRET, {
     issuer: ISSUER,
-    maxAge: '25h'
+    maxAge: '24h'
   }, (err, user) => {
     if (err) {
       if (err.name === 'TokenExpiredError') {
@@ -101,7 +101,7 @@ export const optionalAuth = (req, res, next) => {
 
   jwt.verify(token, JWT_SECRET, {
     issuer: ISSUER,
-    maxAge: '25h'
+    maxAge: '24h'
   }, (err, user) => {
     if (err) {
       req.user = null;

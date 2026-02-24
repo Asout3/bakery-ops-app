@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationContext';
 import { 
   LayoutDashboard, 
   Package, 
@@ -18,16 +19,16 @@ import { useBranch } from '../context/BranchContext';
 import { useLanguage } from '../context/LanguageContext';
 import OfflineIndicator from './OfflineIndicator';
 import { useOfflineSync } from '../hooks/useOfflineSync';
-import { getQueueSize } from '../utils/offlineQueue';
+import { getPendingCount } from '../utils/offlineQueue';
 import './Layout.css';
 
 export default function Layout() {
   const { user, logout } = useAuth();
+  const { unreadCount, refresh: refreshNotifications } = useNotifications();
   useOfflineSync();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [locations, setLocations] = useState([]);
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const { selectedLocationId, setLocation } = useBranch();
   const { language, setLang, t } = useLanguage();
   const [showLogoutWarning, setShowLogoutWarning] = useState(false);
@@ -39,7 +40,7 @@ export default function Layout() {
   };
 
   const handleLogout = async () => {
-    const pendingCount = await getQueueSize();
+    const pendingCount = await getPendingCount();
     if (pendingCount > 0) {
       setPendingLogoutCount(pendingCount);
       setShowLogoutWarning(true);
@@ -68,24 +69,9 @@ export default function Layout() {
     fetchLocations();
   }, [user?.role, selectedLocationId, setLocation]);
 
-
   useEffect(() => {
-    const fetchUnreadNotifications = async () => {
-      if (!user || user.role === 'cashier') {
-        setUnreadNotifications(0);
-        return;
-      }
-      try {
-        const response = await api.get('/notifications');
-        const list = response.data || [];
-        setUnreadNotifications(list.filter((item) => !item.is_read).length);
-      } catch (err) {
-        setUnreadNotifications(0);
-      }
-    };
-
-    fetchUnreadNotifications();
-  }, [user?.id, user?.role, selectedLocationId]);
+    refreshNotifications();
+  }, [user?.id, user?.role, selectedLocationId, refreshNotifications]);
 
   const getNavItems = () => {
     const role = user?.role;
@@ -149,8 +135,8 @@ export default function Layout() {
               <item.icon size={20} />
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
                 {item.label}
-                {item.showBadge && unreadNotifications > 0 && (
-                  <span className="badge badge-danger" style={{ fontSize: '0.68rem' }}>{unreadNotifications}</span>
+                {item.showBadge && unreadCount > 0 && (
+                  <span className="badge badge-danger" style={{ fontSize: '0.68rem' }}>{unreadCount}</span>
                 )}
               </span>
             </NavLink>

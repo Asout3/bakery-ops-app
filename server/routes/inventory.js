@@ -328,6 +328,29 @@ router.post(
           ]
         );
 
+        const batchValueResult = await tx.query(
+          `SELECT COALESCE(SUM(bi.quantity * COALESCE(p.cost, 0)), 0) as total_value
+           FROM batch_items bi
+           JOIN products p ON p.id = bi.product_id
+           WHERE bi.batch_id = $1`,
+          [createdBatch.id]
+        );
+        const totalBatchValue = Number(batchValueResult.rows[0]?.total_value || 0);
+
+        await tx.query(
+          `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+           SELECT id, $1, $2, $3, 'batch'
+           FROM users 
+           WHERE role IN ('admin', 'manager') 
+           AND location_id = $1
+           AND is_active = true`,
+          [
+            locationId,
+            `📦 New Batch Sent #${createdBatch.id}`,
+            `${originalActorName} sent a batch with ${items.length} items (Total: ETB ${totalBatchValue.toFixed(2)})${isFromOfflineQueue ? ' [Synced from Offline]' : ''}`
+          ]
+        );
+
         if (idempotencyKey) {
           await tx.query(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)

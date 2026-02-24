@@ -11,6 +11,39 @@ dotenv.config();
 
 const dbIpFamily = Number(process.env.DB_IP_FAMILY || 4);
 
+async function getMigrationFiles() {
+  const migrationsDir = path.join(__dirname, '../database/migrations');
+  const files = fs.readdirSync(migrationsDir)
+    .filter(f => f.endsWith('.sql'))
+    .sort();
+  return files;
+}
+
+async function ensureMigrationsTable(client) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      id SERIAL PRIMARY KEY,
+      filename VARCHAR(255) UNIQUE NOT NULL,
+      executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+
+async function hasMigrationRun(client, filename) {
+  const result = await client.query(
+    'SELECT 1 FROM schema_migrations WHERE filename = $1',
+    [filename]
+  );
+  return result.rows.length > 0;
+}
+
+async function recordMigration(client, filename) {
+  await client.query(
+    'INSERT INTO schema_migrations (filename) VALUES ($1)',
+    [filename]
+  );
+}
+
 async function setupDatabase() {
   const client = new pg.Client({
     connectionString: process.env.DATABASE_URL,
@@ -27,12 +60,45 @@ async function setupDatabase() {
     await client.connect();
     console.log('✅ Connected to database!');
 
-    console.log('📋 Loading schema...');
+    console.log('📋 Loading base schema...');
     const schema = fs.readFileSync(path.join(__dirname, '../database/schema.sql'), 'utf8');
     
-    console.log('🚀 Creating tables and initial data...');
+    console.log('🚀 Creating base tables and initial data...');
     await client.query(schema);
+    console.log('✅ Base schema applied!');
+
+    console.log('📦 Running migrations...');
+    await ensureMigrationsTable(client);
     
+    const migrationFiles = await getMigrationFiles();
+    console.log(`Found ${migrationFiles.length} migration files...`);
+    
+    let migrationsRun = 0;
+    for (const file of migrationFiles) {
+      if (await hasMigrationRun(client, file)) {
+        console.log(`  ⏭️  Skipping ${file} (already run)`);
+        continue;
+      }
+      
+      console.log(`  🔄 Running ${file}...`);
+      const migrationSql = fs.readFileSync(
+        path.join(__dirname, '../database/migrations', file),
+        'utf8'
+      );
+      
+      await client.query(migrationSql);
+      await recordMigration(client, file);
+      migrationsRun++;
+      console.log(`  ✅ ${file} complete!`);
+    }
+    
+    if (migrationsRun === 0) {
+      console.log('✅ All migrations already up to date!');
+    } else {
+      console.log(`✅ Applied ${migrationsRun} new migration(s)!`);
+    }
+    
+    console.log('');
     console.log('✅ Database setup complete!');
     console.log('');
     console.log('Default login credentials:');

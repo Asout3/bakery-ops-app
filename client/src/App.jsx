@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { BranchProvider } from './context/BranchContext';
 import { LanguageProvider } from './context/LanguageContext';
+import { NotificationProvider } from './context/NotificationContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import AppErrorBoundary from './components/AppErrorBoundary';
@@ -97,9 +98,11 @@ function App() {
   return (
     <LanguageProvider>
       <BranchProvider>
-        <AppErrorBoundary>
-          <AppInner />
-        </AppErrorBoundary>
+        <NotificationProvider>
+          <AppErrorBoundary>
+            <AppInner />
+          </AppErrorBoundary>
+        </NotificationProvider>
       </BranchProvider>
     </LanguageProvider>
   );
