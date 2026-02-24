@@ -7,13 +7,7 @@ import { getTargetLocationId } from '../utils/location.js';
 const router = express.Router();
 const BATCH_EDIT_WINDOW_MINUTES = 20;
 
-let inventoryBatchColumnsCache = null;
-
-async function getInventoryBatchColumns(db, forceRefresh = false) {
-  if (inventoryBatchColumnsCache && !forceRefresh) {
-    return inventoryBatchColumnsCache;
-  }
-
+async function getInventoryBatchColumns(db) {
   const result = await db.query(
     `SELECT column_name
      FROM information_schema.columns
@@ -21,7 +15,7 @@ async function getInventoryBatchColumns(db, forceRefresh = false) {
   );
 
   const columns = new Set(result.rows.map((row) => row.column_name));
-  inventoryBatchColumnsCache = {
+  return {
     hasOfflineFlag: columns.has('is_offline'),
     hasOriginalActorId: columns.has('original_actor_id'),
     hasOriginalActorName: columns.has('original_actor_name'),
@@ -29,8 +23,6 @@ async function getInventoryBatchColumns(db, forceRefresh = false) {
     hasSyncedByName: columns.has('synced_by_name'),
     hasSyncedAt: columns.has('synced_at'),
   };
-
-  return inventoryBatchColumnsCache;
 }
 
 router.get('/', authenticateToken, async (req, res) => {
@@ -219,7 +211,7 @@ router.post(
         const hasValidQueuedCreatedAt = queuedCreatedAt instanceof Date && !Number.isNaN(queuedCreatedAt.getTime()) && queuedCreatedAt.getTime() <= Date.now();
         const effectiveCreatedAt = hasValidQueuedCreatedAt ? queuedCreatedAt.toISOString() : new Date().toISOString();
 
-        const batchColumns = await getInventoryBatchColumns(tx, true);
+        const batchColumns = await getInventoryBatchColumns(tx);
 
         let effectiveCreatedBy = req.user.id;
         let originalActorName = req.user.username;
@@ -377,7 +369,7 @@ router.get('/batches', authenticateToken, async (req, res) => {
     const limit = parseInt(req.query.limit, 10) || 50;
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
-    const batchColumns = await getInventoryBatchColumns({ query }, true);
+    const batchColumns = await getInventoryBatchColumns({ query });
 
     const displayCreatorExpr = batchColumns.hasOriginalActorName
       ? 'COALESCE(b.original_actor_name, u.username)'
@@ -427,7 +419,7 @@ router.get('/batches', authenticateToken, async (req, res) => {
 
 router.get('/batches/:id', authenticateToken, async (req, res) => {
   try {
-    const batchColumns = await getInventoryBatchColumns({ query }, true);
+    const batchColumns = await getInventoryBatchColumns({ query });
     const displayCreatorExpr = batchColumns.hasOriginalActorName
       ? 'COALESCE(b.original_actor_name, u.username)'
       : 'u.username';

@@ -1,7 +1,7 @@
 import { useEffect, useCallback, useMemo, useState, useRef } from 'react';
-import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
-import { flushQueue, getSyncStats, isOnline, getConnectionQuality, listQueuedOperations } from '../utils/offlineQueue';
+import api from '../api/axios';
+import { flushQueue, getSyncStats, isOnline, getConnectionQuality } from '../utils/offlineQueue';
 
 const BASE_SYNC_INTERVAL_MS = 10000;
 
@@ -13,7 +13,7 @@ function resolveSyncInterval(queueStats) {
 }
 
 export function useOfflineSync() {
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const [isOnlineState, setIsOnlineState] = useState(() => isOnline());
   const [queueStats, setQueueStats] = useState({ total: 0, pending: 0, conflict: 0, needsReview: 0, failed: 0 });
   const [syncInProgress, setSyncInProgress] = useState(false);
@@ -25,6 +25,7 @@ export function useOfflineSync() {
   const initializedRef = useRef(false);
 
   const runSync = useCallback(async (force = false) => {
+    if (!isAuthenticated) return;
     if (syncInProgress && !force) return;
 
     if (!navigator.onLine) {
@@ -58,25 +59,27 @@ export function useOfflineSync() {
     } finally {
       setSyncInProgress(false);
     }
-  }, [syncInProgress]);
+  }, [syncInProgress, isAuthenticated]);
 
   const updateOnlineStatus = useCallback(async (eventType) => {
     const online = navigator.onLine;
     setIsOnlineState(online);
 
-    if (online && eventType === 'online') {
+    if (online && eventType === 'online' && isAuthenticated) {
       await runSync(true);
     }
-  }, [runSync]);
+  }, [runSync, isAuthenticated]);
 
   const updateQueueStats = useCallback(async () => {
+    if (!isAuthenticated) return;
+    
     try {
       const stats = await getSyncStats();
       setQueueStats(stats);
     } catch (err) {
       console.error('Failed to update queue stats:', err);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   const syncInterval = useMemo(() => resolveSyncInterval(queueStats), [queueStats]);
 
@@ -87,7 +90,7 @@ export function useOfflineSync() {
     const init = async () => {
       await updateQueueStats();
       
-      if (navigator.onLine) {
+      if (isAuthenticated && navigator.onLine) {
         await runSync(true);
       }
       
@@ -101,7 +104,7 @@ export function useOfflineSync() {
     if (!appInitialized) return;
 
     const interval = setInterval(() => {
-      if (navigator.onLine) {
+      if (navigator.onLine && isAuthenticated) {
         runSync();
       }
       updateQueueStats();
@@ -116,7 +119,7 @@ export function useOfflineSync() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         updateQueueStats();
-        if (navigator.onLine) {
+        if (navigator.onLine && isAuthenticated) {
           runSync(true);
         }
       }
@@ -126,7 +129,7 @@ export function useOfflineSync() {
     const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
     const handleConnectionChange = () => {
       updateQueueStats();
-      if (navigator.onLine) {
+      if (navigator.onLine && isAuthenticated) {
         runSync(true);
       }
     };
@@ -139,7 +142,7 @@ export function useOfflineSync() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       connection?.removeEventListener?.('change', handleConnectionChange);
     };
-  }, [appInitialized, runSync, syncInterval, updateOnlineStatus, updateQueueStats]);
+  }, [appInitialized, runSync, syncInterval, updateOnlineStatus, updateQueueStats, isAuthenticated]);
 
   return {
     isOnline: isOnlineState,

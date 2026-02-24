@@ -1,14 +1,18 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useAuth } from './AuthContext';
 import api from '../api/axios';
 
 const NotificationContext = createContext(null);
 
 export function NotificationProvider({ children }) {
+  const { user, isAuthenticated } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
 
   const fetchNotifications = useCallback(async () => {
+    if (!isAuthenticated) return;
+    
     try {
       const response = await api.get('/notifications');
       const list = response.data || [];
@@ -17,18 +21,29 @@ export function NotificationProvider({ children }) {
     } catch (err) {
       console.error('Failed to fetch notifications:', err);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   const fetchUnreadCount = useCallback(async () => {
+    if (!isAuthenticated) {
+      setUnreadCount(0);
+      return;
+    }
+    
     try {
       const response = await api.get('/notifications/unread/count');
       setUnreadCount(response.data?.unread_count || 0);
     } catch (err) {
+      if (err.response?.status === 401) {
+        setUnreadCount(0);
+        return;
+      }
       console.error('Failed to fetch unread count:', err);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   const markAsRead = useCallback(async (id) => {
+    if (!isAuthenticated) return;
+    
     try {
       await api.put(`/notifications/${id}`, { is_read: true });
       setNotifications(prev => 
@@ -38,9 +53,11 @@ export function NotificationProvider({ children }) {
     } catch (err) {
       console.error('Failed to mark notification as read:', err);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   const markAllAsRead = useCallback(async () => {
+    if (!isAuthenticated) return;
+    
     try {
       await api.put('/notifications/mark-all-read');
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
@@ -48,9 +65,11 @@ export function NotificationProvider({ children }) {
     } catch (err) {
       console.error('Failed to mark all as read:', err);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   const deleteNotification = useCallback(async (id) => {
+    if (!isAuthenticated) return;
+    
     try {
       await api.delete(`/notifications/${id}`);
       const deleted = notifications.find(n => n.id === id);
@@ -61,9 +80,15 @@ export function NotificationProvider({ children }) {
     } catch (err) {
       console.error('Failed to delete notification:', err);
     }
-  }, [notifications]);
+  }, [isAuthenticated, notifications]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setNotifications([]);
+      setUnreadCount(0);
+      return;
+    }
+    
     fetchUnreadCount();
     
     const interval = setInterval(() => {
@@ -71,7 +96,7 @@ export function NotificationProvider({ children }) {
     }, 10000);
 
     return () => clearInterval(interval);
-  }, [fetchUnreadCount]);
+  }, [isAuthenticated, fetchUnreadCount]);
 
   const value = {
     notifications,

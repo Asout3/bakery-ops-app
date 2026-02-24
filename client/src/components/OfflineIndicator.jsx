@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import './OfflineIndicator.css';
 
 export default function OfflineIndicator() {
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const { isOnline, queueStats, syncInProgress, runSync, appInitialized } = useOfflineSync();
   const [expanded, setExpanded] = useState(false);
   const [conflictOps, setConflictOps] = useState([]);
@@ -14,23 +14,23 @@ export default function OfflineIndicator() {
   const isAdmin = user?.role === 'admin';
 
   const loadConflicts = useCallback(async () => {
-    if (!isAdmin) {
+    if (!isAdmin || !isAuthenticated) {
       setConflictOps([]);
       return;
     }
     const ops = await listQueuedOperations();
     setConflictOps(ops.filter((op) => op.status === 'conflict' || op.status === 'failed' || op.status === 'needs_review'));
-  }, [isAdmin]);
+  }, [isAdmin, isAuthenticated]);
 
   useEffect(() => {
-    if (!appInitialized) return;
+    if (!appInitialized || !isAuthenticated) return;
     
     if (isAdmin && (queueStats.conflict > 0 || queueStats.failed > 0 || queueStats.needsReview > 0)) {
       loadConflicts();
     }
-  }, [isAdmin, queueStats.conflict, queueStats.failed, queueStats.needsReview, loadConflicts, appInitialized]);
+  }, [isAdmin, queueStats.conflict, queueStats.failed, queueStats.needsReview, loadConflicts, appInitialized, isAuthenticated]);
 
-  if (!appInitialized) {
+  if (!appInitialized || !isAuthenticated) {
     return null;
   }
 
