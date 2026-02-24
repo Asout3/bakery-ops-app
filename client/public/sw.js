@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'bakery-ops-shell-v3';
+const CACHE_VERSION = 'bakery-ops-shell-v4';
 const SHELL_CACHE = `shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 const SHELL_ASSETS = ['/', '/index.html', '/vite.svg'];
@@ -75,7 +75,7 @@ self.addEventListener('fetch', (event) => {
 
   if (isStaticAsset(requestUrl)) {
     event.respondWith(
-      networkThenCache(event.request).catch(async () => (await caches.match(event.request)) || Response.error())
+      cacheFirst(event.request).catch(async () => (await caches.match(event.request)) || Response.error())
     );
     return;
   }

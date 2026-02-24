@@ -80,13 +80,15 @@ router.get('/daily', authenticateToken, async (req, res) => {
               COALESCE(SUM(s.total_amount), 0) as total_sales,
               COALESCE(SUM(CASE WHEN s.payment_method = 'cash' THEN s.total_amount ELSE 0 END), 0) as cash_sales,
               COALESCE(SUM(CASE WHEN s.payment_method = 'mobile' THEN s.total_amount ELSE 0 END), 0) as mobile_sales,
-              COALESCE(SUM(si.quantity), 0) as items_sold
+              COALESCE(SUM(si.quantity), 0) as items_sold,
+              COALESCE(SUM(CASE WHEN COALESCE(s.status, 'completed') = 'voided' THEN 1 ELSE 0 END), 0) as voided_transactions,
+              COALESCE(SUM(CASE WHEN s.is_offline = true THEN 1 ELSE 0 END), 0) as offline_synced_transactions
        FROM sales s
        JOIN users u ON u.id = s.cashier_id
        LEFT JOIN sale_items si ON si.sale_id = s.id
        WHERE s.location_id = $1 AND DATE(s.sale_date) = $2
          AND u.is_active = true
-         AND u.role IN ('cashier', 'manager')
+         AND u.role = 'cashier'
        GROUP BY s.cashier_id, u.username, u.role
        ORDER BY total_sales DESC`,
       [locationId, date]
@@ -293,13 +295,15 @@ router.get('/weekly', authenticateToken, async (req, res) => {
               COALESCE(SUM(s.total_amount), 0) as total_sales,
               COALESCE(SUM(CASE WHEN s.payment_method = 'cash' THEN s.total_amount ELSE 0 END), 0) as cash_sales,
               COALESCE(SUM(CASE WHEN s.payment_method = 'mobile' THEN s.total_amount ELSE 0 END), 0) as mobile_sales,
-              COALESCE(SUM(si.quantity), 0) as items_sold
+              COALESCE(SUM(si.quantity), 0) as items_sold,
+              COALESCE(SUM(CASE WHEN COALESCE(s.status, 'completed') = 'voided' THEN 1 ELSE 0 END), 0) as voided_transactions,
+              COALESCE(SUM(CASE WHEN s.is_offline = true THEN 1 ELSE 0 END), 0) as offline_synced_transactions
        FROM sales s
        JOIN users u ON u.id = s.cashier_id
        LEFT JOIN sale_items si ON si.sale_id = s.id
        WHERE s.location_id = $1 AND DATE(s.sale_date) BETWEEN $2 AND $3
          AND u.is_active = true
-         AND u.role IN ('cashier', 'manager')
+         AND u.role = 'cashier'
        GROUP BY s.cashier_id, u.username, u.role
        ORDER BY total_sales DESC`,
       [locationId, startDate, endDate]
@@ -330,6 +334,30 @@ router.get('/weekly', authenticateToken, async (req, res) => {
       [locationId, startDate, endDate]
     );
 
+
+    const expenseListResult = await query(
+      `SELECT e.id, e.category, e.description, e.amount, e.expense_date,
+              u.username as created_by_name
+       FROM expenses e
+       LEFT JOIN users u ON u.id = e.created_by
+       WHERE e.location_id = $1 AND e.expense_date BETWEEN $2 AND $3
+       ORDER BY e.expense_date DESC, e.created_at DESC`,
+      [locationId, startDate, endDate]
+    );
+
+    const staffPaymentListResult = await query(
+      `SELECT sp.id, sp.amount, sp.payment_date, sp.payment_type,
+              COALESCE(st.full_name, u.username) as staff_name,
+              creator.username as created_by_name
+       FROM staff_payments sp
+       LEFT JOIN staff_profiles st ON st.id = sp.staff_profile_id
+       LEFT JOIN users u ON u.id = sp.user_id
+       LEFT JOIN users creator ON creator.id = sp.created_by
+       WHERE sp.location_id = $1 AND sp.payment_date BETWEEN $2 AND $3
+       ORDER BY sp.payment_date DESC, sp.created_at DESC`,
+      [locationId, startDate, endDate]
+    );
+
     const transactions = salesByDayResult.rows.reduce((acc, row) => acc + Number(row.transactions || 0), 0);
 
 
@@ -354,6 +382,8 @@ router.get('/weekly', authenticateToken, async (req, res) => {
       top_products: topProductsResult.rows,
       details: {
         cashier_performance: cashierPerformanceResult.rows,
+        expenses: expenseListResult.rows,
+        staff_payments: staffPaymentListResult.rows,
         batches: {
           total_batch_cost: Number(batchCostResult.rows[0]?.total_batch_cost || 0),
           batch_count: Number(batchCostResult.rows[0]?.batch_count || 0),
@@ -500,7 +530,9 @@ router.get('/monthly', authenticateToken, async (req, res) => {
               COALESCE(SUM(s.total_amount), 0) as total_sales,
               COALESCE(SUM(CASE WHEN s.payment_method = 'cash' THEN s.total_amount ELSE 0 END), 0) as cash_sales,
               COALESCE(SUM(CASE WHEN s.payment_method = 'mobile' THEN s.total_amount ELSE 0 END), 0) as mobile_sales,
-              COALESCE(SUM(si.quantity), 0) as items_sold
+              COALESCE(SUM(si.quantity), 0) as items_sold,
+              COALESCE(SUM(CASE WHEN COALESCE(s.status, 'completed') = 'voided' THEN 1 ELSE 0 END), 0) as voided_transactions,
+              COALESCE(SUM(CASE WHEN s.is_offline = true THEN 1 ELSE 0 END), 0) as offline_synced_transactions
        FROM sales s
        JOIN users u ON u.id = s.cashier_id
        LEFT JOIN sale_items si ON si.sale_id = s.id
@@ -508,7 +540,7 @@ router.get('/monthly', authenticateToken, async (req, res) => {
          AND EXTRACT(YEAR FROM s.sale_date) = $2
          AND EXTRACT(MONTH FROM s.sale_date) = $3
          AND u.is_active = true
-         AND u.role IN ('cashier', 'manager')
+         AND u.role = 'cashier'
        GROUP BY s.cashier_id, u.username, u.role
        ORDER BY total_sales DESC`,
       [locationId, year, month]
@@ -586,6 +618,8 @@ router.get('/monthly', authenticateToken, async (req, res) => {
       payment_methods: paymentMethodsResult.rows,
       details: {
         cashier_performance: cashierPerformanceResult.rows,
+        expenses: expenseListResult.rows,
+        staff_payments: staffPaymentListResult.rows,
         batches: {
           total_batch_cost: Number(batchCostResult.rows[0]?.total_batch_cost || 0),
           batch_count: Number(batchCostResult.rows[0]?.batch_count || 0),

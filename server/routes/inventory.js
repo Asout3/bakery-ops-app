@@ -376,7 +376,9 @@ router.get('/batches', authenticateToken, async (req, res) => {
       : 'u.username';
     const syncedByNameExpr = batchColumns.hasSyncedByName ? 'b.synced_by_name' : 'NULL';
     const wasSyncedExpr = batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false';
-    const isOfflineExpr = batchColumns.hasOfflineFlag ? 'b.is_offline' : 'false';
+    const isOfflineExpr = batchColumns.hasOfflineFlag
+      ? (batchColumns.hasSyncedById ? '(COALESCE(b.is_offline, false) OR b.synced_by_id IS NOT NULL)' : 'COALESCE(b.is_offline, false)')
+      : (batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false');
     const sortTimestampExpr = batchColumns.hasSyncedAt ? 'COALESCE(b.synced_at, b.created_at)' : 'b.created_at';
 
     let queryText = `SELECT b.*, u.username as created_by_name,
@@ -427,7 +429,9 @@ router.get('/batches/:id', authenticateToken, async (req, res) => {
       : 'u.username';
     const syncedByNameExpr = batchColumns.hasSyncedByName ? 'b.synced_by_name' : 'NULL';
     const wasSyncedExpr = batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false';
-    const isOfflineExpr = batchColumns.hasOfflineFlag ? 'b.is_offline' : 'false';
+    const isOfflineExpr = batchColumns.hasOfflineFlag
+      ? (batchColumns.hasSyncedById ? '(COALESCE(b.is_offline, false) OR b.synced_by_id IS NOT NULL)' : 'COALESCE(b.is_offline, false)')
+      : (batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false');
 
     const batchResult = await query(
       `SELECT b.*, u.username as created_by_name,
