@@ -35,8 +35,7 @@ import CashierHistory from './pages/cashier/History';
 function AppInner() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <Routes>
+      <Routes>
           <Route path="/login" element={<Login />} />
           
           {/* Admin Routes */}
@@ -88,8 +87,7 @@ function AppInner() {
             </div>
           } />
           <Route path="*" element={<NotFound />} />
-        </Routes>
-      </AuthProvider>
+      </Routes>
     </BrowserRouter>
   );
 }
@@ -97,16 +95,17 @@ function AppInner() {
 function App() {
   return (
     <LanguageProvider>
-      <BranchProvider>
-        <NotificationProvider>
-          <AppErrorBoundary>
-            <AppInner />
-          </AppErrorBoundary>
-        </NotificationProvider>
-      </BranchProvider>
+      <AuthProvider>
+        <BranchProvider>
+          <NotificationProvider>
+            <AppErrorBoundary>
+              <AppInner />
+            </AppErrorBoundary>
+          </NotificationProvider>
+        </BranchProvider>
+      </AuthProvider>
     </LanguageProvider>
   );
 }
 
 export default App;
-
