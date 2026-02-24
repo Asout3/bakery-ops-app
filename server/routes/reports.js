@@ -5,9 +5,27 @@ import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
 
+
+async function getSalesColumnCapabilities(db) {
+  const result = await db(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_name = 'sales'`
+  );
+
+  const columns = new Set(result.rows.map((row) => row.column_name));
+  return {
+    hasStatus: columns.has('status'),
+    hasOfflineFlag: columns.has('is_offline'),
+  };
+}
+
 router.get('/daily', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
+    const salesColumns = await getSalesColumnCapabilities(query);
+    const voidedExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed') = 'voided'" : "false";
+    const offlineExpr = salesColumns.hasOfflineFlag ? 's.is_offline = true' : 'false';
     const date = req.query.date || new Date().toISOString().split('T')[0];
 
     if (req.user?.role === 'admin') {
@@ -81,8 +99,8 @@ router.get('/daily', authenticateToken, async (req, res) => {
               COALESCE(SUM(CASE WHEN s.payment_method = 'cash' THEN s.total_amount ELSE 0 END), 0) as cash_sales,
               COALESCE(SUM(CASE WHEN s.payment_method = 'mobile' THEN s.total_amount ELSE 0 END), 0) as mobile_sales,
               COALESCE(SUM(si.quantity), 0) as items_sold,
-              COALESCE(SUM(CASE WHEN COALESCE(s.status, 'completed') = 'voided' THEN 1 ELSE 0 END), 0) as voided_transactions,
-              COALESCE(SUM(CASE WHEN s.is_offline = true THEN 1 ELSE 0 END), 0) as offline_synced_transactions
+              COALESCE(SUM(CASE WHEN ${voidedExpr} THEN 1 ELSE 0 END), 0) as voided_transactions,
+              COALESCE(SUM(CASE WHEN ${offlineExpr} THEN 1 ELSE 0 END), 0) as offline_synced_transactions
        FROM sales s
        JOIN users u ON u.id = s.cashier_id
        LEFT JOIN sale_items si ON si.sale_id = s.id
@@ -196,6 +214,9 @@ router.get('/daily', authenticateToken, async (req, res) => {
 router.get('/weekly', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
+    const salesColumns = await getSalesColumnCapabilities(query);
+    const voidedExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed') = 'voided'" : "false";
+    const offlineExpr = salesColumns.hasOfflineFlag ? 's.is_offline = true' : 'false';
     const endDate = req.query.end_date || new Date().toISOString().split('T')[0];
 
     if (req.user?.role === 'admin') {
@@ -296,8 +317,8 @@ router.get('/weekly', authenticateToken, async (req, res) => {
               COALESCE(SUM(CASE WHEN s.payment_method = 'cash' THEN s.total_amount ELSE 0 END), 0) as cash_sales,
               COALESCE(SUM(CASE WHEN s.payment_method = 'mobile' THEN s.total_amount ELSE 0 END), 0) as mobile_sales,
               COALESCE(SUM(si.quantity), 0) as items_sold,
-              COALESCE(SUM(CASE WHEN COALESCE(s.status, 'completed') = 'voided' THEN 1 ELSE 0 END), 0) as voided_transactions,
-              COALESCE(SUM(CASE WHEN s.is_offline = true THEN 1 ELSE 0 END), 0) as offline_synced_transactions
+              COALESCE(SUM(CASE WHEN ${voidedExpr} THEN 1 ELSE 0 END), 0) as voided_transactions,
+              COALESCE(SUM(CASE WHEN ${offlineExpr} THEN 1 ELSE 0 END), 0) as offline_synced_transactions
        FROM sales s
        JOIN users u ON u.id = s.cashier_id
        LEFT JOIN sale_items si ON si.sale_id = s.id
@@ -531,8 +552,8 @@ router.get('/monthly', authenticateToken, async (req, res) => {
               COALESCE(SUM(CASE WHEN s.payment_method = 'cash' THEN s.total_amount ELSE 0 END), 0) as cash_sales,
               COALESCE(SUM(CASE WHEN s.payment_method = 'mobile' THEN s.total_amount ELSE 0 END), 0) as mobile_sales,
               COALESCE(SUM(si.quantity), 0) as items_sold,
-              COALESCE(SUM(CASE WHEN COALESCE(s.status, 'completed') = 'voided' THEN 1 ELSE 0 END), 0) as voided_transactions,
-              COALESCE(SUM(CASE WHEN s.is_offline = true THEN 1 ELSE 0 END), 0) as offline_synced_transactions
+              COALESCE(SUM(CASE WHEN ${voidedExpr} THEN 1 ELSE 0 END), 0) as voided_transactions,
+              COALESCE(SUM(CASE WHEN ${offlineExpr} THEN 1 ELSE 0 END), 0) as offline_synced_transactions
        FROM sales s
        JOIN users u ON u.id = s.cashier_id
        LEFT JOIN sale_items si ON si.sale_id = s.id
