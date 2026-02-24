@@ -5,12 +5,14 @@ import { TrendingUp, TrendingDown, DollarSign, Calendar, Package, Wallet, Users 
 import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts';
 import './Dashboard.css';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 
 const formatMoney = (value) => `ETB ${Number(value || 0).toFixed(2)}`;
 
 export default function Dashboard() {
   const { selectedLocationId } = useBranch();
   const { t } = useLanguage();
+  const { user } = useAuth();
   const [period, setPeriod] = useState('daily');
   const [dailyReport, setDailyReport] = useState(null);
   const [weeklyReport, setWeeklyReport] = useState(null);
@@ -21,6 +23,14 @@ export default function Dashboard() {
 
   useEffect(() => {
     const fetchReports = async () => {
+      if (user?.role === 'admin' && !selectedLocationId) {
+        setLoading(false);
+        setDailyReport(null);
+        setWeeklyReport(null);
+        setMonthlyReport(null);
+        return;
+      }
+
       setLoading(true);
       try {
         if (period === 'daily') {
@@ -41,7 +51,7 @@ export default function Dashboard() {
     };
 
     fetchReports();
-  }, [selectedLocationId, period, reportDate]);
+  }, [selectedLocationId, period, reportDate, user?.role]);
 
   const report = period === 'daily' ? dailyReport : period === 'weekly' ? weeklyReport : monthlyReport;
 
@@ -82,6 +92,20 @@ export default function Dashboard() {
 
   if (loading) {
     return <div className="loading-container"><div className="spinner"></div></div>;
+  }
+
+
+  if (user?.role === 'admin' && !selectedLocationId) {
+    return (
+      <div className="dashboard-page">
+        <div className="card">
+          <div className="card-body">
+            <h3>Select a Branch</h3>
+            <p className="text-muted mb-0">Choose a branch from the top bar to load real dashboard metrics.</p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

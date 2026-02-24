@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'bakery-ops-shell-v4';
+const CACHE_VERSION = 'bakery-ops-shell-v5';
 const SHELL_CACHE = `shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 const SHELL_ASSETS = ['/', '/index.html', '/vite.svg'];
@@ -73,7 +73,15 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (isStaticAsset(requestUrl)) {
+  const destination = event.request.destination;
+  const isAssetLike = isStaticAsset(requestUrl)
+    || destination === 'script'
+    || destination === 'style'
+    || destination === 'image'
+    || requestUrl.pathname.startsWith('/src/')
+    || requestUrl.pathname.startsWith('/@vite/');
+
+  if (isAssetLike) {
     event.respondWith(
       cacheFirst(event.request).catch(async () => (await caches.match(event.request)) || Response.error())
     );
@@ -81,6 +89,6 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    networkThenCache(event.request).catch(async () => (await caches.match(event.request)) || navigationFallback())
+    networkThenCache(event.request).catch(async () => (await caches.match(event.request)) || Response.error())
   );
 });

@@ -379,7 +379,6 @@ router.get('/batches', authenticateToken, async (req, res) => {
     const isOfflineExpr = batchColumns.hasOfflineFlag
       ? (batchColumns.hasSyncedById ? '(COALESCE(b.is_offline, false) OR b.synced_by_id IS NOT NULL)' : 'COALESCE(b.is_offline, false)')
       : (batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false');
-    const sortTimestampExpr = batchColumns.hasSyncedAt ? 'COALESCE(b.synced_at, b.created_at)' : 'b.created_at';
 
     let queryText = `SELECT b.*, u.username as created_by_name,
               ${displayCreatorExpr} as display_creator_name,
@@ -408,7 +407,7 @@ router.get('/batches', authenticateToken, async (req, res) => {
       queryText += ` AND DATE(b.created_at) <= $${params.length}`;
     }
 
-    queryText += ` ORDER BY ${sortTimestampExpr} DESC, b.id DESC LIMIT $${params.length + 1}`;
+    queryText += ` ORDER BY b.created_at DESC, b.id DESC LIMIT $${params.length + 1}`;
     params.push(limit);
 
     const result = await query(queryText, params);
