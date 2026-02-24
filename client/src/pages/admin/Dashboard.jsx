@@ -19,6 +19,7 @@ export default function Dashboard() {
   const [monthlyReport, setMonthlyReport] = useState(null);
   const [kpis, setKpis] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
@@ -32,19 +33,22 @@ export default function Dashboard() {
       }
 
       setLoading(true);
+      setError('');
       try {
         if (period === 'daily') {
-          const res = await api.get(`/reports/daily?date=${reportDate}`).catch(() => ({ data: null }));
-          setDailyReport(res.data);
+          const res = await api.get(`/reports/daily?date=${reportDate}`);
+          setDailyReport(res.data || null);
         } else if (period === 'weekly') {
-          const res = await api.get('/reports/weekly').catch(() => ({ data: null }));
-          setWeeklyReport(res.data);
+          const res = await api.get('/reports/weekly');
+          setWeeklyReport(res.data || null);
         } else {
-          const res = await api.get('/reports/monthly').catch(() => ({ data: null }));
-          setMonthlyReport(res.data);
+          const res = await api.get('/reports/monthly');
+          setMonthlyReport(res.data || null);
         }
-        const kpiRes = await api.get('/reports/kpis').catch(() => ({ data: null }));
-        setKpis(kpiRes.data);
+        const kpiRes = await api.get('/reports/kpis');
+        setKpis(kpiRes.data || null);
+      } catch (err) {
+        setError(err?.response?.data?.error || err?.message || 'Failed to load dashboard report data.');
       } finally {
         setLoading(false);
       }
@@ -94,6 +98,20 @@ export default function Dashboard() {
     return <div className="loading-container"><div className="spinner"></div></div>;
   }
 
+
+
+  if (error) {
+    return (
+      <div className="dashboard-page">
+        <div className="card">
+          <div className="card-body">
+            <h3>Report Loading Error</h3>
+            <p className="text-danger mb-0">{error}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (user?.role === 'admin' && !selectedLocationId) {
     return (

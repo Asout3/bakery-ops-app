@@ -23,6 +23,9 @@ async function getSalesColumnCapabilities(db) {
 router.get('/daily', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
+    if (!locationId) {
+      return res.status(400).json({ error: 'Location context is required for reports.' });
+    }
     const salesColumns = await getSalesColumnCapabilities(query);
     const voidedExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed') = 'voided'" : "false";
     const offlineExpr = salesColumns.hasOfflineFlag ? 's.is_offline = true' : 'false';
@@ -214,6 +217,9 @@ router.get('/daily', authenticateToken, async (req, res) => {
 router.get('/weekly', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
+    if (!locationId) {
+      return res.status(400).json({ error: 'Location context is required for reports.' });
+    }
     const salesColumns = await getSalesColumnCapabilities(query);
     const voidedExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed') = 'voided'" : "false";
     const offlineExpr = salesColumns.hasOfflineFlag ? 's.is_offline = true' : 'false';
@@ -467,6 +473,9 @@ router.get('/weekly/export', authenticateToken, async (req, res) => {
 router.get('/monthly', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
+    if (!locationId) {
+      return res.status(400).json({ error: 'Location context is required for reports.' });
+    }
     const year = req.query.year || new Date().getFullYear();
     const month = req.query.month || (new Date().getMonth() + 1);
 
