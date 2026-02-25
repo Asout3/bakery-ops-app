@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { AuthProvider } from './context/AuthContext';
 import { BranchProvider } from './context/BranchContext';
 import { LanguageProvider } from './context/LanguageContext';
@@ -6,44 +7,38 @@ import { NotificationProvider } from './context/NotificationContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import AppErrorBoundary from './components/AppErrorBoundary';
-import Login from './pages/Login';
-import NotFound from './pages/NotFound';
 
-// Admin pages
-import AdminDashboard from './pages/admin/Dashboard';
-import ProductsPage from './pages/admin/Products';
-import AdminInventory from './pages/admin/Inventory';
-import SalesPage from './pages/admin/Sales';
-import ExpensesPage from './pages/admin/Expenses';
-import StaffPaymentsPage from './pages/admin/StaffPayments';
-import ReportsPage from './pages/admin/Reports';
-import NotificationsPage from './pages/admin/Notifications';
-import SyncQueuePage from './pages/admin/SyncQueue';
-import BranchesAndStaffPage from './pages/admin/BranchesAndStaff';
-import StaffManagementPage from './pages/admin/StaffManagement';
+const Login = lazy(() => import('./pages/Login'));
+const NotFound = lazy(() => import('./pages/NotFound'));
+const AdminDashboard = lazy(() => import('./pages/admin/Dashboard'));
+const ProductsPage = lazy(() => import('./pages/admin/Products'));
+const AdminInventory = lazy(() => import('./pages/admin/Inventory'));
+const SalesPage = lazy(() => import('./pages/admin/Sales'));
+const ExpensesPage = lazy(() => import('./pages/admin/Expenses'));
+const StaffPaymentsPage = lazy(() => import('./pages/admin/StaffPayments'));
+const ReportsPage = lazy(() => import('./pages/admin/Reports'));
+const NotificationsPage = lazy(() => import('./pages/admin/Notifications'));
+const SyncQueuePage = lazy(() => import('./pages/admin/SyncQueue'));
+const BranchesAndStaffPage = lazy(() => import('./pages/admin/BranchesAndStaff'));
+const StaffManagementPage = lazy(() => import('./pages/admin/StaffManagement'));
+const ManagerInventory = lazy(() => import('./pages/manager/Inventory'));
+const ManagerBatches = lazy(() => import('./pages/manager/Batches'));
+const ManagerProducts = lazy(() => import('./pages/admin/Products'));
+const ManagerNotifications = lazy(() => import('./pages/admin/Notifications'));
+const CashierSales = lazy(() => import('./pages/cashier/Sales'));
+const CashierHistory = lazy(() => import('./pages/cashier/History'));
 
-// Manager pages
-import ManagerInventory from './pages/manager/Inventory';
-import ManagerBatches from './pages/manager/Batches';
-import ManagerProducts from './pages/admin/Products'; // Reuse admin component
-import ManagerNotifications from './pages/admin/Notifications'; // Reuse admin component
-
-// Cashier pages
-import CashierSales from './pages/cashier/Sales';
-import CashierHistory from './pages/cashier/History';
+function PageFallback() {
+  return <div className="loading-container"><div className="spinner"></div></div>;
+}
 
 function AppInner() {
   return (
     <BrowserRouter>
-      <Routes>
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
           <Route path="/login" element={<Login />} />
-          
-          {/* Admin Routes */}
-          <Route path="/admin" element={
-            <ProtectedRoute roles={['admin']}>
-              <Layout />
-            </ProtectedRoute>
-          }>
+          <Route path="/admin" element={<ProtectedRoute roles={['admin']}><Layout /></ProtectedRoute>}>
             <Route path="dashboard" element={<AdminDashboard />} />
             <Route path="products" element={<ProductsPage />} />
             <Route path="inventory" element={<AdminInventory />} />
@@ -56,38 +51,21 @@ function AppInner() {
             <Route path="team" element={<BranchesAndStaffPage />} />
             <Route path="staff" element={<StaffManagementPage />} />
           </Route>
-
-          {/* Manager Routes */}
-          <Route path="/manager" element={
-            <ProtectedRoute roles={['manager', 'admin']}>
-              <Layout />
-            </ProtectedRoute>
-          }>
+          <Route path="/manager" element={<ProtectedRoute roles={['manager', 'admin']}><Layout /></ProtectedRoute>}>
             <Route path="inventory" element={<ManagerInventory />} />
             <Route path="batches" element={<ManagerBatches />} />
             <Route path="products" element={<ManagerProducts />} />
             <Route path="notifications" element={<ManagerNotifications />} />
           </Route>
-
-          {/* Cashier Routes */}
-          <Route path="/cashier" element={
-            <ProtectedRoute roles={['cashier', 'admin']}>
-              <Layout />
-            </ProtectedRoute>
-          }>
+          <Route path="/cashier" element={<ProtectedRoute roles={['cashier', 'admin']}><Layout /></ProtectedRoute>}>
             <Route path="sales" element={<CashierSales />} />
             <Route path="history" element={<CashierHistory />} />
           </Route>
-
           <Route path="/" element={<Navigate to="/login" replace />} />
-          <Route path="/unauthorized" element={
-            <div style={{ padding: '2rem', textAlign: 'center' }}>
-              <h1>Unauthorized</h1>
-              <p>You don't have permission to access this page.</p>
-            </div>
-          } />
+          <Route path="/unauthorized" element={<div style={{ padding: '2rem', textAlign: 'center' }}><h1>Unauthorized</h1><p>You don't have permission to access this page.</p></div>} />
           <Route path="*" element={<NotFound />} />
-      </Routes>
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

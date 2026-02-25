@@ -40,6 +40,7 @@ export default function BranchesAndStaff() {
     newCredential: false,
     confirmCredential: false,
   });
+  const [credentialConfirmModal, setCredentialConfirmModal] = useState({ open: false, payload: null, message: '' });
 
 
   const togglePasswordVisibility = (key) => {
@@ -272,25 +273,39 @@ export default function BranchesAndStaff() {
       }
 
       const confirmMessage = payload.new_username && payload.new_password
-        ? 'Are you sure you want to change both your username and password?'
+        ? 'You are about to update both username and password. Continue?'
         : payload.new_username
-          ? `Are you sure you want to change your username to "${payload.new_username}"?`
-          : 'Are you sure you want to change your password?';
+          ? `You are about to change username to "${payload.new_username}". Continue?`
+          : 'You are about to change your password. Continue?';
 
-      if (!window.confirm(confirmMessage)) {
-        showFeedback('info', 'Credentials update cancelled.');
-        return;
-      }
+      setCredentialConfirmModal({ open: true, payload, message: confirmMessage });
+    } catch (err) {
+      const validationText = err.response?.data?.details?.map((x) => x.msg).join(', ');
+      showFeedback('danger', validationText || err.response?.data?.error || 'Could not prepare credentials update');
+      setSavingCredentials(false);
+    }
+  };
 
-      const res = await api.post('/auth/change-credentials', payload);
+
+  const confirmCredentialUpdate = async () => {
+    if (!credentialConfirmModal.payload) {
+      setCredentialConfirmModal({ open: false, payload: null, message: '' });
+      setSavingCredentials(false);
+      return;
+    }
+
+    try {
+      const res = await api.post('/auth/change-credentials', credentialConfirmModal.payload);
       if (res.data?.token && res.data?.user) {
         localStorage.setItem('token', res.data.token);
         localStorage.setItem('user', JSON.stringify(res.data.user));
       }
       setCredentialForm({ current_password: '', new_username: '', new_password: '' });
       setCredentialConfirmPassword('');
-      showFeedback('success', 'Credentials updated successfully. Please continue with the new username/password.');
-      if (payload.new_username) {
+      showFeedback('success', 'Credentials updated successfully.');
+      const changedUsername = Boolean(credentialConfirmModal.payload?.new_username);
+      setCredentialConfirmModal({ open: false, payload: null, message: '' });
+      if (changedUsername) {
         window.location.reload();
       }
     } catch (err) {
@@ -300,6 +315,7 @@ export default function BranchesAndStaff() {
         ? 'Current password is incorrect. Please enter your latest password.'
         : err.response?.data?.error || 'Could not update credentials';
       showFeedback('danger', validationText || fallbackMessage);
+      setCredentialConfirmModal({ open: false, payload: null, message: '' });
     } finally {
       setSavingCredentials(false);
     }
@@ -322,21 +338,21 @@ export default function BranchesAndStaff() {
 
       <div className="card mb-4 border-0 shadow-sm"><div className="card-header bg-dark text-white"><h4 className="mb-0">My Admin Credentials</h4></div><div className="card-body">
         <form onSubmit={updateOwnCredentials}>
-          <div className="row g-3">
-            <div className="col-md-4">
-              <label className="form-label">Current Password *</label>
+          <div className="row g-4 align-items-end">
+            <div className="col-lg-6 col-md-6">
+              <label className="form-label fw-semibold">Current Password *</label>
               <div className="input-group"><input type={showPasswords.currentCredential ? "text" : "password"} className="form-control" value={credentialForm.current_password} onChange={(e)=>setCredentialForm((p)=>({...p,current_password:e.target.value}))} required /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("currentCredential")}>{showPasswords.currentCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
             </div>
-            <div className="col-md-4">
-              <label className="form-label">New Username</label>
+            <div className="col-lg-6 col-md-6">
+              <label className="form-label fw-semibold">New Username</label>
               <input className="form-control" value={credentialForm.new_username} onChange={(e)=>setCredentialForm((p)=>({...p,new_username:e.target.value}))} placeholder={user?.username || 'New username'} />
             </div>
-            <div className="col-md-4">
-              <label className="form-label">New Password</label>
+            <div className="col-lg-6 col-md-6">
+              <label className="form-label fw-semibold">New Password</label>
               <div className="input-group"><input type={showPasswords.newCredential ? "text" : "password"} className="form-control" minLength={8} value={credentialForm.new_password} onChange={(e)=>setCredentialForm((p)=>({...p,new_password:e.target.value}))} placeholder="Leave blank to keep password" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("newCredential")}>{showPasswords.newCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
             </div>
-            <div className="col-md-4">
-              <label className="form-label">Confirm New Password</label>
+            <div className="col-lg-6 col-md-6">
+              <label className="form-label fw-semibold">Confirm New Password</label>
               <div className="input-group"><input type={showPasswords.confirmCredential ? "text" : "password"} className="form-control" minLength={8} value={credentialConfirmPassword} onChange={(e)=>setCredentialConfirmPassword(e.target.value)} placeholder="Retype new password" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("confirmCredential")}>{showPasswords.confirmCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
             </div>
           </div>
@@ -426,6 +442,23 @@ export default function BranchesAndStaff() {
         </tbody></table>
         )}
       </div></div>
+
+
+      {credentialConfirmModal.open && (
+        <div className="modal-overlay" onClick={() => { setCredentialConfirmModal({ open: false, payload: null, message: '' }); setSavingCredentials(false); }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Confirm Credential Update</h3><button className="close-btn" onClick={() => { setCredentialConfirmModal({ open: false, payload: null, message: '' }); setSavingCredentials(false); }}>×</button></div>
+            <div className="modal-body">
+              <p className="mb-3">{credentialConfirmModal.message}</p>
+              <div className="alert alert-warning mb-3">You will need to use your new credentials on next login.</div>
+              <div className="d-flex gap-2">
+                <button className="btn btn-primary" onClick={confirmCredentialUpdate}>Yes, Update</button>
+                <button className="btn btn-secondary" onClick={() => { setCredentialConfirmModal({ open: false, payload: null, message: '' }); setSavingCredentials(false); }}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editBranchModel && (
         <div className="modal-overlay" onClick={() => setEditBranchModel(null)}>

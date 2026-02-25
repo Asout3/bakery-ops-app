@@ -339,6 +339,21 @@ npm start
 
 ---
 
+
+### 12.1 Performance Optimizations for Slow Networks and Older Hardware
+
+The app includes practical optimizations aimed at constrained environments (including low-bandwidth and older client devices):
+
+- route-level code-splitting with lazy loading to reduce initial JS payload,
+- adaptive notification polling with backoff to reduce unnecessary background API traffic,
+- offline-safe queue replay limits to avoid CPU/network spikes,
+- idempotent write replay so retries do not duplicate DB work,
+- branch-scoped cache usage for manager/admin operational screens.
+
+Operational recommendation:
+
+- deploy frontend with gzip/brotli and long-lived immutable cache headers for static assets.
+
 ## 13. Dashboard and Reporting Guide
 
 ### Periods
