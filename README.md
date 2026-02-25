@@ -26,6 +26,7 @@ A production-ready, role-based bakery operations platform for multi-branch teams
 - [16. Troubleshooting](#16-troubleshooting)
 - [17. Contribution Workflow](#17-contribution-workflow)
 - [18. Production Readiness Checklist](#18-production-readiness-checklist)
+- [19. Implementation Alignment Summary](#19-implementation-alignment-summary)
 
 ---
 
@@ -159,8 +160,9 @@ The backend protects against duplicate processing by reusing prior deterministic
 
 ### 5.3 Backpressure and Retry Safety
 
-- Batch-limited replay protects degraded servers.
-- Retry-storm prevention pauses remaining operations after outage-style failures (`5xx`, `429`, transport errors).
+- Batch-limited replay protects clients and servers from uncontrolled flush loops.
+- Replay keeps processing the batch and records terminal outcomes (`synced`, `failed`, `conflict`, `needs_review`) instead of using a `paused` sync state.
+- Failed non-terminal attempts remain pending with adaptive backoff and explicit error reasons.
 
 ### 5.4 Transaction Resilience
 
@@ -379,6 +381,8 @@ Operational recommendation:
 - Non-voided transactions are used for revenue and profitability calculations.
 - Optional schema columns are handled safely through capability checks.
 - Batch cost calculations exclude voided batches.
+- Reports export supports full bundle first option: Executive PDF + Detailed PDF + CSV + XLSX.
+- Export output is intentionally generic (`report`) with no logo/title branding.
 
 ---
 
@@ -407,9 +411,9 @@ npm run docker:down
 
 ### 15.1 Offline Sync Incidents
 
-- Confirm queue replay behavior.
+- Confirm queue replay behavior and terminal statuses in Sync Audit Log.
 - Verify idempotency keys are present.
-- Watch for `429`/`5xx` pause logic.
+- Validate cross-device server audit ingestion (`/api/sync/audit/bulk`) and admin review actions (`resolved`/`ignored`).
 
 ### 15.2 Admin Credential Incidents
 
@@ -484,3 +488,37 @@ Action: configure in secure environment and restart server.
 ---
 
 For implementation-specific details, review source modules under `server/routes`, `server/middleware`, and `client/src/pages/admin`.
+
+## 19. Implementation Alignment Summary
+
+This section maps the requested product decisions to current implementation status.
+
+### Authentication and Recovery UX
+
+- Forgot-password notice is shown inside the recovery popup only.
+- Recovery popup resets password only (requires recovery key).
+- Admin credentials page supports changing username only, password only, or both (with confirmation).
+
+### Sync and Conflict Operations
+
+- Sync audit is cross-device via backend persistence (`sync_audit_logs` + `/api/sync/audit*` endpoints).
+- Admin-only conflict controls are implemented: Retry, Mark Resolved, Ignore, optional note.
+- UI auto-opens when pending operations exist, can be minimized, and shows completion progress (`done/total`).
+- Status model uses real terminal outcomes; no `paused` state is shown as a product status.
+
+### Reporting and Export
+
+- `/admin/reports` is the primary report page (not a separate route).
+- Default period is current month + previous five months.
+- First export option is full bundle (Executive PDF + Detailed PDF + CSV + XLSX).
+- Export branding is generic `report` (logoless/titleless).
+
+### Performance and Deployment
+
+- App keeps code-splitting, adaptive polling/backoff, and bounded queue flush behavior for constrained networks/devices.
+- No heavy legacy-browser downgrade path was added; performance priority remains modern production deployments.
+
+### Data Governance
+
+- Sync/audit persistence is implemented.
+- Time-based data retention deletion is not auto-enabled yet; recommend policy-driven rollout after ops sign-off.
