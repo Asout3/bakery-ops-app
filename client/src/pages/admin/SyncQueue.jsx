@@ -28,6 +28,7 @@ export default function SyncQueuePage() {
   const [queued, setQueued] = useState([]);
   const [history, setHistory] = useState([]);
   const [serverHistory, setServerHistory] = useState([]);
+  const [serverStats, setServerStats] = useState({ total: 0, synced: 0, unresolved: 0, resolved: 0 });
   const [stats, setStats] = useState({ total: 0, pending: 0, conflict: 0, needsReview: 0, failed: 0 });
   const [loading, setLoading] = useState(true);
   const [syncResult, setSyncResult] = useState(null);
@@ -45,7 +46,14 @@ export default function SyncQueuePage() {
       setQueued(q);
       setHistory(h);
       setStats(s);
-      setServerHistory(remote.data || []);
+      const remoteRows = remote.data || [];
+      setServerHistory(remoteRows);
+      setServerStats({
+        total: remoteRows.length,
+        synced: remoteRows.filter((row) => row.status === 'synced').length,
+        unresolved: remoteRows.filter((row) => row.status === 'failed' || row.status === 'conflict' || row.status === 'needs_review').length,
+        resolved: remoteRows.filter((row) => row.status === 'resolved' || row.status === 'ignored').length,
+      });
     } finally {
       setLoading(false);
     }
@@ -91,7 +99,7 @@ export default function SyncQueuePage() {
     <div className="reports-page">
       <div className="page-header">
         <h2>Sync Audit Log</h2>
-        <button className="btn btn-primary" onClick={handleSyncNow}>Sync Now</button>
+        <button className="btn btn-primary" onClick={handleSyncNow}>Force Sync</button>
       </div>
 
       {syncResult && (
@@ -101,10 +109,12 @@ export default function SyncQueuePage() {
       )}
 
       <div className="stats-grid mb-4">
-        <div className="stat-card card bg-light"><div className="stat-content"><h3>{stats.total}</h3><p>Total Queued</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-content"><h3>{stats.pending}</h3><p>Pending</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-content"><h3>{stats.needsReview || 0}</h3><p>Needs Review</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-content"><h3>{stats.conflict}</h3><p>Conflicts</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{stats.total}</h3><p>Total Queued (Device)</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{stats.pending}</h3><p>Pending (Device)</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{serverStats.total}</h3><p>Total Audit Logs</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{serverStats.synced}</h3><p>Synced Logs</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{serverStats.unresolved}</h3><p>Open Issues</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{serverStats.resolved}</h3><p>Resolved / Ignored</p></div></div>
       </div>
 
       <div className="card mb-4">
@@ -180,7 +190,7 @@ export default function SyncQueuePage() {
               <table className="table table-hover">
                 <thead><tr><th>Time</th><th>Status</th><th>Operation</th><th>Message</th></tr></thead>
                 <tbody>
-                  {history.map((item) => (
+                  {history.filter((item) => item.status !== 'queued' && item.status !== 'pending').map((item) => (
                     <tr key={item.id}>
                       <td>{new Date(item.created_at).toLocaleString()}</td>
                       <td><span className={`badge ${getStatusBadgeClass(item.status)}`}>{getStatusLabel(item.status)}</span></td>

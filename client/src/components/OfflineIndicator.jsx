@@ -55,6 +55,7 @@ export default function OfflineIndicator() {
   const issueCount = isAdmin ? (queueStats.conflict + queueStats.failed + (queueStats.needsReview || 0)) : 0;
   const shouldShowDone = Boolean(syncProgress.finished && syncProgress.total > 0);
   const doneText = shouldShowDone ? `Done ${syncProgress.done}/${syncProgress.total}` : '';
+  const showCenterModal = (syncInProgress && syncProgress.total > 0) || shouldShowDone;
 
   if (isOnline && queueStats.total === 0 && issueCount === 0 && !shouldShowDone) {
     return null;
@@ -62,85 +63,125 @@ export default function OfflineIndicator() {
 
   if (collapsed) {
     return (
-      <button className="offline-chip" type="button" onClick={() => { setCollapsed(false); setExpanded(true); }}>
-        <Maximize2 size={14} />
-        {queueStats.pending > 0 ? `${queueStats.pending} pending` : (shouldShowDone ? doneText : 'Sync')}
-      </button>
+      <>
+        {showCenterModal && (
+          <div className="sync-center-overlay">
+            <div className="sync-center-modal card">
+              {syncInProgress ? (
+                <>
+                  <div className="sync-center-title"><RefreshCw size={16} className="spinning" /> Sync in Progress</div>
+                  <p>{syncProgress.done}/{syncProgress.total} completed</p>
+                </>
+              ) : (
+                <>
+                  <div className="sync-center-title"><CheckCircle size={16} /> Sync Complete</div>
+                  <p>{doneText}</p>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+        <button className="offline-chip" type="button" onClick={() => { setCollapsed(false); setExpanded(true); }}>
+          <Maximize2 size={14} />
+          {queueStats.pending > 0 ? `${queueStats.pending} pending` : (shouldShowDone ? doneText : 'Sync')}
+        </button>
+      </>
     );
   }
 
   return (
-    <div className={`offline-indicator ${!isOnline ? 'offline' : ''} ${issueCount > 0 ? 'has-conflicts' : ''}`}>
-      <div className="indicator-bar" onClick={() => setExpanded((prev) => !prev)}>
-        {!isOnline ? (
-          <>
-            <WifiOff size={16} />
-            <span>Offline Mode</span>
-            {queueStats.pending > 0 && <span className="badge">{queueStats.pending} pending</span>}
-          </>
-        ) : syncInProgress ? (
-          <>
-            <RefreshCw size={16} className="spinning" />
-            <span>Syncing {syncProgress.done}/{syncProgress.total || queueStats.pending}</span>
-          </>
-        ) : shouldShowDone ? (
-          <>
-            <CheckCircle size={16} />
-            <span>{doneText}</span>
-          </>
-        ) : issueCount > 0 ? (
-          <>
-            <AlertTriangle size={16} />
-            <span>{issueCount} issue{issueCount > 1 ? 's' : ''}</span>
-          </>
-        ) : (
-          <>
-            <CheckCircle size={16} />
-            <span>Synced</span>
-          </>
-        )}
-        <button type="button" className="minimize-btn" onClick={(e) => { e.stopPropagation(); setCollapsed(true); setExpanded(false); }}>
-          <Minimize2 size={14} />
-        </button>
-      </div>
-
-      {expanded && (
-        <div className="indicator-expanded">
-          <div className="sync-status">
-            <div className="status-row"><span>Status:</span><span>{isOnline ? 'Online' : 'Offline'}</span></div>
-            <div className="status-row"><span>Pending:</span><span>{queueStats.pending}</span></div>
-            {syncProgress.total > 0 && <div className="status-row"><span>Progress:</span><span>{syncProgress.done}/{syncProgress.total}</span></div>}
-            {isAdmin && <div className="status-row"><span>Needs Review:</span><span className={queueStats.needsReview > 0 ? 'text-warning' : ''}>{queueStats.needsReview || 0}</span></div>}
-            {isAdmin && <div className="status-row"><span>Conflicts:</span><span className={queueStats.conflict > 0 ? 'text-warning' : ''}>{queueStats.conflict}</span></div>}
-            {isAdmin && <div className="status-row"><span>Failed:</span><span className={queueStats.failed > 0 ? 'text-danger' : ''}>{queueStats.failed}</span></div>}
+    <>
+      {showCenterModal && (
+        <div className="sync-center-overlay">
+          <div className="sync-center-modal card">
+            {syncInProgress ? (
+              <>
+                <div className="sync-center-title"><RefreshCw size={16} className="spinning" /> Sync in Progress</div>
+                <p>{syncProgress.done}/{syncProgress.total} completed</p>
+                <small>Please wait while offline operations are finalized.</small>
+              </>
+            ) : (
+              <>
+                <div className="sync-center-title"><CheckCircle size={16} /> Sync Complete</div>
+                <p>{doneText}</p>
+              </>
+            )}
           </div>
-
-          {isAdmin && issueCount > 0 && (
-            <div className="conflicts-list">
-              <h4>Issues ({conflictOps.length})</h4>
-              {conflictOps.slice(0, 5).map((op) => (
-                <div key={op.id} className="conflict-item">
-                  <div className="conflict-info">
-                    <span className="conflict-type">{op.method?.toUpperCase()} {op.url}</span>
-                    <span className="conflict-error">{op.lastError || 'Unknown error'}</span>
-                    <span className="conflict-time">{new Date(op.lastAttempt || op.created_at).toLocaleString()}</span>
-                  </div>
-                  <div className="conflict-actions">
-                    <button className="btn btn-sm btn-primary" onClick={() => handleRetry(op.id)}>Retry</button>
-                    <button className="btn btn-sm btn-secondary" onClick={() => handleCancel(op.id)}>Cancel</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {isOnline && queueStats.pending > 0 && (
-            <button className="btn btn-primary btn-sm" onClick={runSync} disabled={syncInProgress}>
-              {syncInProgress ? 'Running...' : 'Sync Now'}
-            </button>
-          )}
         </div>
       )}
-    </div>
+
+      <div className={`offline-indicator ${!isOnline ? 'offline' : ''} ${issueCount > 0 ? 'has-conflicts' : ''}`}>
+        <div className="indicator-bar" onClick={() => setExpanded((prev) => !prev)}>
+          {!isOnline ? (
+            <>
+              <WifiOff size={16} />
+              <span>Offline Mode</span>
+              {queueStats.pending > 0 && <span className="badge">{queueStats.pending} pending</span>}
+            </>
+          ) : syncInProgress ? (
+            <>
+              <RefreshCw size={16} className="spinning" />
+              <span>{syncProgress.done}/{syncProgress.total || queueStats.pending} syncing</span>
+            </>
+          ) : shouldShowDone ? (
+            <>
+              <CheckCircle size={16} />
+              <span>{doneText}</span>
+            </>
+          ) : issueCount > 0 ? (
+            <>
+              <AlertTriangle size={16} />
+              <span>{issueCount} issue{issueCount > 1 ? 's' : ''}</span>
+            </>
+          ) : (
+            <>
+              <CheckCircle size={16} />
+              <span>Synced</span>
+            </>
+          )}
+          <button type="button" className="minimize-btn" onClick={(e) => { e.stopPropagation(); setCollapsed(true); setExpanded(false); }}>
+            <Minimize2 size={14} />
+          </button>
+        </div>
+
+        {expanded && (
+          <div className="indicator-expanded">
+            <div className="sync-status">
+              <div className="status-row"><span>Status:</span><span>{isOnline ? 'Online' : 'Offline'}</span></div>
+              <div className="status-row"><span>Pending:</span><span>{queueStats.pending}</span></div>
+              {syncProgress.total > 0 && <div className="status-row"><span>Progress:</span><span>{syncProgress.done}/{syncProgress.total}</span></div>}
+              {isAdmin && <div className="status-row"><span>Needs Review:</span><span className={queueStats.needsReview > 0 ? 'text-warning' : ''}>{queueStats.needsReview || 0}</span></div>}
+              {isAdmin && <div className="status-row"><span>Conflicts:</span><span className={queueStats.conflict > 0 ? 'text-warning' : ''}>{queueStats.conflict}</span></div>}
+              {isAdmin && <div className="status-row"><span>Failed:</span><span className={queueStats.failed > 0 ? 'text-danger' : ''}>{queueStats.failed}</span></div>}
+            </div>
+
+            {isAdmin && issueCount > 0 && (
+              <div className="conflicts-list">
+                <h4>Issues ({conflictOps.length})</h4>
+                {conflictOps.slice(0, 5).map((op) => (
+                  <div key={op.id} className="conflict-item">
+                    <div className="conflict-info">
+                      <span className="conflict-type">{op.method?.toUpperCase()} {op.url}</span>
+                      <span className="conflict-error">{op.lastError || 'Unknown error'}</span>
+                      <span className="conflict-time">{new Date(op.lastAttempt || op.created_at).toLocaleString()}</span>
+                    </div>
+                    <div className="conflict-actions">
+                      <button className="btn btn-sm btn-primary" onClick={() => handleRetry(op.id)}>Retry</button>
+                      <button className="btn btn-sm btn-secondary" onClick={() => handleCancel(op.id)}>Cancel</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {isOnline && queueStats.pending > 0 && (
+              <button className="btn btn-primary btn-sm" onClick={runSync} disabled={syncInProgress}>
+                {syncInProgress ? 'Running...' : 'Force Sync'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </>
   );
 }

@@ -157,6 +157,7 @@ The backend protects against duplicate processing by reusing prior deterministic
 - Writes are stored client-side when network is unavailable.
 - Replay uses the same idempotency identity.
 - Flush overlap is guarded to prevent concurrent duplicate loops.
+- UX includes centered sync progress modal with minimize support and completion feedback.
 
 ### 5.3 Backpressure and Retry Safety
 
@@ -363,18 +364,19 @@ Operational recommendation:
 - Daily
 - Weekly
 - Monthly
+- Last 6 Months
+- Custom Range
 
 ### Dashboard Includes
 
-- KPI summary cards
-- Top products chart
-- Payment method breakdown
-- Products sold details
-- Cashier performance table
-- Batch performance table
-- Expense records table
-- Cost components transparency table
-- Multi-branch snapshot (owner/admin scope)
+- Executive summary KPIs with previous-period change and health score
+- Revenue vs production cost vs expenses vs net profit trend lines
+- Profitability breakdown (gross/net margin and expense ratio)
+- Product intelligence tabs (top revenue, profitability, slow-moving risk)
+- Staff performance ranking with efficiency score
+- Expense breakdown and trend analysis
+- Smart insights cards for owner decisions
+- Multi-period analysis including current month + previous five months
 
 ### Reporting Integrity Rules
 
