@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Wifi, WifiOff, RefreshCw, AlertTriangle, CheckCircle } from 'lucide-react';
+import { WifiOff, RefreshCw, AlertTriangle, CheckCircle, Minimize2, Maximize2 } from 'lucide-react';
 import { useOfflineSync } from '../hooks/useOfflineSync';
 import { retryOperation, cancelOperation, listQueuedOperations } from '../utils/offlineQueue';
 import { useAuth } from '../context/AuthContext';
@@ -7,8 +7,9 @@ import './OfflineIndicator.css';
 
 export default function OfflineIndicator() {
   const { user, isAuthenticated } = useAuth();
-  const { isOnline, queueStats, syncInProgress, runSync, appInitialized } = useOfflineSync();
+  const { isOnline, queueStats, syncInProgress, runSync, appInitialized, syncProgress } = useOfflineSync();
   const [expanded, setExpanded] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [conflictOps, setConflictOps] = useState([]);
 
   const isAdmin = user?.role === 'admin';
@@ -24,7 +25,13 @@ export default function OfflineIndicator() {
 
   useEffect(() => {
     if (!appInitialized || !isAuthenticated) return;
-    
+    if (queueStats.pending > 0 && !collapsed) {
+      setExpanded(true);
+    }
+  }, [queueStats.pending, appInitialized, isAuthenticated, collapsed]);
+
+  useEffect(() => {
+    if (!appInitialized || !isAuthenticated) return;
     if (isAdmin && (queueStats.conflict > 0 || queueStats.failed > 0 || queueStats.needsReview > 0)) {
       loadConflicts();
     }
@@ -45,15 +52,26 @@ export default function OfflineIndicator() {
     await loadConflicts();
   };
 
-  if (isOnline && queueStats.total === 0 && (!isAdmin || (queueStats.conflict === 0 && queueStats.failed === 0))) {
+  const issueCount = isAdmin ? (queueStats.conflict + queueStats.failed + (queueStats.needsReview || 0)) : 0;
+  const shouldShowDone = Boolean(syncProgress.finished && syncProgress.total > 0);
+  const doneText = shouldShowDone ? `Done ${syncProgress.done}/${syncProgress.total}` : '';
+
+  if (isOnline && queueStats.total === 0 && issueCount === 0 && !shouldShowDone) {
     return null;
   }
 
-  const issueCount = isAdmin ? (queueStats.conflict + queueStats.failed + (queueStats.needsReview || 0)) : 0;
+  if (collapsed) {
+    return (
+      <button className="offline-chip" type="button" onClick={() => { setCollapsed(false); setExpanded(true); }}>
+        <Maximize2 size={14} />
+        {queueStats.pending > 0 ? `${queueStats.pending} pending` : (shouldShowDone ? doneText : 'Sync')}
+      </button>
+    );
+  }
 
   return (
     <div className={`offline-indicator ${!isOnline ? 'offline' : ''} ${issueCount > 0 ? 'has-conflicts' : ''}`}>
-      <div className="indicator-bar" onClick={() => setExpanded(!expanded)}>
+      <div className="indicator-bar" onClick={() => setExpanded((prev) => !prev)}>
         {!isOnline ? (
           <>
             <WifiOff size={16} />
@@ -63,17 +81,17 @@ export default function OfflineIndicator() {
         ) : syncInProgress ? (
           <>
             <RefreshCw size={16} className="spinning" />
-            <span>Syncing...</span>
+            <span>Syncing {syncProgress.done}/{syncProgress.total || queueStats.pending}</span>
+          </>
+        ) : shouldShowDone ? (
+          <>
+            <CheckCircle size={16} />
+            <span>{doneText}</span>
           </>
         ) : issueCount > 0 ? (
           <>
             <AlertTriangle size={16} />
             <span>{issueCount} issue{issueCount > 1 ? 's' : ''}</span>
-          </>
-        ) : queueStats.pending > 0 ? (
-          <>
-            <RefreshCw size={16} />
-            <span>{queueStats.pending} pending sync</span>
           </>
         ) : (
           <>
@@ -81,6 +99,9 @@ export default function OfflineIndicator() {
             <span>Synced</span>
           </>
         )}
+        <button type="button" className="minimize-btn" onClick={(e) => { e.stopPropagation(); setCollapsed(true); setExpanded(false); }}>
+          <Minimize2 size={14} />
+        </button>
       </div>
 
       {expanded && (
@@ -88,6 +109,7 @@ export default function OfflineIndicator() {
           <div className="sync-status">
             <div className="status-row"><span>Status:</span><span>{isOnline ? 'Online' : 'Offline'}</span></div>
             <div className="status-row"><span>Pending:</span><span>{queueStats.pending}</span></div>
+            {syncProgress.total > 0 && <div className="status-row"><span>Progress:</span><span>{syncProgress.done}/{syncProgress.total}</span></div>}
             {isAdmin && <div className="status-row"><span>Needs Review:</span><span className={queueStats.needsReview > 0 ? 'text-warning' : ''}>{queueStats.needsReview || 0}</span></div>}
             {isAdmin && <div className="status-row"><span>Conflicts:</span><span className={queueStats.conflict > 0 ? 'text-warning' : ''}>{queueStats.conflict}</span></div>}
             {isAdmin && <div className="status-row"><span>Failed:</span><span className={queueStats.failed > 0 ? 'text-danger' : ''}>{queueStats.failed}</span></div>}
@@ -112,16 +134,10 @@ export default function OfflineIndicator() {
             </div>
           )}
 
-          {isAdmin && isOnline && queueStats.pending > 0 && (
+          {isOnline && queueStats.pending > 0 && (
             <button className="btn btn-primary btn-sm" onClick={runSync} disabled={syncInProgress}>
-              {syncInProgress ? 'Syncing...' : 'Sync Now'}
+              {syncInProgress ? 'Running...' : 'Sync Now'}
             </button>
-          )}
-
-          {!isAdmin && queueStats.pending > 0 && (
-            <div className="alert alert-info" style={{ marginTop: '0.5rem' }}>
-              Pending sync will be finalized automatically by the system.
-            </div>
           )}
         </div>
       )}

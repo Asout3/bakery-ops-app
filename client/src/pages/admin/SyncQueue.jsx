@@ -9,7 +9,6 @@ const getStatusLabel = (status) => {
   if (status === 'synced') return 'Synced';
   if (status === 'resolved') return 'Resolved';
   if (status === 'ignored') return 'Ignored';
-  if (status === 'retrying') return 'Retrying';
   if (status === 'pending') return 'Pending';
   return status;
 };
@@ -21,7 +20,6 @@ const getStatusBadgeClass = (status) => {
   if (status === 'synced') return 'badge-success';
   if (status === 'resolved') return 'badge-success';
   if (status === 'ignored') return 'badge-secondary';
-  if (status === 'retrying') return 'badge-info';
   if (status === 'pending') return 'badge-primary';
   return 'badge-secondary';
 };
@@ -29,6 +27,7 @@ const getStatusBadgeClass = (status) => {
 export default function SyncQueuePage() {
   const [queued, setQueued] = useState([]);
   const [history, setHistory] = useState([]);
+  const [serverHistory, setServerHistory] = useState([]);
   const [stats, setStats] = useState({ total: 0, pending: 0, conflict: 0, needsReview: 0, failed: 0 });
   const [loading, setLoading] = useState(true);
   const [syncResult, setSyncResult] = useState(null);
@@ -37,10 +36,16 @@ export default function SyncQueuePage() {
   const refresh = async () => {
     setLoading(true);
     try {
-      const [q, h, s] = await Promise.all([listQueuedOperations(), listSyncHistory(200), getSyncStats()]);
+      const [q, h, s, remote] = await Promise.all([
+        listQueuedOperations(),
+        listSyncHistory(200),
+        getSyncStats(),
+        api.get('/sync/audit?limit=200').catch(() => ({ data: [] })),
+      ]);
       setQueued(q);
       setHistory(h);
       setStats(s);
+      setServerHistory(remote.data || []);
     } finally {
       setLoading(false);
     }
@@ -53,6 +58,9 @@ export default function SyncQueuePage() {
   const handleSyncNow = async () => {
     const result = await flushQueue(api);
     setSyncResult(result);
+    if (Array.isArray(result.completed) && result.completed.length > 0) {
+      await api.post('/sync/audit/bulk', { events: result.completed }).catch(() => null);
+    }
     await refresh();
   };
 
@@ -63,12 +71,14 @@ export default function SyncQueuePage() {
 
   const handleResolve = async (operationId) => {
     await resolveOperation(operationId, adminNotes[operationId] || '');
+    await api.patch(`/sync/audit/${operationId}`, { status: 'resolved', note: adminNotes[operationId] || '' }).catch(() => null);
     setAdminNotes((prev) => ({ ...prev, [operationId]: '' }));
     await refresh();
   };
 
   const handleIgnore = async (operationId) => {
     await ignoreOperation(operationId, adminNotes[operationId] || '');
+    await api.patch(`/sync/audit/${operationId}`, { status: 'ignored', note: adminNotes[operationId] || '' }).catch(() => null);
     setAdminNotes((prev) => ({ ...prev, [operationId]: '' }));
     await refresh();
   };
@@ -80,7 +90,7 @@ export default function SyncQueuePage() {
   return (
     <div className="reports-page">
       <div className="page-header">
-        <h2>Offline Sync & Conflict Log</h2>
+        <h2>Sync Audit Log</h2>
         <button className="btn btn-primary" onClick={handleSyncNow}>Sync Now</button>
       </div>
 
@@ -138,8 +148,32 @@ export default function SyncQueuePage() {
         </div>
       </div>
 
+      <div className="card mb-4">
+        <div className="card-header"><h3>Cross-Device Sync Audit</h3></div>
+        <div className="card-body">
+          {serverHistory.length === 0 ? <p className="text-muted">No sync audit records yet.</p> : (
+            <div className="table-responsive">
+              <table className="table table-hover">
+                <thead><tr><th>Time</th><th>Status</th><th>User</th><th>Operation</th><th>Reason</th></tr></thead>
+                <tbody>
+                  {serverHistory.map((item) => (
+                    <tr key={item.id}>
+                      <td>{new Date(item.created_at).toLocaleString()}</td>
+                      <td><span className={`badge ${getStatusBadgeClass(item.status)}`}>{getStatusLabel(item.status)}</span></td>
+                      <td>{item.actor_username || item.actor_user_id || '—'}</td>
+                      <td>{(item.method || '').toUpperCase()} {item.endpoint || item.operation_id}</td>
+                      <td>{item.reason || item.resolution_note || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="card">
-        <div className="card-header"><h3>Retry / Conflict History</h3></div>
+        <div className="card-header"><h3>Local Device Sync History</h3></div>
         <div className="card-body">
           {history.length === 0 ? <p className="text-muted">No sync history yet.</p> : (
             <div className="table-responsive">

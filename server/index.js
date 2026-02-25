@@ -19,6 +19,7 @@ import notificationsRoutes from './routes/notifications.js';
 import activityRoutes from './routes/activity.js';
 import locationsRoutes from './routes/locations.js';
 import adminRoutes from './routes/admin.js';
+import syncRoutes from './routes/sync.js';
 
 dotenv.config();
 
@@ -130,6 +131,7 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/locations', locationsRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/sync', syncRoutes);
 
 app.use(errorHandler);
 

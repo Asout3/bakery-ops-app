@@ -181,7 +181,10 @@ export default function Login() {
                 <button className="btn btn-primary" disabled={recoveryLoading}>{recoveryLoading ? 'Resetting...' : 'Reset Password'}</button>
                 <button type="button" className="btn btn-secondary" onClick={() => setShowRecoveryModal(false)}>Close</button>
               </div>
-              <small className="text-muted mt-2 d-block">This works only when ADMIN_RECOVERY_KEY is set on the server by a trusted owner.</small>
+              <div className="alert alert-warning mt-2 mb-0">
+                If you are not an admin, contact your branch administrator to reset your password.
+                If you are an admin and forgot your password, contact the technical team to request the secure recovery key.
+              </div>
             </form>
           </div>
         </div>

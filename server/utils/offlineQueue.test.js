@@ -151,7 +151,7 @@ test.beforeEach(async () => {
   await Promise.all(queued.map((op) => cancelOperation(op.id)));
 });
 
-test('flushQueue pauses the batch after a server-side outage to avoid retry storms', async () => {
+test('flushQueue keeps processing queue even when one operation fails transiently', async () => {
   await enqueueOperation({ id: 'op-1', url: '/api/sales', method: 'post', data: { n: 1 } });
   await enqueueOperation({ id: 'op-2', url: '/api/sales', method: 'post', data: { n: 2 } });
 
@@ -163,12 +163,11 @@ test('flushQueue pauses the batch after a server-side outage to avoid retry stor
   const result = await flushQueue(api);
   const queued = await listQueuedOperations();
 
-  assert.equal(requests.length, 1);
+  assert.equal(requests.length, 2);
   assert.equal(result.failed, 1);
-  assert.equal(result.synced, 0);
-  assert.equal(queued.length, 2);
+  assert.equal(result.synced, 1);
+  assert.equal(queued.length, 1);
   assert.equal(queued.find((op) => op.id === 'op-1').status, 'pending');
-  assert.equal(queued.find((op) => op.id === 'op-2').status, 'pending');
 });
 
 test('flushQueue marks deterministic client errors as conflict', async () => {
@@ -233,7 +232,7 @@ test('sync history logs failure and success events for traceability', async () =
 
   const history = await listSyncHistory(20);
 
-  assert.ok(history.some((entry) => entry.status === 'retrying'));
+  assert.ok(history.some((entry) => entry.status === 'queued'));
   assert.ok(history.some((entry) => entry.status === 'synced'));
 });
 
@@ -291,7 +290,7 @@ test('flushQueue adapts request timeout for slow connections', async () => {
   assert.equal(requests[0].timeout, 25000);
 });
 
-test('flushQueue pauses batch after HTTP 429 and keeps remaining operations pending', async () => {
+test('flushQueue continues processing after HTTP 429 and keeps failed op pending', async () => {
   await enqueueOperation({ id: 'rate-op-1', url: '/api/sales', method: 'post', data: { n: 1 } });
   await enqueueOperation({ id: 'rate-op-2', url: '/api/sales', method: 'post', data: { n: 2 } });
 
@@ -303,8 +302,9 @@ test('flushQueue pauses batch after HTTP 429 and keeps remaining operations pend
   const result = await flushQueue(api);
   const queued = await listQueuedOperations();
 
-  assert.equal(requests.length, 1);
+  assert.equal(requests.length, 2);
   assert.equal(result.failed, 1);
-  assert.equal(queued.length, 2);
-  assert.equal(queued.find((op) => op.id === 'rate-op-2').status, 'pending');
+  assert.equal(result.synced, 1);
+  assert.equal(queued.length, 1);
+  assert.equal(queued.find((op) => op.id === 'rate-op-1').status, 'conflict');
 });

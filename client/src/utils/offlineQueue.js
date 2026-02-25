@@ -7,7 +7,6 @@ const PAYLOAD_STORE = 'payloads';
 const MAX_RETRIES = 5;
 const BASE_RETRY_DELAY_MS = 1000;
 const MAX_BATCH_PER_FLUSH = 20;
-const TRANSIENT_HTTP_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 let flushInProgress = false;
 
 function openDb() {
@@ -188,149 +187,167 @@ export async function getPendingCount() {
 export async function flushQueue(api) {
   if (flushInProgress) {
     const queued = await getQueueSize();
-    return { synced: 0, failed: 0, pending: queued, skipped: true };
+    return { synced: 0, failed: 0, pending: queued, skipped: true, completed: [] };
   }
 
   if (!navigator.onLine) {
     const queued = await getQueueSize();
-    return { synced: 0, failed: 0, pending: queued, offline: true };
+    return { synced: 0, failed: 0, pending: queued, offline: true, completed: [] };
   }
 
   flushInProgress = true;
 
   try {
     const queue = await listQueuedOperations();
-    if (!queue.length) return { synced: 0, failed: 0, pending: 0 };
+    if (!queue.length) return { synced: 0, failed: 0, pending: 0, completed: [] };
 
     const now = Date.now();
-  const readyToSync = queue
-    .filter(op => op.nextRetry <= now && op.status !== 'conflict' && op.status !== 'needs_review')
-    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-    .slice(0, MAX_BATCH_PER_FLUSH);
-  
-  if (!readyToSync.length) return { synced: 0, failed: 0, pending: queue.length };
+    const readyToSync = queue
+      .filter((op) => op.nextRetry <= now && op.status !== 'conflict' && op.status !== 'needs_review')
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+      .slice(0, MAX_BATCH_PER_FLUSH);
 
-  let synced = 0;
-  let failed = 0;
-  let shouldPauseBatch = false;
+    if (!readyToSync.length) return { synced: 0, failed: 0, pending: queue.length, completed: [] };
 
-  for (const op of readyToSync) {
-    if (shouldPauseBatch) break;
+    let synced = 0;
+    let failed = 0;
+    const completed = [];
 
-    const payload = await getPayload(op.id);
+    for (const op of readyToSync) {
+      const payload = await getPayload(op.id);
 
-    try {
-      const response = await api.request({
-        url: op.url,
-        method: op.method,
-        data: payload ?? op.data,
-        headers: {
-          ...(op.headers || {}),
-          'X-Idempotency-Key': op.idempotencyKey || op.id,
-          'X-Queued-Request': 'true',
-          'X-Queued-Created-At': op.created_at,
-          'X-Offline-Actor-Id': op.actorId ? String(op.actorId) : undefined,
-          'X-Retry-Count': String(op.retries || 0),
-        },
-        timeout: getRequestTimeout(op.retries || 0),
-      });
+      try {
+        const response = await api.request({
+          url: op.url,
+          method: op.method,
+          data: payload ?? op.data,
+          headers: {
+            ...(op.headers || {}),
+            'X-Idempotency-Key': op.idempotencyKey || op.id,
+            'X-Queued-Request': 'true',
+            'X-Queued-Created-At': op.created_at,
+            'X-Offline-Actor-Id': op.actorId ? String(op.actorId) : undefined,
+            'X-Retry-Count': String(op.retries || 0),
+          },
+          timeout: getRequestTimeout(op.retries || 0),
+        });
 
-      const db = await openDb();
-      const tx = db.transaction(OPS_STORE, 'readwrite');
-      tx.objectStore(OPS_STORE).delete(op.id);
-      await txPromise(tx);
-      db.close();
+        const db = await openDb();
+        const tx = db.transaction(OPS_STORE, 'readwrite');
+        tx.objectStore(OPS_STORE).delete(op.id);
+        await txPromise(tx);
+        db.close();
 
-      await deletePayload(op.id);
-      synced += 1;
+        await deletePayload(op.id);
+        synced += 1;
 
-      await appendHistory({
-        id: `${op.id}-synced-${Date.now()}`,
-        operation_id: op.id,
-        status: 'synced',
-        message: `Synced ${op.method?.toUpperCase()} ${op.url}`,
-        created_at: new Date().toISOString(),
-        response: response.data,
-      });
-    } catch (error) {
-      const status = error?.response?.status;
-      const isClientError = Number.isInteger(status) && status >= 400 && status < 500;
-      const isAuthOrSessionIssue = status === 401 || status === 403;
-      const isDeterministicClientError = isClientError && !isAuthOrSessionIssue;
-      const isConflict = status === 409;
-      const isTransientHttp = TRANSIENT_HTTP_CODES.has(status);
-      const retries = (op.retries || 0) + 1;
+        await appendHistory({
+          id: `${op.id}-synced-${Date.now()}`,
+          operation_id: op.id,
+          status: 'synced',
+          message: `Synced ${op.method?.toUpperCase()} ${op.url}`,
+          created_at: new Date().toISOString(),
+          response: response.data,
+        });
 
-      const db = await openDb();
-      const tx = db.transaction(OPS_STORE, 'readwrite');
+        completed.push({
+          operation_id: op.id,
+          method: op.method,
+          url: op.url,
+          status: 'synced',
+          retry_count: op.retries || 0,
+          created_at: new Date().toISOString(),
+          location_id: Number(op.headers?.['X-Location-Id'] || 0) || null,
+        });
+      } catch (error) {
+        const statusCode = error?.response?.status;
+        const isClientError = Number.isInteger(statusCode) && statusCode >= 400 && statusCode < 500;
+        const isAuthOrSessionIssue = statusCode === 401 || statusCode === 403;
+        const isDeterministicClientError = isClientError && !isAuthOrSessionIssue;
+        const isConflict = statusCode === 409;
+        const retries = (op.retries || 0) + 1;
 
-      if (isAuthOrSessionIssue) {
-        const updatedOp = {
-          ...op,
-          retries,
-          status: 'needs_review',
-          lastError: 'Original user session expired - requires admin review',
-          lastAttempt: new Date().toISOString(),
-        };
-        tx.objectStore(OPS_STORE).put(updatedOp);
-      } else if (isConflict || status === 422 || isDeterministicClientError) {
-        const updatedOp = {
-          ...op,
-          retries,
-          status: 'conflict',
-          lastError: resolveSyncErrorMessage(error),
-          lastAttempt: new Date().toISOString(),
-        };
-        tx.objectStore(OPS_STORE).put(updatedOp);
-      } else if (retries >= MAX_RETRIES) {
-        const updatedOp = {
-          ...op,
-          retries,
-          status: 'failed',
-          lastError: resolveSyncErrorMessage(error) || 'Max retries exceeded',
-          lastAttempt: new Date().toISOString(),
-        };
-        tx.objectStore(OPS_STORE).put(updatedOp);
-      } else {
-        const nextRetry = calculateNextRetry(retries);
-        const updatedOp = {
-          ...op,
-          retries,
-          status: 'pending',
-          nextRetry,
-          lastError: resolveSyncErrorMessage(error),
-          lastAttempt: new Date().toISOString(),
-        };
-        tx.objectStore(OPS_STORE).put(updatedOp);
-      }
+        const db = await openDb();
+        const tx = db.transaction(OPS_STORE, 'readwrite');
 
-      await txPromise(tx);
-      db.close();
-      failed += 1;
+        let terminalStatus = null;
+        let reason = resolveSyncErrorMessage(error);
 
-      const historyStatus = isAuthOrSessionIssue
-        ? 'needs_review'
-        : (isDeterministicClientError ? 'conflict' : (retries >= MAX_RETRIES ? 'failed' : 'retrying'));
+        if (isAuthOrSessionIssue) {
+          const updatedOp = {
+            ...op,
+            retries,
+            status: 'needs_review',
+            lastError: 'Original user session expired - requires admin review',
+            lastAttempt: new Date().toISOString(),
+          };
+          tx.objectStore(OPS_STORE).put(updatedOp);
+          terminalStatus = 'needs_review';
+          reason = updatedOp.lastError;
+        } else if (isConflict || statusCode === 422 || isDeterministicClientError) {
+          const updatedOp = {
+            ...op,
+            retries,
+            status: 'conflict',
+            lastError: reason,
+            lastAttempt: new Date().toISOString(),
+          };
+          tx.objectStore(OPS_STORE).put(updatedOp);
+          terminalStatus = 'conflict';
+        } else if (retries >= MAX_RETRIES) {
+          const updatedOp = {
+            ...op,
+            retries,
+            status: 'failed',
+            lastError: reason || 'Max retries exceeded',
+            lastAttempt: new Date().toISOString(),
+          };
+          tx.objectStore(OPS_STORE).put(updatedOp);
+          terminalStatus = 'failed';
+          reason = updatedOp.lastError;
+        } else {
+          const updatedOp = {
+            ...op,
+            retries,
+            status: 'pending',
+            nextRetry: calculateNextRetry(retries),
+            lastError: reason,
+            lastAttempt: new Date().toISOString(),
+          };
+          tx.objectStore(OPS_STORE).put(updatedOp);
+        }
 
-      await appendHistory({
-        id: `${op.id}-failed-${Date.now()}`,
-        operation_id: op.id,
-        status: historyStatus,
-        message: isAuthOrSessionIssue ? 'Original user session expired - requires admin review' : resolveSyncErrorMessage(error),
-        created_at: new Date().toISOString(),
-        retryCount: retries,
-        statusCode: status,
-      });
+        await txPromise(tx);
+        db.close();
+        failed += 1;
 
-      const isServerUnavailable = !status || isTransientHttp;
-      if (isServerUnavailable) {
-        shouldPauseBatch = true;
+        if (terminalStatus) {
+          await appendHistory({
+            id: `${op.id}-${terminalStatus}-${Date.now()}`,
+            operation_id: op.id,
+            status: terminalStatus,
+            message: reason,
+            created_at: new Date().toISOString(),
+            retryCount: retries,
+            statusCode,
+          });
+
+          completed.push({
+            operation_id: op.id,
+            method: op.method,
+            url: op.url,
+            status: terminalStatus,
+            retry_count: retries,
+            reason,
+            created_at: new Date().toISOString(),
+            location_id: Number(op.headers?.['X-Location-Id'] || 0) || null,
+          });
+        }
       }
     }
-  }
 
     const remaining = await getQueueSize();
-    return { synced, failed, pending: remaining };
+    return { synced, failed, pending: remaining, completed };
   } finally {
     flushInProgress = false;
   }
@@ -454,7 +471,6 @@ export async function getSyncStats() {
   return {
     total: queue.length,
     pending: queue.filter(op => op.status === 'pending').length,
-    retrying: queue.filter(op => op.status === 'retrying').length,
     conflict: queue.filter(op => op.status === 'conflict').length,
     needsReview: queue.filter(op => op.status === 'needs_review').length,
     failed: queue.filter(op => op.status === 'failed').length,

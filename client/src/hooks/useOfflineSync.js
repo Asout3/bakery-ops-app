@@ -16,6 +16,7 @@ export function useOfflineSync() {
   const { user, isAuthenticated } = useAuth();
   const [isOnlineState, setIsOnlineState] = useState(() => isOnline());
   const [queueStats, setQueueStats] = useState({ total: 0, pending: 0, conflict: 0, needsReview: 0, failed: 0 });
+  const [syncProgress, setSyncProgress] = useState({ total: 0, done: 0, active: false, finished: false });
   const [syncInProgress, setSyncInProgress] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState(() => {
     const cached = localStorage.getItem('offline_sync_last_result');
@@ -35,10 +36,29 @@ export function useOfflineSync() {
     }
 
     setSyncInProgress(true);
+    let pendingBefore = 0;
+    let result = null;
     try {
-      const result = await flushQueue(api);
+      const beforeStats = await getSyncStats();
+      pendingBefore = Number(beforeStats.pending || 0);
+      if (pendingBefore > 0) {
+        setSyncProgress({ total: pendingBefore, done: 0, active: true, finished: false });
+      }
+      result = await flushQueue(api);
+      if (Array.isArray(result.completed) && result.completed.length > 0) {
+        try {
+          await api.post('/sync/audit/bulk', { events: result.completed });
+        } catch (auditErr) {
+          console.error('Failed to push sync audit events:', auditErr);
+        }
+      }
       const stats = await getSyncStats();
       setQueueStats(stats);
+      const finishedDone = Math.min(pendingBefore, Number(result.synced || 0) + Number(result.failed || 0));
+      if (pendingBefore > 0) {
+        setSyncProgress({ total: pendingBefore, done: finishedDone, active: false, finished: true });
+        setTimeout(() => setSyncProgress((prev) => ({ ...prev, finished: false })), 3500);
+      }
       const syncResult = {
         ...result,
         at: new Date().toISOString(),
@@ -47,6 +67,11 @@ export function useOfflineSync() {
       setLastSyncResult(syncResult);
       localStorage.setItem('offline_sync_last_result', JSON.stringify(syncResult));
     } catch (err) {
+      const finishedDone = Math.min(pendingBefore, Number(result.synced || 0) + Number(result.failed || 0));
+      if (pendingBefore > 0) {
+        setSyncProgress({ total: pendingBefore, done: finishedDone, active: false, finished: true });
+        setTimeout(() => setSyncProgress((prev) => ({ ...prev, finished: false })), 3500);
+      }
       const syncResult = {
         synced: 0,
         failed: 0,
@@ -153,6 +178,7 @@ export function useOfflineSync() {
     connectionQuality: getConnectionQuality(),
     syncInterval,
     appInitialized,
+    syncProgress,
   };
 }
 
