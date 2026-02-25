@@ -492,6 +492,108 @@ router.post('/change-credentials',
   }
 );
 
+
+const recoverAdminValidation = [
+  body('username').trim().notEmpty().withMessage('Username is required'),
+  body('recovery_key').trim().notEmpty().withMessage('Recovery key is required'),
+  body('new_password').isLength({ min: 8 }).withMessage('New password must be at least 8 characters'),
+];
+
+router.post('/recover-admin-account',
+  strictLimiter,
+  recoverAdminValidation,
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        code: 'VALIDATION_ERROR',
+        details: errors.array()
+      });
+    }
+
+    const { username, recovery_key, new_password } = req.body;
+    const configuredRecoveryKey = process.env.ADMIN_RECOVERY_KEY;
+
+    if (!configuredRecoveryKey) {
+      return res.status(503).json({
+        error: 'Admin recovery is not configured on this server',
+        code: 'RECOVERY_NOT_CONFIGURED'
+      });
+    }
+
+    if (recovery_key !== configuredRecoveryKey) {
+      return res.status(401).json({
+        error: 'Invalid recovery key',
+        code: 'INVALID_RECOVERY_KEY'
+      });
+    }
+
+    const passwordCheck = validatePassword(new_password);
+    if (!passwordCheck.valid) {
+      return res.status(400).json({
+        error: 'New password does not meet security requirements',
+        code: 'WEAK_PASSWORD',
+        details: passwordCheck.errors
+      });
+    }
+
+    try {
+      const userResult = await query(
+        `SELECT id, username, password_hash, role, location_id
+         FROM users
+         WHERE username = $1 AND role = 'admin'
+         LIMIT 1`,
+        [username]
+      );
+
+      if (!userResult.rows.length) {
+        return res.status(404).json({
+          error: 'Admin account not found',
+          code: 'ADMIN_NOT_FOUND'
+        });
+      }
+
+      const adminUser = userResult.rows[0];
+      const samePassword = await bcrypt.compare(new_password, adminUser.password_hash);
+      if (samePassword) {
+        return res.status(400).json({
+          error: 'New password must be different from current password',
+          code: 'PASSWORD_SAME_AS_OLD'
+        });
+      }
+
+      const password_hash = await bcrypt.hash(new_password, SALT_ROUNDS);
+
+      await query(
+        `UPDATE users
+         SET password_hash = $1,
+             is_active = true,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [password_hash, adminUser.id]
+      );
+
+      await query(
+        `INSERT INTO activity_log (user_id, location_id, activity_type, description)
+         VALUES ($1, $2, 'admin_password_recovery', $3)`,
+        [adminUser.id, adminUser.location_id, `Admin password recovered for user: ${adminUser.username}`]
+      );
+
+      res.json({
+        message: 'Admin password reset successful. Please login with your new password.',
+        code: 'ADMIN_PASSWORD_RESET_SUCCESS'
+      });
+    } catch (err) {
+      console.error('Recover admin account error:', err);
+      res.status(500).json({
+        error: 'Internal server error',
+        code: 'INTERNAL_ERROR'
+      });
+    }
+  }
+);
+
 router.post('/refresh-token', authenticateToken, async (req, res) => {
   try {
     const result = await query(

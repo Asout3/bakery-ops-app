@@ -40,8 +40,29 @@
   flex-direction: column;
 }
 
+.password-field {
+  position: relative;
+}
+
+.password-field .input,
+.password-field .form-control {
+  padding-right: 2.6rem;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 0.45rem;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .login-form .btn {
-  margin-top: 0.5rem;
   width: 100%;
 }
 
@@ -73,7 +94,7 @@
   .login-card {
     padding: 2rem;
   }
-  
+
   .login-header h1 {
     font-size: 1.5rem;
   }

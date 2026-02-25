@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Building2, UserPlus, Users } from 'lucide-react';
+import { Building2, UserPlus, Users, Eye, EyeOff } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 
@@ -32,6 +32,19 @@ export default function BranchesAndStaff() {
   const [editAccountModel, setEditAccountModel] = useState(null);
   const [credentialForm, setCredentialForm] = useState({ current_password: '', new_username: '', new_password: '' });
   const [savingCredentials, setSavingCredentials] = useState(false);
+  const [credentialConfirmPassword, setCredentialConfirmPassword] = useState('');
+  const [showPasswords, setShowPasswords] = useState({
+    createAccount: false,
+    editAccount: false,
+    currentCredential: false,
+    newCredential: false,
+    confirmCredential: false,
+  });
+
+
+  const togglePasswordVisibility = (key) => {
+    setShowPasswords((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const loadData = async () => {
     try {
@@ -84,8 +97,9 @@ export default function BranchesAndStaff() {
         return;
       }
       
-      if (accountForm.password.length < 8) {
-        showFeedback('danger', 'Password must be at least 8 characters.');
+      const strongPassword = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
+      if (!strongPassword.test(accountForm.password)) {
+        showFeedback('danger', 'Password must be at least 8 characters and include a letter, number, and special character.');
         setSavingAccount(false);
         return;
       }
@@ -194,8 +208,9 @@ export default function BranchesAndStaff() {
       };
       
       if (editAccountModel.password) {
-        if (editAccountModel.password.length < 8) {
-          showFeedback('danger', 'Password must be at least 8 characters.');
+        const strongPassword = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
+        if (!strongPassword.test(editAccountModel.password)) {
+          showFeedback('danger', 'Password must be at least 8 characters and include a letter, number, and special character.');
           return;
         }
         payload.password = editAccountModel.password;
@@ -239,8 +254,13 @@ export default function BranchesAndStaff() {
       }
 
       if (credentialForm.new_password) {
-        if (credentialForm.new_password.length < 8) {
-          showFeedback('danger', 'New password must be at least 8 characters.');
+        const strongPassword = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
+        if (!strongPassword.test(credentialForm.new_password)) {
+          showFeedback('danger', 'New password must be at least 8 characters and include a letter, number, and special character.');
+          return;
+        }
+        if (credentialForm.new_password !== credentialConfirmPassword) {
+          showFeedback('danger', 'New password and confirmation do not match.');
           return;
         }
         payload.new_password = credentialForm.new_password;
@@ -268,6 +288,7 @@ export default function BranchesAndStaff() {
         localStorage.setItem('user', JSON.stringify(res.data.user));
       }
       setCredentialForm({ current_password: '', new_username: '', new_password: '' });
+      setCredentialConfirmPassword('');
       showFeedback('success', 'Credentials updated successfully. Please continue with the new username/password.');
       if (payload.new_username) {
         window.location.reload();
@@ -300,7 +321,7 @@ export default function BranchesAndStaff() {
           <div className="row g-3">
             <div className="col-md-4">
               <label className="form-label">Current Password *</label>
-              <input type="password" className="form-control" value={credentialForm.current_password} onChange={(e)=>setCredentialForm((p)=>({...p,current_password:e.target.value}))} required />
+              <div className="input-group"><input type={showPasswords.currentCredential ? "text" : "password"} className="form-control" value={credentialForm.current_password} onChange={(e)=>setCredentialForm((p)=>({...p,current_password:e.target.value}))} required /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("currentCredential")}>{showPasswords.currentCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
             </div>
             <div className="col-md-4">
               <label className="form-label">New Username</label>
@@ -308,7 +329,11 @@ export default function BranchesAndStaff() {
             </div>
             <div className="col-md-4">
               <label className="form-label">New Password</label>
-              <input type="password" className="form-control" minLength={8} value={credentialForm.new_password} onChange={(e)=>setCredentialForm((p)=>({...p,new_password:e.target.value}))} placeholder="Leave blank to keep password" />
+              <div className="input-group"><input type={showPasswords.newCredential ? "text" : "password"} className="form-control" minLength={8} value={credentialForm.new_password} onChange={(e)=>setCredentialForm((p)=>({...p,new_password:e.target.value}))} placeholder="Leave blank to keep password" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("newCredential")}>{showPasswords.newCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
+            </div>
+            <div className="col-md-4">
+              <label className="form-label">Confirm New Password</label>
+              <div className="input-group"><input type={showPasswords.confirmCredential ? "text" : "password"} className="form-control" minLength={8} value={credentialConfirmPassword} onChange={(e)=>setCredentialConfirmPassword(e.target.value)} placeholder="Retype new password" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("confirmCredential")}>{showPasswords.confirmCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
             </div>
           </div>
           <div className="mt-3 d-flex flex-wrap align-items-center gap-2">
@@ -349,7 +374,7 @@ export default function BranchesAndStaff() {
             </div>
             <div className="row g-2">
               <div className="col-md-6 mb-3"><label className="form-label">Username *</label><input className="form-control" required value={accountForm.username} onChange={(e)=>setAccountForm((p)=>({...p,username:e.target.value}))} placeholder="Login username" /></div>
-              <div className="col-md-6 mb-3"><label className="form-label">Password *</label><input type="password" minLength={8} className="form-control" required value={accountForm.password} onChange={(e)=>setAccountForm((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters" /></div>
+              <div className="col-md-6 mb-3"><label className="form-label">Password *</label><div className="input-group"><input type={showPasswords.createAccount ? "text" : "password"} minLength={8} className="form-control" required value={accountForm.password} onChange={(e)=>setAccountForm((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters, include letter/number/special" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("createAccount")}>{showPasswords.createAccount ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></div>
             </div>
             <div className="row g-2">
               <div className="col-md-6 mb-3"><label className="form-label">Account Role *</label>
@@ -426,7 +451,7 @@ export default function BranchesAndStaff() {
                 </select>
               </div>
               <div className="mb-3"><label className="form-label">Branch</label><select className="form-select" value={editAccountModel.location_id || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,location_id:e.target.value}))}>{locations.filter(l => l.is_active).map((l)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
-              <div className="mb-3"><label className="form-label">New Password (leave blank to keep current)</label><input type="password" className="form-control" value={editAccountModel.password || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters" /></div>
+              <div className="mb-3"><label className="form-label">New Password (leave blank to keep current)</label><div className="input-group"><input type={showPasswords.editAccount ? "text" : "password"} className="form-control" value={editAccountModel.password || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters, include letter/number/special" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("editAccount")}>{showPasswords.editAccount ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></div>
               <div className="d-flex gap-2"><button className="btn btn-primary" onClick={saveAccountEdit}>Save</button><button className="btn btn-secondary" onClick={() => setEditAccountModel(null)}>Cancel</button></div>
             </div>
           </div>
