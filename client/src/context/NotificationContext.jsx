@@ -1,18 +1,29 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import api from '../api/axios';
 
 const NotificationContext = createContext(null);
+
+const BASE_POLL_MS = 30000;
+const MAX_POLL_MS = 120000;
 
 export function NotificationProvider({ children }) {
   const { isAuthenticated, loading: authLoading } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const pollTimeoutRef = useRef(null);
+  const pollDelayRef = useRef(BASE_POLL_MS);
+
+  const clearPollTimeout = useCallback(() => {
+    if (pollTimeoutRef.current) {
+      clearTimeout(pollTimeoutRef.current);
+      pollTimeoutRef.current = null;
+    }
+  }, []);
 
   const fetchNotifications = useCallback(async () => {
     if (!isAuthenticated) return;
-    
     try {
       const response = await api.get('/notifications', { headers: { 'X-Skip-Auth-Redirect': 'true' } });
       const list = response.data || [];
@@ -26,30 +37,46 @@ export function NotificationProvider({ children }) {
   const fetchUnreadCount = useCallback(async () => {
     if (!isAuthenticated || authLoading) {
       setUnreadCount(0);
-      return;
+      return false;
     }
-    
+
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      return false;
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      return false;
+    }
+
     try {
       const response = await api.get('/notifications/unread/count', { headers: { 'X-Skip-Auth-Redirect': 'true' } });
       setUnreadCount(response.data?.unread_count || 0);
+      return true;
     } catch (err) {
       if (err.response?.status === 401) {
         setUnreadCount(0);
-        return;
+        return false;
       }
       console.error('Failed to fetch unread count:', err);
+      return false;
     }
   }, [isAuthenticated, authLoading]);
 
+  const scheduleUnreadPolling = useCallback(async () => {
+    clearPollTimeout();
+    const success = await fetchUnreadCount();
+    pollDelayRef.current = success ? BASE_POLL_MS : Math.min(MAX_POLL_MS, pollDelayRef.current * 2);
+    pollTimeoutRef.current = setTimeout(() => {
+      scheduleUnreadPolling();
+    }, pollDelayRef.current);
+  }, [clearPollTimeout, fetchUnreadCount]);
+
   const markAsRead = useCallback(async (id) => {
     if (!isAuthenticated) return;
-    
     try {
       await api.put(`/notifications/${id}`, { is_read: true });
-      setNotifications(prev => 
-        prev.map(n => n.id === id ? { ...n, is_read: true } : n)
-      );
-      setUnreadCount(prev => Math.max(0, prev - 1));
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
+      setUnreadCount((prev) => Math.max(0, prev - 1));
     } catch (err) {
       console.error('Failed to mark notification as read:', err);
     }
@@ -57,10 +84,9 @@ export function NotificationProvider({ children }) {
 
   const markAllAsRead = useCallback(async () => {
     if (!isAuthenticated) return;
-    
     try {
       await api.put('/notifications/mark-all-read');
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
       setUnreadCount(0);
     } catch (err) {
       console.error('Failed to mark all as read:', err);
@@ -69,34 +95,47 @@ export function NotificationProvider({ children }) {
 
   const deleteNotification = useCallback(async (id) => {
     if (!isAuthenticated) return;
-    
     try {
       await api.delete(`/notifications/${id}`);
-      const deleted = notifications.find(n => n.id === id);
-      setNotifications(prev => prev.filter(n => n.id !== id));
-      if (deleted && !deleted.is_read) {
-        setUnreadCount(prev => Math.max(0, prev - 1));
-      }
+      setNotifications((prev) => {
+        const deleted = prev.find((n) => n.id === id);
+        if (deleted && !deleted.is_read) {
+          setUnreadCount((count) => Math.max(0, count - 1));
+        }
+        return prev.filter((n) => n.id !== id);
+      });
     } catch (err) {
       console.error('Failed to delete notification:', err);
     }
-  }, [isAuthenticated, notifications]);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!isAuthenticated || authLoading) {
       setNotifications([]);
       setUnreadCount(0);
+      clearPollTimeout();
       return;
     }
-    
-    fetchUnreadCount();
-    
-    const interval = setInterval(() => {
-      fetchUnreadCount();
-    }, 10000);
 
-    return () => clearInterval(interval);
-  }, [isAuthenticated, authLoading, fetchUnreadCount]);
+    pollDelayRef.current = BASE_POLL_MS;
+    scheduleUnreadPolling();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        pollDelayRef.current = BASE_POLL_MS;
+        scheduleUnreadPolling();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleVisibilityChange);
+
+    return () => {
+      clearPollTimeout();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleVisibilityChange);
+    };
+  }, [authLoading, clearPollTimeout, isAuthenticated, scheduleUnreadPolling]);
 
   const value = {
     notifications,
@@ -110,11 +149,7 @@ export function NotificationProvider({ children }) {
     refresh: fetchNotifications,
   };
 
-  return (
-    <NotificationContext.Provider value={value}>
-      {children}
-    </NotificationContext.Provider>
-  );
+  return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
 }
 
 export function useNotifications() {

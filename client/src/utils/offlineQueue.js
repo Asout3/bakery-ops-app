@@ -401,6 +401,46 @@ export async function cancelOperation(operationId) {
   return true;
 }
 
+async function markOperationHandled(operationId, status, note) {
+  const db = await openDb();
+  const tx = db.transaction(OPS_STORE, 'readwrite');
+  const req = tx.objectStore(OPS_STORE).get(operationId);
+
+  const op = await new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+
+  if (!op) {
+    db.close();
+    return false;
+  }
+
+  tx.objectStore(OPS_STORE).delete(operationId);
+  await txPromise(tx);
+  db.close();
+
+  await deletePayload(operationId);
+
+  await appendHistory({
+    id: `${operationId}-${status}-${Date.now()}`,
+    operation_id: operationId,
+    status,
+    message: note ? `${status} by admin: ${note}` : `${status} by admin`,
+    created_at: new Date().toISOString(),
+  });
+
+  return true;
+}
+
+export async function resolveOperation(operationId, note = '') {
+  return markOperationHandled(operationId, 'resolved', note);
+}
+
+export async function ignoreOperation(operationId, note = '') {
+  return markOperationHandled(operationId, 'ignored', note);
+}
+
 export async function clearHistory() {
   const db = await openDb();
   const tx = db.transaction(HISTORY_STORE, 'readwrite');

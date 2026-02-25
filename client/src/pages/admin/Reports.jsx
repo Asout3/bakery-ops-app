@@ -3,6 +3,7 @@ import api from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import { Download, TrendingUp, TrendingDown, DollarSign, ShoppingCart } from 'lucide-react';
+import { createPdfBlob, createXlsxBlob } from '../../utils/reportExportGenerators';
 
 export default function ReportsPage() {
   const { selectedLocationId } = useBranch();
@@ -20,10 +21,8 @@ export default function ReportsPage() {
   const fetchReports = async () => {
     try {
       setLoading(true);
-      // Using the weekly report endpoint as the base since it covers a date range
       const response = await api.get(`/reports/weekly?start_date=${dateRange.startDate}&end_date=${dateRange.endDate}`);
       
-      // Structure the response to match our component expectations
       setReportData({
         summary: response.data.summary,
         daily_sales: response.data.sales_by_day,
@@ -33,7 +32,6 @@ export default function ReportsPage() {
       });
     } catch (err) {
       console.error('Failed to fetch reports:', err);
-      // Fallback to static data to avoid crashes
       setReportData({
         summary: { total_sales: 0, total_expenses: 0, net_profit: 0, avg_transaction: 0 },
         daily_sales: [],
@@ -53,44 +51,89 @@ export default function ReportsPage() {
   const paymentMethods = reportData?.payment_methods || [];
 
 
+  const downloadBlob = (blob, fileName) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const reportSummaryRows = [
+    ['metric', 'value'],
+    ['total_sales', Number(reportData?.summary?.total_sales || 0).toFixed(2)],
+    ['total_expenses', Number(reportData?.summary?.total_expenses || 0).toFixed(2)],
+    ['net_profit', Number(reportData?.summary?.net_profit || 0).toFixed(2)],
+    ['avg_transaction', Number(reportData?.summary?.avg_transaction || 0).toFixed(2)],
+  ];
+
+  const dailySalesRows = [
+    ['date', 'daily_sales'],
+    ...dailySales.map((item) => [item.date, Number(item.total_sales || 0).toFixed(2)]),
+  ];
+
   const exportWeeklyCsv = async () => {
     try {
       const response = await api.get(
         `/reports/weekly/export?start_date=${dateRange.startDate}&end_date=${dateRange.endDate}`,
         { responseType: 'blob' }
       );
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `weekly-report-${dateRange.startDate}-to-${dateRange.endDate}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      downloadBlob(new Blob([response.data], { type: 'text/csv;charset=utf-8;' }), `report-${dateRange.startDate}-to-${dateRange.endDate}.csv`);
     } catch (err) {
       console.error('Failed to export report:', err);
     }
   };
 
-  const exportCurrentReportCsv = () => {
-    const rows = [
-      ['Metric', 'Value'],
-      ['Total Sales', Number(reportData?.summary?.total_sales || 0).toFixed(2)],
-      ['Total Expenses', Number(reportData?.summary?.total_expenses || 0).toFixed(2)],
-      ['Net Profit', Number(reportData?.summary?.net_profit || 0).toFixed(2)],
-      ['Avg Transaction', Number(reportData?.summary?.avg_transaction || 0).toFixed(2)],
-      [],
-      ['Date', 'Daily Sales'],
-      ...dailySales.map((item) => [item.date, Number(item.total_sales || 0).toFixed(2)]),
-    ];
-    const csv = rows.map((r) => r.map((v) => `"${String(v ?? '').replaceAll('"', '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `report-${dateRange.startDate}-to-${dateRange.endDate}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+  const buildExecutivePdfLines = () => [
+    'report',
+    `period: ${dateRange.startDate} to ${dateRange.endDate}`,
+    '',
+    ...reportSummaryRows.slice(1).map(([key, value]) => `${key}: ${value}`),
+  ];
+
+  const buildDetailedPdfLines = () => [
+    'report',
+    `period: ${dateRange.startDate} to ${dateRange.endDate}`,
+    '',
+    'summary',
+    ...reportSummaryRows.slice(1).map(([key, value]) => `${key}: ${value}`),
+    '',
+    'daily_sales',
+    ...dailySalesRows.slice(1).map(([date, value]) => `${date}: ${value}`),
+    '',
+    'payment_methods',
+    ...paymentMethods.map((method) => `${method.payment_method || 'unknown'}: ${Number(method.total || 0).toFixed(2)} (${Number(method.count || 0)} transactions)`),
+    '',
+    'top_products',
+    ...(reportData?.top_products || []).map((item) => `${item.name || 'unknown'}: ${Number(item.revenue || 0).toFixed(2)}`),
+  ];
+
+  const exportExecutivePdf = () => {
+    const blob = createPdfBlob(buildExecutivePdfLines());
+    downloadBlob(blob, `report-executive-${dateRange.startDate}-to-${dateRange.endDate}.pdf`);
+  };
+
+  const exportDetailedPdf = () => {
+    const blob = createPdfBlob(buildDetailedPdfLines());
+    downloadBlob(blob, `report-detailed-${dateRange.startDate}-to-${dateRange.endDate}.pdf`);
+  };
+
+  const exportXlsx = () => {
+    const blob = createXlsxBlob([
+      { name: 'summary', rows: reportSummaryRows },
+      { name: 'daily_sales', rows: dailySalesRows },
+    ]);
+    downloadBlob(blob, `report-${dateRange.startDate}-to-${dateRange.endDate}.xlsx`);
+  };
+
+  const exportFullBundle = async () => {
+    await exportWeeklyCsv();
+    exportXlsx();
+    exportExecutivePdf();
+    exportDetailedPdf();
   };
 
   const stats = [
@@ -135,7 +178,7 @@ export default function ReportsPage() {
   return (
     <div className="reports-page">
       <div className="page-header">
-        <h2>Business Reports</h2>
+        <h2>Report</h2>
         <div className="date-filter">
           <div className="input-group">
             <input
@@ -283,28 +326,28 @@ export default function ReportsPage() {
 
       <div className="card mt-4">
         <div className="card-header">
-          <h3>Export Reports</h3>
+          <h3>Report</h3>
         </div>
         <div className="card-body">
           <div className="row">
             <div className="col-md-3">
-              <button className="btn btn-outline-primary w-100" onClick={exportCurrentReportCsv}>
-                <Download size={16} /> Daily Report
+              <button className="btn btn-outline-primary w-100" onClick={exportFullBundle}>
+                <Download size={16} /> Full Export (Executive PDF + Detailed PDF + CSV + XLSX)
               </button>
             </div>
             <div className="col-md-3">
-              <button className="btn btn-outline-success w-100" onClick={exportWeeklyCsv}>
-                <Download size={16} /> Weekly Report (CSV)
+              <button className="btn btn-outline-success w-100" onClick={exportExecutivePdf}>
+                <Download size={16} /> Executive PDF
               </button>
             </div>
             <div className="col-md-3">
-              <button className="btn btn-outline-info w-100" onClick={exportCurrentReportCsv}>
-                <Download size={16} /> Monthly Report
+              <button className="btn btn-outline-info w-100" onClick={exportDetailedPdf}>
+                <Download size={16} /> Detailed PDF
               </button>
             </div>
             <div className="col-md-3">
-              <button className="btn btn-outline-warning w-100" onClick={exportCurrentReportCsv}>
-                <Download size={16} /> Custom Report
+              <button className="btn btn-outline-warning w-100" onClick={exportXlsx}>
+                <Download size={16} /> XLSX
               </button>
             </div>
           </div>
