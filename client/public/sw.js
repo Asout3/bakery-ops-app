@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'bakery-ops-shell-v5';
+const CACHE_VERSION = 'bakery-ops-shell-v6';
 const SHELL_CACHE = `shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 const SHELL_ASSETS = ['/', '/index.html', '/vite.svg'];
@@ -23,8 +23,6 @@ function isApiRequest(requestUrl) {
 
 function isStaticAsset(requestUrl) {
   return requestUrl.pathname.startsWith('/assets/')
-    || requestUrl.pathname.endsWith('.js')
-    || requestUrl.pathname.endsWith('.css')
     || requestUrl.pathname.endsWith('.svg')
     || requestUrl.pathname.endsWith('.png')
     || requestUrl.pathname.endsWith('.jpg')
@@ -73,15 +71,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  const destination = event.request.destination;
-  const isAssetLike = isStaticAsset(requestUrl)
-    || destination === 'script'
-    || destination === 'style'
-    || destination === 'image'
-    || requestUrl.pathname.startsWith('/src/')
-    || requestUrl.pathname.startsWith('/@vite/');
-
-  if (isAssetLike) {
+  if (isStaticAsset(requestUrl)) {
     event.respondWith(
       cacheFirst(event.request).catch(async () => (await caches.match(event.request)) || Response.error())
     );
