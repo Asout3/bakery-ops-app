@@ -5,7 +5,7 @@ import api from '../api/axios';
 const NotificationContext = createContext(null);
 
 export function NotificationProvider({ children }) {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated, loading: authLoading } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -14,7 +14,7 @@ export function NotificationProvider({ children }) {
     if (!isAuthenticated) return;
     
     try {
-      const response = await api.get('/notifications');
+      const response = await api.get('/notifications', { headers: { 'X-Skip-Auth-Redirect': 'true' } });
       const list = response.data || [];
       setNotifications(list);
       setUnreadCount(list.filter((item) => !item.is_read).length);
@@ -24,13 +24,13 @@ export function NotificationProvider({ children }) {
   }, [isAuthenticated]);
 
   const fetchUnreadCount = useCallback(async () => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || authLoading) {
       setUnreadCount(0);
       return;
     }
     
     try {
-      const response = await api.get('/notifications/unread/count');
+      const response = await api.get('/notifications/unread/count', { headers: { 'X-Skip-Auth-Redirect': 'true' } });
       setUnreadCount(response.data?.unread_count || 0);
     } catch (err) {
       if (err.response?.status === 401) {
@@ -39,7 +39,7 @@ export function NotificationProvider({ children }) {
       }
       console.error('Failed to fetch unread count:', err);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, authLoading]);
 
   const markAsRead = useCallback(async (id) => {
     if (!isAuthenticated) return;
@@ -83,7 +83,7 @@ export function NotificationProvider({ children }) {
   }, [isAuthenticated, notifications]);
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || authLoading) {
       setNotifications([]);
       setUnreadCount(0);
       return;
@@ -96,7 +96,7 @@ export function NotificationProvider({ children }) {
     }, 10000);
 
     return () => clearInterval(interval);
-  }, [isAuthenticated, fetchUnreadCount]);
+  }, [isAuthenticated, authLoading, fetchUnreadCount]);
 
   const value = {
     notifications,

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Building2, UserPlus, Users } from 'lucide-react';
+import { Building2, UserPlus, Users, Eye, EyeOff } from 'lucide-react';
 import api from '../../api/axios';
+import { useAuth } from '../../context/AuthContext';
 
 const emptyBranch = { name: '', address: '', phone: '' };
 const emptyAccount = {
@@ -17,6 +18,7 @@ const ROLE_LABELS = {
 };
 
 export default function BranchesAndStaff() {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [locations, setLocations] = useState([]);
   const [staffProfiles, setStaffProfiles] = useState([]);
@@ -28,6 +30,21 @@ export default function BranchesAndStaff() {
   const [feedback, setFeedback] = useState(null);
   const [editBranchModel, setEditBranchModel] = useState(null);
   const [editAccountModel, setEditAccountModel] = useState(null);
+  const [credentialForm, setCredentialForm] = useState({ current_password: '', new_username: '', new_password: '' });
+  const [savingCredentials, setSavingCredentials] = useState(false);
+  const [credentialConfirmPassword, setCredentialConfirmPassword] = useState('');
+  const [showPasswords, setShowPasswords] = useState({
+    createAccount: false,
+    editAccount: false,
+    currentCredential: false,
+    newCredential: false,
+    confirmCredential: false,
+  });
+
+
+  const togglePasswordVisibility = (key) => {
+    setShowPasswords((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const loadData = async () => {
     try {
@@ -80,8 +97,9 @@ export default function BranchesAndStaff() {
         return;
       }
       
-      if (accountForm.password.length < 8) {
-        showFeedback('danger', 'Password must be at least 8 characters.');
+      const strongPassword = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
+      if (!strongPassword.test(accountForm.password)) {
+        showFeedback('danger', 'Password must be at least 8 characters and include a letter, number, and special character.');
         setSavingAccount(false);
         return;
       }
@@ -190,8 +208,9 @@ export default function BranchesAndStaff() {
       };
       
       if (editAccountModel.password) {
-        if (editAccountModel.password.length < 8) {
-          showFeedback('danger', 'Password must be at least 8 characters.');
+        const strongPassword = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
+        if (!strongPassword.test(editAccountModel.password)) {
+          showFeedback('danger', 'Password must be at least 8 characters and include a letter, number, and special character.');
           return;
         }
         payload.password = editAccountModel.password;
@@ -217,6 +236,75 @@ export default function BranchesAndStaff() {
     }
   };
 
+  const updateOwnCredentials = async (e) => {
+    e.preventDefault();
+    setSavingCredentials(true);
+    try {
+      if (!credentialForm.current_password) {
+        showFeedback('danger', 'Current password is required.');
+        return;
+      }
+
+      const payload = {
+        current_password: credentialForm.current_password,
+      };
+
+      if (credentialForm.new_username?.trim()) {
+        payload.new_username = credentialForm.new_username.trim();
+      }
+
+      if (credentialForm.new_password) {
+        const strongPassword = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
+        if (!strongPassword.test(credentialForm.new_password)) {
+          showFeedback('danger', 'New password must be at least 8 characters and include a letter, number, and special character.');
+          return;
+        }
+        if (credentialForm.new_password !== credentialConfirmPassword) {
+          showFeedback('danger', 'New password and confirmation do not match.');
+          return;
+        }
+        payload.new_password = credentialForm.new_password;
+      }
+
+      if (!payload.new_username && !payload.new_password) {
+        showFeedback('danger', 'Provide a new username or new password.');
+        return;
+      }
+
+      const confirmMessage = payload.new_username && payload.new_password
+        ? 'Are you sure you want to change both your username and password?'
+        : payload.new_username
+          ? `Are you sure you want to change your username to "${payload.new_username}"?`
+          : 'Are you sure you want to change your password?';
+
+      if (!window.confirm(confirmMessage)) {
+        showFeedback('info', 'Credentials update cancelled.');
+        return;
+      }
+
+      const res = await api.post('/auth/change-credentials', payload);
+      if (res.data?.token && res.data?.user) {
+        localStorage.setItem('token', res.data.token);
+        localStorage.setItem('user', JSON.stringify(res.data.user));
+      }
+      setCredentialForm({ current_password: '', new_username: '', new_password: '' });
+      setCredentialConfirmPassword('');
+      showFeedback('success', 'Credentials updated successfully. Please continue with the new username/password.');
+      if (payload.new_username) {
+        window.location.reload();
+      }
+    } catch (err) {
+      const validationText = err.response?.data?.details?.map((x) => x.msg).join(', ');
+      const apiCode = err.response?.data?.code;
+      const fallbackMessage = apiCode === 'AUTH_INVALID_CURRENT_PASSWORD'
+        ? 'Current password is incorrect. Please enter your latest password.'
+        : err.response?.data?.error || 'Could not update credentials';
+      showFeedback('danger', validationText || fallbackMessage);
+    } finally {
+      setSavingCredentials(false);
+    }
+  };
+
   const availableStaff = staffProfiles.filter((s) => s.is_active && !s.linked_user_id);
 
   if (loading) return <div className="loading-container"><div className="spinner"></div></div>;
@@ -231,6 +319,33 @@ export default function BranchesAndStaff() {
         <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><Users size={24} /></div><div className="stat-content"><h3>{accounts.filter(a => a.is_active).length}</h3><p>Active Accounts</p></div></div>
         <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><UserPlus size={24} /></div><div className="stat-content"><h3>{availableStaff.length}</h3><p>Staff Without Account</p></div></div>
       </div>
+
+      <div className="card mb-4 border-0 shadow-sm"><div className="card-header bg-dark text-white"><h4 className="mb-0">My Admin Credentials</h4></div><div className="card-body">
+        <form onSubmit={updateOwnCredentials}>
+          <div className="row g-3">
+            <div className="col-md-4">
+              <label className="form-label">Current Password *</label>
+              <div className="input-group"><input type={showPasswords.currentCredential ? "text" : "password"} className="form-control" value={credentialForm.current_password} onChange={(e)=>setCredentialForm((p)=>({...p,current_password:e.target.value}))} required /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("currentCredential")}>{showPasswords.currentCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
+            </div>
+            <div className="col-md-4">
+              <label className="form-label">New Username</label>
+              <input className="form-control" value={credentialForm.new_username} onChange={(e)=>setCredentialForm((p)=>({...p,new_username:e.target.value}))} placeholder={user?.username || 'New username'} />
+            </div>
+            <div className="col-md-4">
+              <label className="form-label">New Password</label>
+              <div className="input-group"><input type={showPasswords.newCredential ? "text" : "password"} className="form-control" minLength={8} value={credentialForm.new_password} onChange={(e)=>setCredentialForm((p)=>({...p,new_password:e.target.value}))} placeholder="Leave blank to keep password" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("newCredential")}>{showPasswords.newCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
+            </div>
+            <div className="col-md-4">
+              <label className="form-label">Confirm New Password</label>
+              <div className="input-group"><input type={showPasswords.confirmCredential ? "text" : "password"} className="form-control" minLength={8} value={credentialConfirmPassword} onChange={(e)=>setCredentialConfirmPassword(e.target.value)} placeholder="Retype new password" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("confirmCredential")}>{showPasswords.confirmCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
+            </div>
+          </div>
+          <div className="mt-3 d-flex flex-wrap align-items-center gap-2">
+            <button className="btn btn-dark px-4" disabled={savingCredentials}>{savingCredentials ? 'Saving...' : 'Update My Credentials'}</button>
+            <small className="text-muted">You can update username, password, or both. Passwords must include letter, number, and special character.</small>
+          </div>
+        </form>
+      </div></div>
 
       <div className="row g-4 mb-4">
         <div className="col-lg-6"><div className="card h-100"><div className="card-header"><h4>Create Branch</h4></div><div className="card-body">
@@ -263,7 +378,7 @@ export default function BranchesAndStaff() {
             </div>
             <div className="row g-2">
               <div className="col-md-6 mb-3"><label className="form-label">Username *</label><input className="form-control" required value={accountForm.username} onChange={(e)=>setAccountForm((p)=>({...p,username:e.target.value}))} placeholder="Login username" /></div>
-              <div className="col-md-6 mb-3"><label className="form-label">Password *</label><input type="password" minLength={8} className="form-control" required value={accountForm.password} onChange={(e)=>setAccountForm((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters" /></div>
+              <div className="col-md-6 mb-3"><label className="form-label">Password *</label><div className="input-group"><input type={showPasswords.createAccount ? "text" : "password"} minLength={8} className="form-control" required value={accountForm.password} onChange={(e)=>setAccountForm((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters, include letter/number/special" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("createAccount")}>{showPasswords.createAccount ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></div>
             </div>
             <div className="row g-2">
               <div className="col-md-6 mb-3"><label className="form-label">Account Role *</label>
@@ -340,7 +455,7 @@ export default function BranchesAndStaff() {
                 </select>
               </div>
               <div className="mb-3"><label className="form-label">Branch</label><select className="form-select" value={editAccountModel.location_id || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,location_id:e.target.value}))}>{locations.filter(l => l.is_active).map((l)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
-              <div className="mb-3"><label className="form-label">New Password (leave blank to keep current)</label><input type="password" className="form-control" value={editAccountModel.password || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters" /></div>
+              <div className="mb-3"><label className="form-label">New Password (leave blank to keep current)</label><div className="input-group"><input type={showPasswords.editAccount ? "text" : "password"} className="form-control" value={editAccountModel.password || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters, include letter/number/special" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("editAccount")}>{showPasswords.editAccount ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></div>
               <div className="d-flex gap-2"><button className="btn btn-primary" onClick={saveAccountEdit}>Save</button><button className="btn btn-secondary" onClick={() => setEditAccountModel(null)}>Cancel</button></div>
             </div>
           </div>

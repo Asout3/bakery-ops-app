@@ -27,7 +27,19 @@ export default function ManagerBatches() {
           ...(selectedDay ? { start_date: selectedDay, end_date: selectedDay } : {}),
         },
       });
-      setBatches(response.data || []);
+      const normalized = (response.data || [])
+        .map((batch) => ({
+          ...batch,
+          is_offline: Boolean(batch.is_offline || batch.was_synced),
+        }))
+        .sort((a, b) => {
+          const aTime = new Date(a.created_at || a.batch_date || 0).getTime() || 0;
+          const bTime = new Date(b.created_at || b.batch_date || 0).getTime() || 0;
+          const timeDiff = bTime - aTime;
+          if (timeDiff !== 0) return timeDiff;
+          return Number(b.id || 0) - Number(a.id || 0);
+        });
+      setBatches(normalized);
     } catch (err) {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to fetch batches.') });
     } finally {
@@ -45,7 +57,7 @@ export default function ManagerBatches() {
   const fetchBatchDetails = async (batchId) => {
     try {
       const response = await api.get(`/inventory/batches/${batchId}`);
-      setSelectedBatch(response.data);
+      setSelectedBatch({ ...response.data, is_offline: Boolean(response.data?.is_offline || response.data?.was_synced) });
       setEditingItems(response.data.items?.map((item) => ({ ...item })) || []);
     } catch (err) {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to fetch batch details.') });

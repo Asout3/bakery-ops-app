@@ -89,8 +89,9 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       const currentPath = window.location.pathname;
       const isAuthEndpoint = error.config?.url?.includes('/auth/') || error.config?.url?.includes('/login');
-      
-      if (!currentPath.includes('/login') && !isAuthEndpoint) {
+      const skipAuthRedirect = error.config?.headers?.['X-Skip-Auth-Redirect'] === 'true';
+
+      if (!currentPath.includes('/login') && !isAuthEndpoint && !skipAuthRedirect) {
         const token = localStorage.getItem('token');
         if (token) {
           localStorage.removeItem('token');

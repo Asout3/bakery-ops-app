@@ -376,7 +376,9 @@ router.get('/batches', authenticateToken, async (req, res) => {
       : 'u.username';
     const syncedByNameExpr = batchColumns.hasSyncedByName ? 'b.synced_by_name' : 'NULL';
     const wasSyncedExpr = batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false';
-    const isOfflineExpr = batchColumns.hasOfflineFlag ? 'b.is_offline' : 'false';
+    const isOfflineExpr = batchColumns.hasOfflineFlag
+      ? (batchColumns.hasSyncedById ? '(COALESCE(b.is_offline, false) OR b.synced_by_id IS NOT NULL)' : 'COALESCE(b.is_offline, false)')
+      : (batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false');
 
     let queryText = `SELECT b.*, u.username as created_by_name,
               ${displayCreatorExpr} as display_creator_name,
@@ -405,7 +407,7 @@ router.get('/batches', authenticateToken, async (req, res) => {
       queryText += ` AND DATE(b.created_at) <= $${params.length}`;
     }
 
-    queryText += ` ORDER BY b.created_at DESC LIMIT $${params.length + 1}`;
+    queryText += ` ORDER BY b.created_at DESC, b.id DESC LIMIT $${params.length + 1}`;
     params.push(limit);
 
     const result = await query(queryText, params);
@@ -419,13 +421,16 @@ router.get('/batches', authenticateToken, async (req, res) => {
 
 router.get('/batches/:id', authenticateToken, async (req, res) => {
   try {
+    const locationId = await getTargetLocationId(req, query);
     const batchColumns = await getInventoryBatchColumns({ query });
     const displayCreatorExpr = batchColumns.hasOriginalActorName
       ? 'COALESCE(b.original_actor_name, u.username)'
       : 'u.username';
     const syncedByNameExpr = batchColumns.hasSyncedByName ? 'b.synced_by_name' : 'NULL';
     const wasSyncedExpr = batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false';
-    const isOfflineExpr = batchColumns.hasOfflineFlag ? 'b.is_offline' : 'false';
+    const isOfflineExpr = batchColumns.hasOfflineFlag
+      ? (batchColumns.hasSyncedById ? '(COALESCE(b.is_offline, false) OR b.synced_by_id IS NOT NULL)' : 'COALESCE(b.is_offline, false)')
+      : (batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false');
 
     const batchResult = await query(
       `SELECT b.*, u.username as created_by_name,
@@ -433,11 +438,11 @@ router.get('/batches/:id', authenticateToken, async (req, res) => {
               ${syncedByNameExpr} as synced_by_name,
               ${wasSyncedExpr} as was_synced,
               ${isOfflineExpr} as is_offline,
-              (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60) <= $2 as can_edit
+              (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60) <= $3 as can_edit
        FROM inventory_batches b
        JOIN users u ON b.created_by = u.id
-       WHERE b.id = $1`,
-      [req.params.id, BATCH_EDIT_WINDOW_MINUTES]
+       WHERE b.id = $1 AND b.location_id = $2`,
+      [req.params.id, locationId, BATCH_EDIT_WINDOW_MINUTES]
     );
 
     if (batchResult.rows.length === 0) {

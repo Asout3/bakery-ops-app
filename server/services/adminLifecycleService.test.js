@@ -33,7 +33,7 @@ test('createStaffAccount reactivates inactive matching account', async () => {
     }),
   };
 
-  const result = await createStaffAccount({ username: 'jane', password: 'Passw0rd!', role: 'manager', location_id: 1, staff_profile_id: 10 }, repository);
+  const result = await createStaffAccount({ username: 'jane', password: 'Passw0rd!', role: 'manager', location_id: 1, staff_profile_id: 10, reactivate_confirm: true }, repository);
 
   assert.equal(result.user.id, 7);
   assert.equal(calls.reactivate, 1);
