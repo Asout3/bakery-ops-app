@@ -1,75 +1,219 @@
+# Asout3
+
 # Bakery Operations Platform
 
-A production-oriented, role-based bakery management system with multi-branch operations, offline-safe sales replay, idempotent write protection, and hardened API/DB resilience.
+A production-ready, role-based bakery operations platform for multi-branch teams that need reliable daily sales, inventory, staffing, and financial transparency under real-world connectivity constraints.
+
+---
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Core Reliability Design](#core-reliability-design)
-- [Security Controls](#security-controls)
-- [Project Structure](#project-structure)
-- [Environment Configuration](#environment-configuration)
-- [Development Workflow](#development-workflow)
-- [Testing and Quality Gates](#testing-and-quality-gates)
-- [Production-like Local Run (Frontend + Backend)](#production-like-local-run-frontend--backend)
-- [Deployment Strategy (No Feature Loss)](#deployment-strategy-no-feature-loss)
-- [Deployment Checklist](#deployment-checklist)
+- [1. Product Vision](#1-product-vision)
+- [2. Key Capabilities](#2-key-capabilities)
+- [3. Technology Stack](#3-technology-stack)
+- [4. System Architecture](#4-system-architecture)
+- [5. Reliability and Offline Design](#5-reliability-and-offline-design)
+- [6. Security Model](#6-security-model)
+- [7. Data and Financial Transparency Model](#7-data-and-financial-transparency-model)
+- [8. API Conventions](#8-api-conventions)
+- [9. Repository Structure](#9-repository-structure)
+- [10. Environment Configuration](#10-environment-configuration)
+- [11. Local Development Setup](#11-local-development-setup)
+- [12. Build, Test, and Quality Workflow](#12-build-test-and-quality-workflow)
+- [13. Dashboard and Reporting Guide](#13-dashboard-and-reporting-guide)
+- [14. Deployment and Operations](#14-deployment-and-operations)
+- [15. Incident and Recovery Playbook](#15-incident-and-recovery-playbook)
+- [16. Troubleshooting](#16-troubleshooting)
+- [17. Contribution Workflow](#17-contribution-workflow)
+- [18. Production Readiness Checklist](#18-production-readiness-checklist)
 
-## Overview
+---
 
-The platform is designed for real bakery operations where intermittent connectivity and high checkout concurrency are normal. The current architecture emphasizes:
+## 1. Product Vision
 
-- predictable sales processing under unstable networks,
-- replay-safe offline synchronization,
-- transaction-safe backend operations,
-- standardized API error responses with request tracing.
-- standardized client-facing error messages (request IDs, fallback handling, and status-aware text).
-- browser-level offline page boot support for refresh scenarios.
+Bakery Operations Platform is built for bakery owners, ground managers, and cashiers who need one operational system that is:
 
-## Architecture
+- **fast at checkout**,
+- **resilient under unstable internet**,
+- **safe against duplicate sales writes**,
+- **transparent for owner-level financial reporting**,
+- **scalable to many branches with role-specific controls**.
 
-### High-Level System Diagram
+The platform prioritizes integrity of transactions and practical usability over ideal network assumptions.
+
+---
+
+## 2. Key Capabilities
+
+### Role-Based Operations
+
+- **Admin**: cross-branch visibility, staff/account management, financial reporting, KPI monitoring.
+- **Manager**: branch inventory and batch workflow, operational oversight.
+- **Cashier**: sales execution and transaction history.
+
+### Branch-Aware Context
+
+- Branch targeting through `X-Location-Id` for scoped operations.
+- Owner views can aggregate branch snapshots while preserving branch-level traceability.
+
+### Offline-First Safety
+
+- Queue-backed write replay from client when connectivity drops.
+- Idempotency key strategy to avoid duplicate persisted transactions.
+- Controlled replay pacing to reduce outage retry storms.
+
+### Financial Transparency
+
+- Sales, expenses, staff payments, batch production cost, and net-profit composition.
+- Daily/weekly/monthly reporting with detail tables and KPI summaries.
+
+---
+
+## 3. Technology Stack
+
+### Frontend
+
+- React 18
+- Vite
+- React Router
+- Axios
+- Recharts
+- Lucide React
+
+### Backend
+
+- Node.js 18+
+- Express.js
+- PostgreSQL (`pg`)
+- JWT auth
+- bcryptjs
+
+### Security and Validation
+
+- Helmet
+- express-rate-limit
+- express-validator
+
+---
+
+## 4. System Architecture
 
 ```mermaid
 flowchart TB
-  subgraph Frontend[Client - React + Vite]
-    UI[Role-Based UI]
+  subgraph Client[Frontend - React + Vite]
+    UI[Role-based UI]
     AX[Axios API Client]
-    SYNC[useOfflineSync Hook]
-    QUEUE[IndexedDB Offline Queue]
+    OFFQ[Offline Queue / Replay]
+    SW[Service Worker]
   end
 
-  subgraph Backend[API - Express]
+  subgraph API[Backend - Express]
     SEC[Security Middleware]
-    CTX[Request Context Middleware]
-    ROUTES[Routes]
-    SERVICES[Service Layer]
-    REPOS[Repository Layer]
+    AUTH[Auth + RBAC]
+    ROUTES[Route Handlers]
+    SVC[Services]
+    REPO[SQL Access]
     ERR[Central Error Handler]
   end
 
-  subgraph Data[PostgreSQL]
+  subgraph DB[PostgreSQL]
     CORE[(Operational Tables)]
     IDEM[(idempotency_keys)]
-    AUDIT[(activity_log + notifications + kpi_events)]
+    AUD[(activity_log / kpi_events / notifications)]
   end
 
-  UI --> AX --> SEC --> CTX --> ROUTES --> SERVICES --> REPOS --> Data
-  UI --> SYNC --> QUEUE --> AX
+  UI --> AX --> SEC --> AUTH --> ROUTES --> SVC --> REPO --> DB
+  UI --> OFFQ --> AX
+  UI --> SW
   ROUTES --> ERR
-  REPOS --> CORE
-  REPOS --> IDEM
-  REPOS --> AUDIT
+  REPO --> CORE
+  REPO --> IDEM
+  REPO --> AUD
 ```
 
-### Backend Layering
+Design goals:
 
-- `server/routes/`: HTTP transport concerns (validation, request/response mapping).
-- `server/services/`: business rules and workflow orchestration.
-- `server/repositories/`: SQL and persistence concerns.
-- `server/middleware/`: authentication, authorization, security, request context.
-- `server/utils/errors.js`: normalized API errors in the format:
+- predictable behavior in high-throughput cashier flows,
+- stable backend behavior during transient DB/network issues,
+- auditable operational and financial records.
+
+---
+
+## 5. Reliability and Offline Design
+
+### 5.1 Idempotent Writes
+
+For offline-safe writes:
+
+```http
+X-Idempotency-Key: unique-key-<timestamp-or-uuid>
+```
+
+The backend protects against duplicate processing by reusing prior deterministic outcomes when the same idempotency key is replayed.
+
+### 5.2 Offline Queue Replay
+
+- Writes are stored client-side when network is unavailable.
+- Replay uses the same idempotency identity.
+- Flush overlap is guarded to prevent concurrent duplicate loops.
+
+### 5.3 Backpressure and Retry Safety
+
+- Batch-limited replay protects degraded servers.
+- Retry-storm prevention pauses remaining operations after outage-style failures (`5xx`, `429`, transport errors).
+
+### 5.4 Transaction Resilience
+
+- Rollback-aware transaction handling.
+- Transient DB classification and stable `503` responses for availability issues.
+- Request IDs for cross-layer traceability.
+
+---
+
+## 6. Security Model
+
+### Core Controls
+
+- JWT authentication and role-based route protection.
+- Production-grade middleware hardening with Helmet.
+- Endpoint rate limiting (auth and general API).
+- Parameterized SQL across data access paths.
+
+### Password Policy
+
+Passwords are enforced to include:
+
+- minimum length 8,
+- at least one letter,
+- at least one number,
+- at least one special character.
+
+### Admin Credential Operations
+
+- In-app admin credential updates (username/password) with current-password verification.
+- Optional emergency recovery endpoint guarded by `ADMIN_RECOVERY_KEY`.
+
+---
+
+## 7. Data and Financial Transparency Model
+
+The reporting layer provides a composable financial model:
+
+- **Revenue** from completed sales,
+- **Manual Expenses** from expense ledger,
+- **Staff Payments** from payroll/advances,
+- **Batch Production Cost** from non-voided production batches,
+- **Net Profit** = revenue minus all cost components.
+
+This model is exposed consistently across daily, weekly, and monthly periods.
+
+---
+
+## 8. API Conventions
+
+### Error Format
+
+All errors follow:
 
 ```json
 {
@@ -79,99 +223,42 @@ flowchart TB
 }
 ```
 
-## Core Reliability Design
+### Branch Context Header
 
-This section documents the reliability hardening added specifically to prevent the previously observed offline-sync failure patterns.
-
-### 1) Offline Replay Safety
-
-- Sales requests use `X-Idempotency-Key` to prevent duplicate writes.
-- A service worker caches the app shell (`index.html` + static assets) so users can refresh and still open the app UI while offline.
-- Offline operations are persisted in IndexedDB and replayed with the same idempotency identity.
-- Queue flushes are guarded against overlap (`flushInProgress`) to prevent concurrent duplicate replay loops.
-- Batches are capped (`MAX_BATCH_PER_FLUSH`) so one flush cycle does not overload a degraded backend.
-- Adaptive request timeouts reduce false failures on slow connections.
-
-### 2) Retry-Storm Prevention During Outages
-
-- During queue replay, if an operation fails with server-unavailable characteristics (network failure / 5xx / 429), the queue pauses the remainder of the current batch.
-- This reduces pressure on the API/DB during incidents and allows controlled retries on subsequent sync cycles.
-
-### 3) Transaction and Connection Resilience
-
-- Database transient failures are detected and classified (timeouts, terminated connections, connection transport errors).
-- Transient DB failures are surfaced as `503` with a stable code (`DB_UNAVAILABLE`) for predictable client handling.
-- Transaction rollback paths are guarded so broken sockets do not cascade into process-level instability.
-- Broken clients are not reused in the pool (`release(true)` behavior).
-
-### 4) Process Stability and Observability
-
-- Request context middleware attaches a request ID for traceability.
-- Centralized error handler standardizes API failure responses.
-- Global process handlers avoid terminating the API process for recognized transient DB connectivity failures.
-
-### 5) Idempotent Sales Flow
-
-```mermaid
-sequenceDiagram
-  participant Cashier
-  participant Client
-  participant Queue
-  participant API
-  participant DB
-
-  Cashier->>Client: Submit checkout
-  Client->>API: POST /api/sales + X-Idempotency-Key
-  alt Request fails (offline or transient backend issue)
-    Client->>Queue: Persist operation + payload
-    Queue->>API: Replay later with same idempotency key
-  end
-  API->>DB: Acquire advisory lock on user+key
-  API->>DB: Check/insert idempotency_keys
-  API-->>Client: Deterministic single-sale outcome
+```http
+X-Location-Id: <branch-id>
 ```
 
+### Idempotency Header
 
-### 6) Client Error UX and Route Safety
+```http
+X-Idempotency-Key: <unique-value>
+```
 
-- Axios response normalization maps technical/network failures into user-facing messages and preserves server `code`/`requestId` context.
-- A global UI error boundary is enabled so fatal render issues land in a controlled fallback screen.
-- A dedicated `404` route catches unknown paths with a professional not-found page instead of a blank/unstyled fallback.
+---
 
-### 7) Manager Offline Continuity
-
-- Manager inventory/product lists are now cached per branch in local storage.
-- Optimistic offline inventory/product adjustments are persisted to local caches so refresh does not resurrect already-consumed stock.
-- When offline, manager screens restore cached products/inventory so batch preparation can continue.
-- Offline batch sends are queued with idempotency keys for replay.
-- Admin product/inventory changes also queue offline and are rendered as pending sync in the UI.
-
-## Security Controls
-
-- Helmet hardening enabled (with stricter policies in production).
-- CORS policy controlled by `ALLOWED_ORIGINS`.
-- API rate limiting for auth and general endpoints.
-- JWT-based authentication with startup validation for secret strength.
-- Parameterized SQL queries across persistence layer.
-- Role-based authorization for protected routes.
-
-## Project Structure
+## 9. Repository Structure
 
 ```text
-client/          React + Vite frontend
-server/          Express backend
-  routes/        API route handlers
-  middleware/    auth/security/validation/request context
-  services/      business logic orchestration
-  repositories/  persistence layer
-  utils/         shared helpers and error handling
-database/        PostgreSQL schema and migrations
-scripts/         setup and utility scripts
+client/                  React + Vite frontend
+server/                  Express backend
+  routes/                API handlers
+  middleware/            auth/security/validation
+  services/              workflow/business logic
+  repositories/          persistence abstraction
+  utils/                 shared helpers/errors
+database/                schema and migrations
+scripts/                 setup and utility scripts
+docs/                    architecture, gap analysis, runbooks
 ```
 
-## Environment Configuration
+---
 
-Required values (see `.env.example`):
+## 10. Environment Configuration
+
+Use `.env.example` as baseline.
+
+Required core values:
 
 ```env
 PORT=5000
@@ -181,187 +268,204 @@ DATABASE_URL=<postgresql-connection-string>
 ALLOWED_ORIGINS=https://yourdomain.com
 ```
 
-## Development Workflow
+Optional operational value:
+
+```env
+ADMIN_RECOVERY_KEY=<strong-emergency-recovery-key>
+```
+
+Use the recovery key only for controlled emergency account recovery by trusted operators.
+
+---
+
+## 11. Local Development Setup
+
+### 11.1 Install Dependencies
 
 ```bash
 npm install
 cd client && npm install && cd ..
+```
+
+### 11.2 Configure Environment
+
+```bash
+cp .env.example .env
+```
+
+Fill values for your local database and JWT secret.
+
+### 11.3 Initialize Database
+
+```bash
 npm run setup-db
+```
+
+### 11.4 Start Full Stack
+
+```bash
 npm run dev
 ```
 
-Useful commands:
+Frontend and backend run concurrently.
 
-```bash
-npm run server      # backend only
-npm run client      # frontend only
-npm run build       # production client build
-npm start           # production server start
-```
+---
 
-## Testing and Quality Gates
+## 12. Build, Test, and Quality Workflow
+
+### Test Suite
 
 ```bash
 npm test
-npm run lint
-npm run build
 ```
 
-## Production-like Local Run (Frontend + Backend)
-
-Use this flow when validating offline-refresh behavior and backend APIs together.
-
-1) Terminal A: run backend API
-
-```bash
-cd /workspace/bakery-ops-app
-npm run server
-```
-
-2) Terminal B: build and preview frontend
-
-```bash
-cd /workspace/bakery-ops-app/client
-npm run build
-npm run preview
-```
-
-3) Open the preview URL (usually `http://localhost:4173`).
-
-4) Make sure frontend can call backend:
-- If needed, set `VITE_API_URL=http://localhost:5000/api` in `client/.env` for preview/deploy environments.
-- If your platform uses different domains, ensure `ALLOWED_ORIGINS` on backend includes the frontend origin.
-
-Notes:
-- `npm run preview` exists in `client/package.json`, not root `package.json`.
-- Offline-refresh testing should be done with preview/deployed build, not Vite dev mode.
-- In this repo, service worker registration is enabled in development too for branch-level offline regression testing.
-
-
-
-## Dashboard Financial Transparency (Daily / Weekly / Monthly)
-
-The admin dashboard is designed to show transparent, auditable financial flows for each period view.
-
-### Included financial tables
-
-1. **Sales Transparency**
-   - Product name
-   - Quantity sold
-   - Revenue generated per product
-   - Totals row for quantity and revenue
-
-2. **Batch Cost Transparency (Outflow)**
-   - Batch reference
-   - Created-by user
-   - Product, quantity, unit cost, line cost
-   - Totals row for period batch cost
-
-3. **Expense Ledger**
-   - Expense category, description, amount, date
-   - Totals row for period expenses
-
-4. **Employee Salary Payments**
-   - Staff name, payment type, amount, date
-   - Totals row for period staff payments
-
-5. **Cashier Performance (Cashier Accounts Only)**
-   - Cashier username
-   - Transaction count
-   - Voided transaction count
-   - Offline-synced transaction count
-   - Total sales generated by the cashier
-
-### Profit formulas shown in the dashboard
-
-- **Gross Profit** = Sales Revenue - Operational Expenses
-- **Net Profit** = Sales Revenue - (Operational Expenses + Batch Costs + Staff Payments)
-
-These formulas are applied consistently for daily, weekly, and monthly views.
-
-## Offline Sync & Offline Refresh Validation Matrix
-
-Run this matrix before production releases. It focuses on edge cases that previously caused data mismatch, duplicate writes, or blank screens.
-
-### Pre-check
-
-```bash
-npm run setup-db
-npm run build
-npm run server
-cd client && npm run preview
-```
-
-### Edge-case scenarios
-
-1. **Offline refresh on previously visited route**
-   - Login while online.
-   - Visit manager inventory/batches pages at least once.
-   - Go offline in browser devtools and hard-refresh.
-   - Expected: app shell loads, cached pages render, no white screen.
-
-2. **Queue replay idempotency**
-   - Go offline.
-   - Create the same logical operation once (sale or batch send) and ensure it is queued.
-   - Restore online connectivity.
-   - Expected: one successful backend write per queued op; no duplicate records after replay.
-
-3. **Auth/session edge during polling**
-   - Keep notifications polling active.
-   - Trigger a transient 401 from notifications endpoint (token expiry or forced invalid token).
-   - Expected: unread badge resets safely for polling call, and user is only redirected for real auth-protected flows requiring re-login.
-
-4. **Batch history ordering with offline-synced records**
-   - Create online batch, then offline batch, then reconnect/sync.
-   - Expected: history ordering is deterministic with latest relevant timestamp first; no random mid-list placement.
-
-5. **Edit/void window check**
-   - Create batch and verify edit/void controls are available within 20 minutes.
-   - After window expiry, verify actions are blocked and UI indicates locked state.
-
-6. **Location scoping**
-   - Use multi-branch users.
-   - Try opening batch details while switching active location.
-   - Expected: batch detail endpoint only returns records for active authorized location.
-
-### Automated checks
+### Linting
 
 ```bash
 npm run lint
-npm test -- --runInBand
+```
+
+### Production Build
+
+```bash
 npm run build
 ```
 
-If tests fail, block release unless the failure is documented as pre-existing and unrelated to the release scope.
+### Production Start
 
-## Deployment Strategy (No Feature Loss)
+```bash
+npm start
+```
 
-To avoid losing offline and sync behavior when frontend/backend are deployed separately:
+---
 
-- Deploy backend API and frontend app as separate artifacts/environments.
-- Keep API contract stable (`Authorization`, `X-Location-Id`, `X-Idempotency-Key`, error format).
-- Keep service worker and offline queue enabled in production frontend build.
-- Ensure frontend base API URL targets the deployed backend (`VITE_API_URL`).
-- Ensure backend CORS (`ALLOWED_ORIGINS`) allows deployed frontend origins.
-- Validate key acceptance flows after each release:
-  - normal online sale,
-  - offline sale queue,
-  - reconnect + sync replay,
-  - offline refresh on already-visited route.
+## 13. Dashboard and Reporting Guide
 
-## Deployment Checklist
+### Periods
 
-- Set `NODE_ENV=production`
-- Set strong `JWT_SECRET` (32+ chars)
-- Set `DATABASE_URL` with SSL policy
-- Configure `ALLOWED_ORIGINS`
-- Apply database migrations before startup
-- Verify health probes: `/api/health`, `/api/ready`, `/api/live`
+- Daily
+- Weekly
+- Monthly
 
+### Dashboard Includes
 
-## Offline Refresh & Sync Notes
+- KPI summary cards
+- Top products chart
+- Payment method breakdown
+- Products sold details
+- Cashier performance table
+- Batch performance table
+- Expense records table
+- Cost components transparency table
+- Multi-branch snapshot (owner/admin scope)
 
-- In **development (`npm run dev`)**, the app now refreshes service worker registration on every page load to prevent stale cached chunks while still enabling offline-refresh testing.
-- In **preview/production**, service worker registration remains standard and caches app shell/static assets for offline refresh behavior.
-- If you see old UI chunks during local testing, perform a hard refresh (`Ctrl+Shift+R`) after restarting the dev server.
-- Offline queue replay is now available from any logged-in role when back online. Auth/session failures are classified as **Needs Review** for admin follow-up.
+### Reporting Integrity Rules
+
+- Non-voided transactions are used for revenue and profitability calculations.
+- Optional schema columns are handled safely through capability checks.
+- Batch cost calculations exclude voided batches.
+
+---
+
+## 14. Deployment and Operations
+
+### Typical Production Flow
+
+1. Provision PostgreSQL with SSL.
+2. Set environment variables.
+3. Run migrations/setup.
+4. Build frontend assets.
+5. Start API server.
+6. Validate health and role-specific flows.
+
+### Docker Commands
+
+```bash
+npm run docker:build
+npm run docker:compose
+npm run docker:down
+```
+
+---
+
+## 15. Incident and Recovery Playbook
+
+### 15.1 Offline Sync Incidents
+
+- Confirm queue replay behavior.
+- Verify idempotency keys are present.
+- Watch for `429`/`5xx` pause logic.
+
+### 15.2 Admin Credential Incidents
+
+- Prefer in-app change-credentials flow.
+- If admin forgot password, use recovery only when `ADMIN_RECOVERY_KEY` is configured and controlled.
+
+### 15.3 Branch/PR Recovery
+
+A dedicated guide exists:
+
+- `docs/pr-recovery-guide.md`
+
+Use it when pull/rebase/reset leaves branch state inconsistent.
+
+---
+
+## 16. Troubleshooting
+
+### Problem: Dashboard shows errors around missing columns
+
+Cause: environment schema drift (older DB missing optional columns).
+
+Action:
+
+- run migrations/setup against target environment,
+- verify latest report route capability checks are deployed,
+- confirm backend and frontend branches are aligned.
+
+### Problem: Credential update returns `400`
+
+Possible causes:
+
+- current password mismatch,
+- weak new password,
+- unchanged username/password payload,
+- username already taken.
+
+### Problem: Recovery endpoint unavailable
+
+Cause: `ADMIN_RECOVERY_KEY` not set.
+
+Action: configure in secure environment and restart server.
+
+---
+
+## 17. Contribution Workflow
+
+1. Create topic branch.
+2. Implement scoped change.
+3. Run `npm test`, `npm run lint`, `npm run build`.
+4. Commit with clear message.
+5. Open PR with:
+   - motivation,
+   - implementation details,
+   - validation evidence,
+   - screenshots for visual changes.
+
+---
+
+## 18. Production Readiness Checklist
+
+- [ ] `JWT_SECRET` set and strong (32+ chars)
+- [ ] `ALLOWED_ORIGINS` configured for real domains
+- [ ] `NODE_ENV=production`
+- [ ] `DATABASE_URL` points to SSL-enabled production DB
+- [ ] migrations/setup applied
+- [ ] frontend build artifacts generated
+- [ ] health checks and smoke tests passed
+- [ ] rate limits validated
+- [ ] admin recovery key policy defined (if recovery is enabled)
+
+---
+
+For implementation-specific details, review source modules under `server/routes`, `server/middleware`, and `client/src/pages/admin`.
