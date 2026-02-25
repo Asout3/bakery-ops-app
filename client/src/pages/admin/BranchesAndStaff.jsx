@@ -295,7 +295,11 @@ export default function BranchesAndStaff() {
       }
     } catch (err) {
       const validationText = err.response?.data?.details?.map((x) => x.msg).join(', ');
-      showFeedback('danger', validationText || err.response?.data?.error || 'Could not update credentials');
+      const apiCode = err.response?.data?.code;
+      const fallbackMessage = apiCode === 'AUTH_INVALID_CURRENT_PASSWORD'
+        ? 'Current password is incorrect. Please enter your latest password.'
+        : err.response?.data?.error || 'Could not update credentials';
+      showFeedback('danger', validationText || fallbackMessage);
     } finally {
       setSavingCredentials(false);
     }
@@ -338,7 +342,7 @@ export default function BranchesAndStaff() {
           </div>
           <div className="mt-3 d-flex flex-wrap align-items-center gap-2">
             <button className="btn btn-dark px-4" disabled={savingCredentials}>{savingCredentials ? 'Saving...' : 'Update My Credentials'}</button>
-            <small className="text-muted">You can update username, password, or both. You will be asked to confirm before saving.</small>
+            <small className="text-muted">You can update username, password, or both. Passwords must include letter, number, and special character.</small>
           </div>
         </form>
       </div></div>

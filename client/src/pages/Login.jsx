@@ -70,7 +70,12 @@ export default function Login() {
       setRecoveryPasswordConfirm('');
       setRecoveryKey('');
     } catch (err) {
-      setRecoveryMessage(getErrorMessage(err, 'Recovery failed'));
+      const apiCode = err.response?.data?.code;
+      const baseMessage = getErrorMessage(err, 'Recovery failed');
+      const recoveryMessage = apiCode === 'RECOVERY_NOT_CONFIGURED'
+        ? 'Recovery is disabled on this server. Ask owner to set ADMIN_RECOVERY_KEY.'
+        : baseMessage;
+      setRecoveryMessage(recoveryMessage);
     } finally {
       setRecoveryLoading(false);
     }
@@ -176,7 +181,7 @@ export default function Login() {
                 <button className="btn btn-primary" disabled={recoveryLoading}>{recoveryLoading ? 'Resetting...' : 'Reset Password'}</button>
                 <button type="button" className="btn btn-secondary" onClick={() => setShowRecoveryModal(false)}>Close</button>
               </div>
-              <small className="text-muted mt-2 d-block">Ask deployment owner to set ADMIN_RECOVERY_KEY in server environment before using this feature.</small>
+              <small className="text-muted mt-2 d-block">This works only when ADMIN_RECOVERY_KEY is set on the server by a trusted owner.</small>
             </form>
           </div>
         </div>
