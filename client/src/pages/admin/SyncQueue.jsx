@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
-import { flushQueue, getSyncStats, listQueuedOperations, listSyncHistory } from '../../utils/offlineQueue';
+import { flushQueue, getSyncStats, listQueuedOperations, listSyncHistory, retryOperation, resolveOperation, ignoreOperation } from '../../utils/offlineQueue';
 
 const getStatusLabel = (status) => {
   if (status === 'needs_review') return 'Needs Review';
   if (status === 'conflict') return 'Conflict';
   if (status === 'failed') return 'Failed';
   if (status === 'synced') return 'Synced';
+  if (status === 'resolved') return 'Resolved';
+  if (status === 'ignored') return 'Ignored';
   if (status === 'retrying') return 'Retrying';
   if (status === 'pending') return 'Pending';
   return status;
@@ -17,6 +19,8 @@ const getStatusBadgeClass = (status) => {
   if (status === 'conflict') return 'badge-danger';
   if (status === 'failed') return 'badge-danger';
   if (status === 'synced') return 'badge-success';
+  if (status === 'resolved') return 'badge-success';
+  if (status === 'ignored') return 'badge-secondary';
   if (status === 'retrying') return 'badge-info';
   if (status === 'pending') return 'badge-primary';
   return 'badge-secondary';
@@ -28,6 +32,7 @@ export default function SyncQueuePage() {
   const [stats, setStats] = useState({ total: 0, pending: 0, conflict: 0, needsReview: 0, failed: 0 });
   const [loading, setLoading] = useState(true);
   const [syncResult, setSyncResult] = useState(null);
+  const [adminNotes, setAdminNotes] = useState({});
 
   const refresh = async () => {
     setLoading(true);
@@ -48,6 +53,23 @@ export default function SyncQueuePage() {
   const handleSyncNow = async () => {
     const result = await flushQueue(api);
     setSyncResult(result);
+    await refresh();
+  };
+
+  const handleRetry = async (operationId) => {
+    await retryOperation(operationId);
+    await refresh();
+  };
+
+  const handleResolve = async (operationId) => {
+    await resolveOperation(operationId, adminNotes[operationId] || '');
+    setAdminNotes((prev) => ({ ...prev, [operationId]: '' }));
+    await refresh();
+  };
+
+  const handleIgnore = async (operationId) => {
+    await ignoreOperation(operationId, adminNotes[operationId] || '');
+    setAdminNotes((prev) => ({ ...prev, [operationId]: '' }));
     await refresh();
   };
 
@@ -81,7 +103,7 @@ export default function SyncQueuePage() {
           {queued.length === 0 ? <p className="text-muted">No queued operations.</p> : (
             <div className="table-responsive">
               <table className="table table-hover">
-                <thead><tr><th>Operation</th><th>Status</th><th>Retries</th><th>Last Error</th></tr></thead>
+                <thead><tr><th>Operation</th><th>Status</th><th>Retries</th><th>Last Error</th><th>Actions</th></tr></thead>
                 <tbody>
                   {queued.map((op) => (
                     <tr key={op.id}>
@@ -89,6 +111,24 @@ export default function SyncQueuePage() {
                       <td><span className={`badge ${getStatusBadgeClass(op.status)}`}>{getStatusLabel(op.status)}</span></td>
                       <td>{op.retries || 0}</td>
                       <td>{op.lastError || '—'}</td>
+                      <td>
+                        {(op.status === 'conflict' || op.status === 'failed' || op.status === 'needs_review') ? (
+                          <div style={{ display: 'grid', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <button className="btn btn-sm btn-primary" onClick={() => handleRetry(op.id)}>Retry</button>
+                              <button className="btn btn-sm btn-success" onClick={() => handleResolve(op.id)}>Mark Resolved</button>
+                              <button className="btn btn-sm btn-secondary" onClick={() => handleIgnore(op.id)}>Ignore</button>
+                            </div>
+                            <input
+                              className="form-control form-control-sm"
+                              type="text"
+                              placeholder="Optional resolution note"
+                              value={adminNotes[op.id] || ''}
+                              onChange={(e) => setAdminNotes((prev) => ({ ...prev, [op.id]: e.target.value }))}
+                            />
+                          </div>
+                        ) : '—'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

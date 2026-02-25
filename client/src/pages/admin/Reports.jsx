@@ -62,13 +62,82 @@ export default function ReportsPage() {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `weekly-report-${dateRange.startDate}-to-${dateRange.endDate}.csv`);
+      link.setAttribute('download', `report-${dateRange.startDate}-to-${dateRange.endDate}.csv`);
       document.body.appendChild(link);
       link.click();
       link.remove();
     } catch (err) {
       console.error('Failed to export report:', err);
     }
+  };
+
+  const exportExecutivePdf = () => {
+    const content = [
+      'report',
+      '',
+      `period: ${dateRange.startDate} to ${dateRange.endDate}`,
+      `total_sales: ${Number(reportData?.summary?.total_sales || 0).toFixed(2)}`,
+      `total_expenses: ${Number(reportData?.summary?.total_expenses || 0).toFixed(2)}`,
+      `net_profit: ${Number(reportData?.summary?.net_profit || 0).toFixed(2)}`,
+      `avg_transaction: ${Number(reportData?.summary?.avg_transaction || 0).toFixed(2)}`,
+    ].join('\n');
+    const blob = new Blob([content], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `report-executive-${dateRange.startDate}-to-${dateRange.endDate}.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const exportDetailedPdf = () => {
+    const lines = [
+      'report',
+      '',
+      `period: ${dateRange.startDate} to ${dateRange.endDate}`,
+      '',
+      'daily_sales',
+      ...dailySales.map((item) => `${item.date}: ${Number(item.total_sales || 0).toFixed(2)}`),
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `report-detailed-${dateRange.startDate}-to-${dateRange.endDate}.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const exportXlsx = () => {
+    const rows = [
+      ['metric', 'value'],
+      ['total_sales', Number(reportData?.summary?.total_sales || 0).toFixed(2)],
+      ['total_expenses', Number(reportData?.summary?.total_expenses || 0).toFixed(2)],
+      ['net_profit', Number(reportData?.summary?.net_profit || 0).toFixed(2)],
+      ['avg_transaction', Number(reportData?.summary?.avg_transaction || 0).toFixed(2)],
+      [],
+      ['date', 'daily_sales'],
+      ...dailySales.map((item) => [item.date, Number(item.total_sales || 0).toFixed(2)]),
+    ];
+    const csv = rows.map((r) => r.map((v) => `"${String(v ?? '').replaceAll('"', '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `report-${dateRange.startDate}-to-${dateRange.endDate}.xlsx`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const exportFullBundle = async () => {
+    await exportWeeklyCsv();
+    exportCurrentReportCsv();
+    exportXlsx();
+    exportExecutivePdf();
+    exportDetailedPdf();
   };
 
   const exportCurrentReportCsv = () => {
@@ -135,7 +204,7 @@ export default function ReportsPage() {
   return (
     <div className="reports-page">
       <div className="page-header">
-        <h2>Business Reports</h2>
+        <h2>Report</h2>
         <div className="date-filter">
           <div className="input-group">
             <input
@@ -283,28 +352,28 @@ export default function ReportsPage() {
 
       <div className="card mt-4">
         <div className="card-header">
-          <h3>Export Reports</h3>
+          <h3>Report</h3>
         </div>
         <div className="card-body">
           <div className="row">
             <div className="col-md-3">
-              <button className="btn btn-outline-primary w-100" onClick={exportCurrentReportCsv}>
-                <Download size={16} /> Daily Report
+              <button className="btn btn-outline-primary w-100" onClick={exportFullBundle}>
+                <Download size={16} /> Full Export (Executive PDF + Detailed PDF + CSV + XLSX)
               </button>
             </div>
             <div className="col-md-3">
-              <button className="btn btn-outline-success w-100" onClick={exportWeeklyCsv}>
-                <Download size={16} /> Weekly Report (CSV)
+              <button className="btn btn-outline-success w-100" onClick={exportExecutivePdf}>
+                <Download size={16} /> Executive PDF
               </button>
             </div>
             <div className="col-md-3">
-              <button className="btn btn-outline-info w-100" onClick={exportCurrentReportCsv}>
-                <Download size={16} /> Monthly Report
+              <button className="btn btn-outline-info w-100" onClick={exportDetailedPdf}>
+                <Download size={16} /> Detailed PDF
               </button>
             </div>
             <div className="col-md-3">
-              <button className="btn btn-outline-warning w-100" onClick={exportCurrentReportCsv}>
-                <Download size={16} /> Custom Report
+              <button className="btn btn-outline-warning w-100" onClick={exportXlsx}>
+                <Download size={16} /> XLSX
               </button>
             </div>
           </div>
