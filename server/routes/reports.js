@@ -27,8 +27,9 @@ router.get('/daily', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Location context is required for reports.' });
     }
     const salesColumns = await getSalesColumnCapabilities(query);
-    const voidedExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed') = 'voided'" : "false";
-    const offlineExpr = salesColumns.hasOfflineFlag ? 's.is_offline = true' : 'false';
+    const nonVoidedExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed') <> 'voided'" : 'true';
+    const statusSelectExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed')" : "'completed'";
+    const offlineSelectExpr = salesColumns.hasOfflineFlag ? 'COALESCE(s.is_offline, false)' : 'false';
     const date = req.query.date || new Date().toISOString().split('T')[0];
 
     if (req.user?.role === 'admin') {
@@ -44,8 +45,9 @@ router.get('/daily', authenticateToken, async (req, res) => {
          COUNT(*) as total_transactions,
          SUM(total_amount) as total_sales,
          AVG(total_amount) as avg_transaction
-       FROM sales
-       WHERE location_id = $1 AND DATE(sale_date) = $2`,
+       FROM sales s
+       WHERE s.location_id = $1 AND DATE(s.sale_date) = $2
+         AND ${nonVoidedExpr}`,
       [locationId, date]
     );
 
@@ -57,6 +59,7 @@ router.get('/daily', authenticateToken, async (req, res) => {
        JOIN sales s ON si.sale_id = s.id
        JOIN products p ON si.product_id = p.id
        WHERE s.location_id = $1 AND DATE(s.sale_date) = $2
+         AND ${nonVoidedExpr}
        GROUP BY p.id, p.name, p.unit
        ORDER BY revenue DESC
        LIMIT 10`,
@@ -86,31 +89,47 @@ router.get('/daily', authenticateToken, async (req, res) => {
          payment_method,
          COUNT(*) as count,
          SUM(total_amount) as total
-       FROM sales
-       WHERE location_id = $1 AND DATE(sale_date) = $2
+       FROM sales s
+       WHERE s.location_id = $1 AND DATE(s.sale_date) = $2
+         AND ${nonVoidedExpr}
        GROUP BY payment_method`,
       [locationId, date]
     );
 
 
     const cashierPerformanceResult = await query(
-      `SELECT u.username as cashier_name,
+      `WITH sale_base AS (
+          SELECT s.id,
+                 s.cashier_id,
+                 s.total_amount,
+                 s.payment_method,
+                 ${statusSelectExpr} as sale_status,
+                 ${offlineSelectExpr} as is_offline
+          FROM sales s
+          JOIN users u ON u.id = s.cashier_id
+          WHERE s.location_id = $1 AND DATE(s.sale_date) = $2
+            AND u.is_active = true
+            AND u.role = 'cashier'
+       ),
+       item_totals AS (
+          SELECT si.sale_id, COALESCE(SUM(si.quantity), 0) as items_sold
+          FROM sale_items si
+          GROUP BY si.sale_id
+       )
+       SELECT u.username as cashier_name,
               u.role as cashier_role,
-              s.cashier_id,
-              COUNT(*) as transactions,
-              COALESCE(SUM(s.total_amount), 0) as total_sales,
-              COALESCE(SUM(CASE WHEN s.payment_method = 'cash' THEN s.total_amount ELSE 0 END), 0) as cash_sales,
-              COALESCE(SUM(CASE WHEN s.payment_method = 'mobile' THEN s.total_amount ELSE 0 END), 0) as mobile_sales,
-              COALESCE(SUM(si.quantity), 0) as items_sold,
-              COALESCE(SUM(CASE WHEN ${voidedExpr} THEN 1 ELSE 0 END), 0) as voided_transactions,
-              COALESCE(SUM(CASE WHEN ${offlineExpr} THEN 1 ELSE 0 END), 0) as offline_synced_transactions
-       FROM sales s
-       JOIN users u ON u.id = s.cashier_id
-       LEFT JOIN sale_items si ON si.sale_id = s.id
-       WHERE s.location_id = $1 AND DATE(s.sale_date) = $2
-         AND u.is_active = true
-         AND u.role = 'cashier'
-       GROUP BY s.cashier_id, u.username, u.role
+              sb.cashier_id,
+              COALESCE(COUNT(*) FILTER (WHERE sb.sale_status <> 'voided'), 0) as transactions,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' THEN sb.total_amount ELSE 0 END), 0) as total_sales,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'cash' THEN sb.total_amount ELSE 0 END), 0) as cash_sales,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'mobile' THEN sb.total_amount ELSE 0 END), 0) as mobile_sales,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' THEN COALESCE(it.items_sold, 0) ELSE 0 END), 0) as items_sold,
+              COALESCE(SUM(CASE WHEN sb.sale_status = 'voided' THEN 1 ELSE 0 END), 0) as voided_transactions,
+              COALESCE(SUM(CASE WHEN sb.is_offline = true THEN 1 ELSE 0 END), 0) as offline_synced_transactions
+       FROM sale_base sb
+       JOIN users u ON u.id = sb.cashier_id
+       LEFT JOIN item_totals it ON it.sale_id = sb.id
+       GROUP BY sb.cashier_id, u.username, u.role
        ORDER BY total_sales DESC`,
       [locationId, date]
     );
@@ -221,8 +240,9 @@ router.get('/weekly', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Location context is required for reports.' });
     }
     const salesColumns = await getSalesColumnCapabilities(query);
-    const voidedExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed') = 'voided'" : "false";
-    const offlineExpr = salesColumns.hasOfflineFlag ? 's.is_offline = true' : 'false';
+    const nonVoidedExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed') <> 'voided'" : 'true';
+    const statusSelectExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed')" : "'completed'";
+    const offlineSelectExpr = salesColumns.hasOfflineFlag ? 'COALESCE(s.is_offline, false)' : 'false';
     const endDate = req.query.end_date || new Date().toISOString().split('T')[0];
 
     if (req.user?.role === 'admin') {
@@ -241,21 +261,22 @@ router.get('/weekly', authenticateToken, async (req, res) => {
     }
 
     const salesByDayResult = await query(
-      `SELECT 
-         DATE(sale_date) as date,
-         COUNT(*) as transactions,
-         SUM(total_amount) as total_sales
-       FROM sales
-       WHERE location_id = $1 AND DATE(sale_date) BETWEEN $2 AND $3
-       GROUP BY DATE(sale_date)
+      `SELECT DATE(s.sale_date) as date,
+              COUNT(*) as transactions,
+              COALESCE(SUM(s.total_amount), 0) as total_sales
+       FROM sales s
+       WHERE s.location_id = $1 AND DATE(s.sale_date) BETWEEN $2 AND $3
+         AND ${nonVoidedExpr}
+       GROUP BY DATE(s.sale_date)
        ORDER BY date`,
       [locationId, startDate, endDate]
     );
 
     const totalsResult = await query(
       `SELECT 
-         (SELECT COALESCE(SUM(total_amount), 0) FROM sales 
-          WHERE location_id = $1 AND DATE(sale_date) BETWEEN $2 AND $3) as total_sales,
+         (SELECT COALESCE(SUM(s.total_amount), 0) FROM sales s
+          WHERE s.location_id = $1 AND DATE(s.sale_date) BETWEEN $2 AND $3
+            AND ${nonVoidedExpr}) as total_sales,
          (SELECT COALESCE(SUM(amount), 0) FROM expenses 
           WHERE location_id = $1 AND expense_date BETWEEN $2 AND $3) as total_expenses,
          (SELECT COUNT(*) FROM expenses 
@@ -267,23 +288,15 @@ router.get('/weekly', authenticateToken, async (req, res) => {
       [locationId, startDate, endDate]
     );
 
-    const totals = totalsResult.rows[0];
-    const totalRevenue = parseFloat(totals.total_sales) || 0;
-    const totalExpenses = parseFloat(totals.total_expenses) || 0;
-    const totalStaffPayments = parseFloat(totals.total_staff_payments) || 0;
-    const totalBatchCosts = parseFloat(batchCostResult.rows[0]?.total_batch_cost || 0);
-    const totalCosts = totalExpenses + totalStaffPayments + totalBatchCosts;
-    const grossProfit = totalRevenue - totalExpenses;
-    const netProfit = totalRevenue - totalCosts;
-
     const topProductsResult = await query(
-      `SELECT p.name, 
+      `SELECT p.name,
               SUM(si.quantity) as total_sold,
               SUM(si.subtotal) as revenue
        FROM sale_items si
        JOIN sales s ON si.sale_id = s.id
        JOIN products p ON si.product_id = p.id
        WHERE s.location_id = $1 AND DATE(s.sale_date) BETWEEN $2 AND $3
+         AND ${nonVoidedExpr}
        GROUP BY p.id, p.name
        ORDER BY revenue DESC
        LIMIT 10`,
@@ -299,39 +312,55 @@ router.get('/weekly', authenticateToken, async (req, res) => {
        JOIN products p ON si.product_id = p.id
        LEFT JOIN categories c ON p.category_id = c.id
        WHERE s.location_id = $1 AND DATE(s.sale_date) BETWEEN $2 AND $3
+         AND ${nonVoidedExpr}
        GROUP BY c.name
        ORDER BY revenue DESC`,
       [locationId, startDate, endDate]
     );
 
     const paymentMethodsResult = await query(
-      `SELECT payment_method, COUNT(*) as count, SUM(total_amount) as total
-       FROM sales
-       WHERE location_id = $1 AND DATE(sale_date) BETWEEN $2 AND $3
-       GROUP BY payment_method
+      `SELECT s.payment_method, COUNT(*) as count, COALESCE(SUM(s.total_amount), 0) as total
+       FROM sales s
+       WHERE s.location_id = $1 AND DATE(s.sale_date) BETWEEN $2 AND $3
+         AND ${nonVoidedExpr}
+       GROUP BY s.payment_method
        ORDER BY total DESC`,
       [locationId, startDate, endDate]
     );
 
-
     const cashierPerformanceResult = await query(
-      `SELECT u.username as cashier_name,
+      `WITH sale_base AS (
+          SELECT s.id,
+                 s.cashier_id,
+                 s.total_amount,
+                 s.payment_method,
+                 ${statusSelectExpr} as sale_status,
+                 ${offlineSelectExpr} as is_offline
+          FROM sales s
+          JOIN users u ON u.id = s.cashier_id
+          WHERE s.location_id = $1 AND DATE(s.sale_date) BETWEEN $2 AND $3
+            AND u.is_active = true
+            AND u.role = 'cashier'
+       ),
+       item_totals AS (
+          SELECT si.sale_id, COALESCE(SUM(si.quantity), 0) as items_sold
+          FROM sale_items si
+          GROUP BY si.sale_id
+       )
+       SELECT u.username as cashier_name,
               u.role as cashier_role,
-              s.cashier_id,
-              COUNT(*) as transactions,
-              COALESCE(SUM(s.total_amount), 0) as total_sales,
-              COALESCE(SUM(CASE WHEN s.payment_method = 'cash' THEN s.total_amount ELSE 0 END), 0) as cash_sales,
-              COALESCE(SUM(CASE WHEN s.payment_method = 'mobile' THEN s.total_amount ELSE 0 END), 0) as mobile_sales,
-              COALESCE(SUM(si.quantity), 0) as items_sold,
-              COALESCE(SUM(CASE WHEN ${voidedExpr} THEN 1 ELSE 0 END), 0) as voided_transactions,
-              COALESCE(SUM(CASE WHEN ${offlineExpr} THEN 1 ELSE 0 END), 0) as offline_synced_transactions
-       FROM sales s
-       JOIN users u ON u.id = s.cashier_id
-       LEFT JOIN sale_items si ON si.sale_id = s.id
-       WHERE s.location_id = $1 AND DATE(s.sale_date) BETWEEN $2 AND $3
-         AND u.is_active = true
-         AND u.role = 'cashier'
-       GROUP BY s.cashier_id, u.username, u.role
+              sb.cashier_id,
+              COALESCE(COUNT(*) FILTER (WHERE sb.sale_status <> 'voided'), 0) as transactions,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' THEN sb.total_amount ELSE 0 END), 0) as total_sales,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'cash' THEN sb.total_amount ELSE 0 END), 0) as cash_sales,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'mobile' THEN sb.total_amount ELSE 0 END), 0) as mobile_sales,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' THEN COALESCE(it.items_sold, 0) ELSE 0 END), 0) as items_sold,
+              COALESCE(SUM(CASE WHEN sb.sale_status = 'voided' THEN 1 ELSE 0 END), 0) as voided_transactions,
+              COALESCE(SUM(CASE WHEN sb.is_offline = true THEN 1 ELSE 0 END), 0) as offline_synced_transactions
+       FROM sale_base sb
+       JOIN users u ON u.id = sb.cashier_id
+       LEFT JOIN item_totals it ON it.sale_id = sb.id
+       GROUP BY sb.cashier_id, u.username, u.role
        ORDER BY total_sales DESC`,
       [locationId, startDate, endDate]
     );
@@ -361,7 +390,6 @@ router.get('/weekly', authenticateToken, async (req, res) => {
       [locationId, startDate, endDate]
     );
 
-
     const expenseListResult = await query(
       `SELECT e.id, e.category, e.description, e.amount, e.expense_date,
               u.username as created_by_name
@@ -385,8 +413,15 @@ router.get('/weekly', authenticateToken, async (req, res) => {
       [locationId, startDate, endDate]
     );
 
+    const totals = totalsResult.rows[0];
+    const totalRevenue = parseFloat(totals.total_sales) || 0;
+    const totalExpenses = parseFloat(totals.total_expenses) || 0;
+    const totalStaffPayments = parseFloat(totals.total_staff_payments) || 0;
+    const totalBatchCosts = parseFloat(batchCostResult.rows[0]?.total_batch_cost || 0);
+    const totalCosts = totalExpenses + totalStaffPayments + totalBatchCosts;
+    const grossProfit = totalRevenue - totalExpenses;
+    const netProfit = totalRevenue - totalCosts;
     const transactions = salesByDayResult.rows.reduce((acc, row) => acc + Number(row.transactions || 0), 0);
-
 
     res.json({
       period: { start_date: startDate, end_date: endDate },
@@ -423,7 +458,6 @@ router.get('/weekly', authenticateToken, async (req, res) => {
     res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
   }
 });
-
 
 router.get('/weekly/export', authenticateToken, async (req, res) => {
   try {
@@ -476,6 +510,10 @@ router.get('/monthly', authenticateToken, async (req, res) => {
     if (!locationId) {
       return res.status(400).json({ error: 'Location context is required for reports.' });
     }
+    const salesColumns = await getSalesColumnCapabilities(query);
+    const nonVoidedExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed') <> 'voided'" : 'true';
+    const statusSelectExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed')" : "'completed'";
+    const offlineSelectExpr = salesColumns.hasOfflineFlag ? 'COALESCE(s.is_offline, false)' : 'false';
     const year = req.query.year || new Date().getFullYear();
     const month = req.query.month || (new Date().getMonth() + 1);
 
@@ -488,24 +526,23 @@ router.get('/monthly', authenticateToken, async (req, res) => {
     }
 
     const salesResult = await query(
-      `SELECT 
-         COUNT(*) as total_transactions,
-         SUM(total_amount) as total_sales,
-         AVG(total_amount) as avg_transaction
-       FROM sales
-       WHERE location_id = $1 
-         AND EXTRACT(YEAR FROM sale_date) = $2
-         AND EXTRACT(MONTH FROM sale_date) = $3`,
+      `SELECT COUNT(*) as total_transactions,
+              COALESCE(SUM(s.total_amount), 0) as total_sales,
+              AVG(s.total_amount) as avg_transaction
+       FROM sales s
+       WHERE s.location_id = $1
+         AND EXTRACT(YEAR FROM s.sale_date) = $2
+         AND EXTRACT(MONTH FROM s.sale_date) = $3
+         AND ${nonVoidedExpr}`,
       [locationId, year, month]
     );
 
     const expensesByCategoryResult = await query(
-      `SELECT 
-         category,
-         SUM(amount) as total,
-         COUNT(*) as count
+      `SELECT category,
+              SUM(amount) as total,
+              COUNT(*) as count
        FROM expenses
-       WHERE location_id = $1 
+       WHERE location_id = $1
          AND EXTRACT(YEAR FROM expense_date) = $2
          AND EXTRACT(MONTH FROM expense_date) = $3
        GROUP BY category
@@ -514,64 +551,79 @@ router.get('/monthly', authenticateToken, async (req, res) => {
     );
 
     const staffPaymentsResult = await query(
-      `SELECT 
-         COUNT(*) as payment_count,
-         SUM(amount) as total_staff_payments
+      `SELECT COUNT(*) as payment_count,
+              SUM(amount) as total_staff_payments
        FROM staff_payments
-       WHERE location_id = $1 
+       WHERE location_id = $1
          AND EXTRACT(YEAR FROM payment_date) = $2
          AND EXTRACT(MONTH FROM payment_date) = $3`,
       [locationId, year, month]
     );
 
     const topProductsResult = await query(
-      `SELECT p.name, 
+      `SELECT p.name,
               SUM(si.quantity) as total_sold,
               SUM(si.subtotal) as revenue
        FROM sale_items si
        JOIN sales s ON si.sale_id = s.id
        JOIN products p ON si.product_id = p.id
-       WHERE s.location_id = $1 
+       WHERE s.location_id = $1
          AND EXTRACT(YEAR FROM s.sale_date) = $2
          AND EXTRACT(MONTH FROM s.sale_date) = $3
+         AND ${nonVoidedExpr}
        GROUP BY p.id, p.name
        ORDER BY revenue DESC
        LIMIT 15`,
       [locationId, year, month]
     );
 
-
     const paymentMethodsResult = await query(
-      `SELECT payment_method, COUNT(*) as count, SUM(total_amount) as total
-       FROM sales
-       WHERE location_id = $1
-         AND EXTRACT(YEAR FROM sale_date) = $2
-         AND EXTRACT(MONTH FROM sale_date) = $3
-       GROUP BY payment_method
+      `SELECT s.payment_method, COUNT(*) as count, COALESCE(SUM(s.total_amount), 0) as total
+       FROM sales s
+       WHERE s.location_id = $1
+         AND EXTRACT(YEAR FROM s.sale_date) = $2
+         AND EXTRACT(MONTH FROM s.sale_date) = $3
+         AND ${nonVoidedExpr}
+       GROUP BY s.payment_method
        ORDER BY total DESC`,
       [locationId, year, month]
     );
 
     const cashierPerformanceResult = await query(
-      `SELECT u.username as cashier_name,
+      `WITH sale_base AS (
+          SELECT s.id,
+                 s.cashier_id,
+                 s.total_amount,
+                 s.payment_method,
+                 ${statusSelectExpr} as sale_status,
+                 ${offlineSelectExpr} as is_offline
+          FROM sales s
+          JOIN users u ON u.id = s.cashier_id
+          WHERE s.location_id = $1
+            AND EXTRACT(YEAR FROM s.sale_date) = $2
+            AND EXTRACT(MONTH FROM s.sale_date) = $3
+            AND u.is_active = true
+            AND u.role = 'cashier'
+       ),
+       item_totals AS (
+          SELECT si.sale_id, COALESCE(SUM(si.quantity), 0) as items_sold
+          FROM sale_items si
+          GROUP BY si.sale_id
+       )
+       SELECT u.username as cashier_name,
               u.role as cashier_role,
-              s.cashier_id,
-              COUNT(*) as transactions,
-              COALESCE(SUM(s.total_amount), 0) as total_sales,
-              COALESCE(SUM(CASE WHEN s.payment_method = 'cash' THEN s.total_amount ELSE 0 END), 0) as cash_sales,
-              COALESCE(SUM(CASE WHEN s.payment_method = 'mobile' THEN s.total_amount ELSE 0 END), 0) as mobile_sales,
-              COALESCE(SUM(si.quantity), 0) as items_sold,
-              COALESCE(SUM(CASE WHEN ${voidedExpr} THEN 1 ELSE 0 END), 0) as voided_transactions,
-              COALESCE(SUM(CASE WHEN ${offlineExpr} THEN 1 ELSE 0 END), 0) as offline_synced_transactions
-       FROM sales s
-       JOIN users u ON u.id = s.cashier_id
-       LEFT JOIN sale_items si ON si.sale_id = s.id
-       WHERE s.location_id = $1
-         AND EXTRACT(YEAR FROM s.sale_date) = $2
-         AND EXTRACT(MONTH FROM s.sale_date) = $3
-         AND u.is_active = true
-         AND u.role = 'cashier'
-       GROUP BY s.cashier_id, u.username, u.role
+              sb.cashier_id,
+              COALESCE(COUNT(*) FILTER (WHERE sb.sale_status <> 'voided'), 0) as transactions,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' THEN sb.total_amount ELSE 0 END), 0) as total_sales,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'cash' THEN sb.total_amount ELSE 0 END), 0) as cash_sales,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'mobile' THEN sb.total_amount ELSE 0 END), 0) as mobile_sales,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' THEN COALESCE(it.items_sold, 0) ELSE 0 END), 0) as items_sold,
+              COALESCE(SUM(CASE WHEN sb.sale_status = 'voided' THEN 1 ELSE 0 END), 0) as voided_transactions,
+              COALESCE(SUM(CASE WHEN sb.is_offline = true THEN 1 ELSE 0 END), 0) as offline_synced_transactions
+       FROM sale_base sb
+       JOIN users u ON u.id = sb.cashier_id
+       LEFT JOIN item_totals it ON it.sale_id = sb.id
+       GROUP BY sb.cashier_id, u.username, u.role
        ORDER BY total_sales DESC`,
       [locationId, year, month]
     );
@@ -604,6 +656,33 @@ router.get('/monthly', authenticateToken, async (req, res) => {
          AND EXTRACT(MONTH FROM b.created_at) = $3
          AND b.status <> 'voided'
        ORDER BY b.created_at DESC, bi.id`,
+      [locationId, year, month]
+    );
+
+    const expenseListResult = await query(
+      `SELECT e.id, e.category, e.description, e.amount, e.expense_date,
+              u.username as created_by_name
+       FROM expenses e
+       LEFT JOIN users u ON u.id = e.created_by
+       WHERE e.location_id = $1
+         AND EXTRACT(YEAR FROM e.expense_date) = $2
+         AND EXTRACT(MONTH FROM e.expense_date) = $3
+       ORDER BY e.expense_date DESC, e.created_at DESC`,
+      [locationId, year, month]
+    );
+
+    const staffPaymentListResult = await query(
+      `SELECT sp.id, sp.amount, sp.payment_date, sp.payment_type,
+              COALESCE(st.full_name, u.username) as staff_name,
+              creator.username as created_by_name
+       FROM staff_payments sp
+       LEFT JOIN staff_profiles st ON st.id = sp.staff_profile_id
+       LEFT JOIN users u ON u.id = sp.user_id
+       LEFT JOIN users creator ON creator.id = sp.created_by
+       WHERE sp.location_id = $1
+         AND EXTRACT(YEAR FROM sp.payment_date) = $2
+         AND EXTRACT(MONTH FROM sp.payment_date) = $3
+       ORDER BY sp.payment_date DESC, sp.created_at DESC`,
       [locationId, year, month]
     );
 
@@ -662,7 +741,6 @@ router.get('/monthly', authenticateToken, async (req, res) => {
     res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
   }
 });
-
 
 router.get('/branches/summary', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
