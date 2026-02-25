@@ -20,6 +20,22 @@ async function getSalesColumnCapabilities(db) {
   };
 }
 
+
+async function getInventoryBatchColumnCapabilities(db) {
+  const result = await db(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_name = 'inventory_batches'`
+  );
+
+  const columns = new Set(result.rows.map((row) => row.column_name));
+  return {
+    hasStatus: columns.has('status'),
+    hasOfflineFlag: columns.has('is_offline'),
+    hasOriginalActorName: columns.has('original_actor_name'),
+  };
+}
+
 router.get('/daily', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
@@ -30,6 +46,10 @@ router.get('/daily', authenticateToken, async (req, res) => {
     const nonVoidedExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed') <> 'voided'" : 'true';
     const statusSelectExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed')" : "'completed'";
     const offlineSelectExpr = salesColumns.hasOfflineFlag ? 'COALESCE(s.is_offline, false)' : 'false';
+    const batchColumns = await getInventoryBatchColumnCapabilities(query);
+    const batchStatusExpr = batchColumns.hasStatus ? "COALESCE(b.status, 'completed')" : "'completed'";
+    const batchOfflineExpr = batchColumns.hasOfflineFlag ? 'COALESCE(b.is_offline, false)' : 'false';
+    const batchCreatorExpr = batchColumns.hasOriginalActorName ? 'COALESCE(b.original_actor_name, u.username)' : 'u.username';
     const date = req.query.date || new Date().toISOString().split('T')[0];
 
     if (req.user?.role === 'admin') {
@@ -149,13 +169,14 @@ router.get('/daily', authenticateToken, async (req, res) => {
        FROM inventory_batches b
        JOIN batch_items bi ON bi.batch_id = b.id
        JOIN products p ON p.id = bi.product_id
-       WHERE b.location_id = $1 AND DATE(b.created_at) = $2 AND b.status <> 'voided'`,
+       WHERE b.location_id = $1 AND DATE(b.created_at) = $2 AND ${batchStatusExpr} <> 'voided'`,
       [locationId, date]
     );
 
     const batchDetailsResult = await query(
-      `SELECT b.id as batch_id, b.status, b.created_at, b.is_offline,
-              COALESCE(b.original_actor_name, u.username) as created_by_name,
+      `SELECT b.id as batch_id, ${batchStatusExpr} as status, b.created_at,
+              ${batchOfflineExpr} as is_offline,
+              ${batchCreatorExpr} as created_by_name,
               bi.product_id, p.name as product_name, bi.quantity, bi.source,
               COALESCE(p.cost, 0) as unit_cost,
               (bi.quantity * COALESCE(p.cost, 0)) as line_cost
@@ -163,7 +184,7 @@ router.get('/daily', authenticateToken, async (req, res) => {
        JOIN batch_items bi ON bi.batch_id = b.id
        JOIN products p ON p.id = bi.product_id
        JOIN users u ON u.id = b.created_by
-       WHERE b.location_id = $1 AND DATE(b.created_at) = $2 AND b.status <> 'voided'
+       WHERE b.location_id = $1 AND DATE(b.created_at) = $2 AND ${batchStatusExpr} <> 'voided'
        ORDER BY b.created_at DESC, bi.id`,
       [locationId, date]
     );
@@ -243,6 +264,10 @@ router.get('/weekly', authenticateToken, async (req, res) => {
     const nonVoidedExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed') <> 'voided'" : 'true';
     const statusSelectExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed')" : "'completed'";
     const offlineSelectExpr = salesColumns.hasOfflineFlag ? 'COALESCE(s.is_offline, false)' : 'false';
+    const batchColumns = await getInventoryBatchColumnCapabilities(query);
+    const batchStatusExpr = batchColumns.hasStatus ? "COALESCE(b.status, 'completed')" : "'completed'";
+    const batchOfflineExpr = batchColumns.hasOfflineFlag ? 'COALESCE(b.is_offline, false)' : 'false';
+    const batchCreatorExpr = batchColumns.hasOriginalActorName ? 'COALESCE(b.original_actor_name, u.username)' : 'u.username';
     const endDate = req.query.end_date || new Date().toISOString().split('T')[0];
 
     if (req.user?.role === 'admin') {
@@ -371,13 +396,14 @@ router.get('/weekly', authenticateToken, async (req, res) => {
        FROM inventory_batches b
        JOIN batch_items bi ON bi.batch_id = b.id
        JOIN products p ON p.id = bi.product_id
-       WHERE b.location_id = $1 AND DATE(b.created_at) BETWEEN $2 AND $3 AND b.status <> 'voided'`,
+       WHERE b.location_id = $1 AND DATE(b.created_at) BETWEEN $2 AND $3 AND ${batchStatusExpr} <> 'voided'`,
       [locationId, startDate, endDate]
     );
 
     const batchDetailsResult = await query(
-      `SELECT b.id as batch_id, b.status, b.created_at, b.is_offline,
-              COALESCE(b.original_actor_name, u.username) as created_by_name,
+      `SELECT b.id as batch_id, ${batchStatusExpr} as status, b.created_at,
+              ${batchOfflineExpr} as is_offline,
+              ${batchCreatorExpr} as created_by_name,
               bi.product_id, p.name as product_name, bi.quantity, bi.source,
               COALESCE(p.cost, 0) as unit_cost,
               (bi.quantity * COALESCE(p.cost, 0)) as line_cost
@@ -385,7 +411,7 @@ router.get('/weekly', authenticateToken, async (req, res) => {
        JOIN batch_items bi ON bi.batch_id = b.id
        JOIN products p ON p.id = bi.product_id
        JOIN users u ON u.id = b.created_by
-       WHERE b.location_id = $1 AND DATE(b.created_at) BETWEEN $2 AND $3 AND b.status <> 'voided'
+       WHERE b.location_id = $1 AND DATE(b.created_at) BETWEEN $2 AND $3 AND ${batchStatusExpr} <> 'voided'
        ORDER BY b.created_at DESC, bi.id`,
       [locationId, startDate, endDate]
     );
@@ -514,6 +540,10 @@ router.get('/monthly', authenticateToken, async (req, res) => {
     const nonVoidedExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed') <> 'voided'" : 'true';
     const statusSelectExpr = salesColumns.hasStatus ? "COALESCE(s.status, 'completed')" : "'completed'";
     const offlineSelectExpr = salesColumns.hasOfflineFlag ? 'COALESCE(s.is_offline, false)' : 'false';
+    const batchColumns = await getInventoryBatchColumnCapabilities(query);
+    const batchStatusExpr = batchColumns.hasStatus ? "COALESCE(b.status, 'completed')" : "'completed'";
+    const batchOfflineExpr = batchColumns.hasOfflineFlag ? 'COALESCE(b.is_offline, false)' : 'false';
+    const batchCreatorExpr = batchColumns.hasOriginalActorName ? 'COALESCE(b.original_actor_name, u.username)' : 'u.username';
     const year = req.query.year || new Date().getFullYear();
     const month = req.query.month || (new Date().getMonth() + 1);
 
@@ -637,13 +667,14 @@ router.get('/monthly', authenticateToken, async (req, res) => {
        WHERE b.location_id = $1
          AND EXTRACT(YEAR FROM b.created_at) = $2
          AND EXTRACT(MONTH FROM b.created_at) = $3
-         AND b.status <> 'voided'`,
+         AND ${batchStatusExpr} <> 'voided'`,
       [locationId, year, month]
     );
 
     const batchDetailsResult = await query(
-      `SELECT b.id as batch_id, b.status, b.created_at, b.is_offline,
-              COALESCE(b.original_actor_name, u.username) as created_by_name,
+      `SELECT b.id as batch_id, ${batchStatusExpr} as status, b.created_at,
+              ${batchOfflineExpr} as is_offline,
+              ${batchCreatorExpr} as created_by_name,
               bi.product_id, p.name as product_name, bi.quantity, bi.source,
               COALESCE(p.cost, 0) as unit_cost,
               (bi.quantity * COALESCE(p.cost, 0)) as line_cost
@@ -654,7 +685,7 @@ router.get('/monthly', authenticateToken, async (req, res) => {
        WHERE b.location_id = $1
          AND EXTRACT(YEAR FROM b.created_at) = $2
          AND EXTRACT(MONTH FROM b.created_at) = $3
-         AND b.status <> 'voided'
+         AND ${batchStatusExpr} <> 'voided'
        ORDER BY b.created_at DESC, bi.id`,
       [locationId, year, month]
     );

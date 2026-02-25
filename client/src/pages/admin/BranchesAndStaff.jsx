@@ -251,6 +251,17 @@ export default function BranchesAndStaff() {
         return;
       }
 
+      const confirmMessage = payload.new_username && payload.new_password
+        ? 'Are you sure you want to change both your username and password?'
+        : payload.new_username
+          ? `Are you sure you want to change your username to "${payload.new_username}"?`
+          : 'Are you sure you want to change your password?';
+
+      if (!window.confirm(confirmMessage)) {
+        showFeedback('info', 'Credentials update cancelled.');
+        return;
+      }
+
       const res = await api.post('/auth/change-credentials', payload);
       if (res.data?.token && res.data?.user) {
         localStorage.setItem('token', res.data.token);
@@ -284,7 +295,7 @@ export default function BranchesAndStaff() {
         <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><UserPlus size={24} /></div><div className="stat-content"><h3>{availableStaff.length}</h3><p>Staff Without Account</p></div></div>
       </div>
 
-      <div className="card mb-4"><div className="card-header"><h4>My Admin Credentials</h4></div><div className="card-body">
+      <div className="card mb-4 border-0 shadow-sm"><div className="card-header bg-dark text-white"><h4 className="mb-0">My Admin Credentials</h4></div><div className="card-body">
         <form onSubmit={updateOwnCredentials}>
           <div className="row g-3">
             <div className="col-md-4">
@@ -300,9 +311,9 @@ export default function BranchesAndStaff() {
               <input type="password" className="form-control" minLength={8} value={credentialForm.new_password} onChange={(e)=>setCredentialForm((p)=>({...p,new_password:e.target.value}))} placeholder="Leave blank to keep password" />
             </div>
           </div>
-          <div className="mt-3 d-flex align-items-center gap-2">
-            <button className="btn btn-primary" disabled={savingCredentials}>{savingCredentials ? 'Saving...' : 'Update My Credentials'}</button>
-            <small className="text-muted">You can update username, password, or both.</small>
+          <div className="mt-3 d-flex flex-wrap align-items-center gap-2">
+            <button className="btn btn-dark px-4" disabled={savingCredentials}>{savingCredentials ? 'Saving...' : 'Update My Credentials'}</button>
+            <small className="text-muted">You can update username, password, or both. You will be asked to confirm before saving.</small>
           </div>
         </form>
       </div></div>
