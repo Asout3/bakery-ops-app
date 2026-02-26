@@ -89,17 +89,20 @@ export default function Layout() {
         { to: '/admin/sync', icon: BarChart3, label: 'Sync Queue' },
         { to: '/admin/team', icon: Users, label: 'Branch & Accounts' },
         { to: '/admin/staff', icon: Users, label: 'Staff Management' },
+        { to: '/admin/history-lifecycle', icon: BarChart3, label: 'History Lifecycle' },
       ];
     } else if (role === 'manager') {
       return [
         { to: '/manager/inventory', icon: Package, label: 'Inventory' },
         { to: '/manager/batches', icon: Package, label: 'Batches' },
+        { to: '/manager/orders', icon: ShoppingCart, label: 'Orders' },
         { to: '/manager/products', icon: Package, label: 'Products' },
         { to: '/manager/notifications', icon: Bell, label: 'Notifications', showBadge: true },
       ];
     } else if (role === 'cashier') {
       return [
         { to: '/cashier/sales', icon: ShoppingCart, label: 'New Sale' },
+        { to: '/cashier/orders', icon: ShoppingCart, label: 'Orders' },
         { to: '/cashier/history', icon: BarChart3, label: 'Sales History' },
       ];
     }

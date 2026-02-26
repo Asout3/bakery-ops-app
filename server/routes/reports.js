@@ -100,7 +100,18 @@ router.get('/daily', authenticateToken, async (req, res) => {
          COUNT(*) as payment_count,
          SUM(amount) as total_staff_payments
        FROM staff_payments
-       WHERE location_id = $1 AND payment_date = $2`,
+       WHERE location_id = $1 AND payment_date = $2
+         AND COALESCE(payment_type, 'salary') = 'salary'`,
+      [locationId, date]
+    );
+
+    const ordersSummaryResult = await query(
+      `SELECT COUNT(*)::int AS total_created_orders,
+              COALESCE(SUM(paid_amount), 0) AS order_paid_revenue,
+              COALESCE(SUM(CASE WHEN status NOT IN ('delivered', 'cancelled') THEN (total_amount - paid_amount) ELSE 0 END), 0) AS order_outstanding,
+              COALESCE(SUM(CASE WHEN status = 'delivered' THEN total_amount ELSE 0 END), 0) AS delivered_order_revenue
+       FROM customer_orders
+       WHERE location_id = $1 AND DATE(created_at) = $2`,
       [locationId, date]
     );
 
@@ -229,6 +240,7 @@ router.get('/daily', authenticateToken, async (req, res) => {
         payment_count: parseInt(staffPayments.payment_count) || 0,
         total_staff_payments: totalStaffPayments
       },
+      orders: ordersSummaryResult.rows[0],
       profit: {
         gross_profit: grossProfit,
         net_profit: netProfit,
@@ -307,9 +319,19 @@ router.get('/weekly', authenticateToken, async (req, res) => {
          (SELECT COUNT(*) FROM expenses 
           WHERE location_id = $1 AND expense_date BETWEEN $2 AND $3) as expense_count,
          (SELECT COALESCE(SUM(amount), 0) FROM staff_payments 
-          WHERE location_id = $1 AND payment_date BETWEEN $2 AND $3) as total_staff_payments,
+          WHERE location_id = $1 AND payment_date BETWEEN $2 AND $3 AND COALESCE(payment_type, 'salary') = 'salary') as total_staff_payments,
          (SELECT COUNT(*) FROM staff_payments 
-          WHERE location_id = $1 AND payment_date BETWEEN $2 AND $3) as staff_payment_count`,
+          WHERE location_id = $1 AND payment_date BETWEEN $2 AND $3 AND COALESCE(payment_type, 'salary') = 'salary') as staff_payment_count`,
+      [locationId, startDate, endDate]
+    );
+
+    const ordersSummaryResult = await query(
+      `SELECT COUNT(*)::int AS total_created_orders,
+              COALESCE(SUM(paid_amount), 0) AS order_paid_revenue,
+              COALESCE(SUM(CASE WHEN status NOT IN ('delivered', 'cancelled') THEN (total_amount - paid_amount) ELSE 0 END), 0) AS order_outstanding,
+              COALESCE(SUM(CASE WHEN status = 'delivered' THEN total_amount ELSE 0 END), 0) AS delivered_order_revenue
+       FROM customer_orders
+       WHERE location_id = $1 AND DATE(created_at) BETWEEN $2 AND $3`,
       [locationId, startDate, endDate]
     );
 
@@ -463,6 +485,7 @@ router.get('/weekly', authenticateToken, async (req, res) => {
         expense_count: parseInt(totals.expense_count) || 0,
         staff_payment_count: parseInt(totals.staff_payment_count) || 0,
         avg_transaction: transactions > 0 ? totalRevenue / transactions : 0,
+        orders: ordersSummaryResult.rows[0],
       },
       sales_by_day: salesByDayResult.rows,
       sales_by_category: categoryResult.rows,
@@ -586,7 +609,20 @@ router.get('/monthly', authenticateToken, async (req, res) => {
        FROM staff_payments
        WHERE location_id = $1
          AND EXTRACT(YEAR FROM payment_date) = $2
-         AND EXTRACT(MONTH FROM payment_date) = $3`,
+         AND EXTRACT(MONTH FROM payment_date) = $3
+         AND COALESCE(payment_type, 'salary') = 'salary'`,
+      [locationId, year, month]
+    );
+
+    const ordersSummaryResult = await query(
+      `SELECT COUNT(*)::int AS total_created_orders,
+              COALESCE(SUM(paid_amount), 0) AS order_paid_revenue,
+              COALESCE(SUM(CASE WHEN status NOT IN ('delivered', 'cancelled') THEN (total_amount - paid_amount) ELSE 0 END), 0) AS order_outstanding,
+              COALESCE(SUM(CASE WHEN status = 'delivered' THEN total_amount ELSE 0 END), 0) AS delivered_order_revenue
+       FROM customer_orders
+       WHERE location_id = $1
+         AND EXTRACT(YEAR FROM created_at) = $2
+         AND EXTRACT(MONTH FROM created_at) = $3`,
       [locationId, year, month]
     );
 
@@ -743,6 +779,7 @@ router.get('/monthly', authenticateToken, async (req, res) => {
         payment_count: parseInt(staffPayments.payment_count) || 0,
         total_staff_payments: totalStaffPayments
       },
+      orders: ordersSummaryResult.rows[0],
       costs: {
         total_costs: totalCosts,
         batch_costs: totalBatchCosts
@@ -780,7 +817,9 @@ router.get('/branches/summary', authenticateToken, authorizeRoles('admin'), asyn
               COALESCE(SUM(CASE WHEN DATE(s.sale_date) = CURRENT_DATE THEN s.total_amount ELSE 0 END), 0) as today_sales,
               COALESCE(COUNT(CASE WHEN DATE(s.sale_date) = CURRENT_DATE THEN s.id END), 0) as today_transactions,
               COALESCE((SELECT SUM(e.amount) FROM expenses e WHERE e.location_id = l.id AND e.expense_date = CURRENT_DATE), 0) as today_expenses,
-              COALESCE((SELECT SUM(sp.amount) FROM staff_payments sp WHERE sp.location_id = l.id AND sp.payment_date = CURRENT_DATE), 0) as today_staff_payments
+              COALESCE((SELECT SUM(sp.amount) FROM staff_payments sp WHERE sp.location_id = l.id AND sp.payment_date = CURRENT_DATE AND COALESCE(sp.payment_type, 'salary') = 'salary'), 0) as today_staff_payments,
+              COALESCE((SELECT SUM(o.paid_amount) FROM customer_orders o WHERE o.location_id = l.id AND DATE(o.created_at) = CURRENT_DATE), 0) as today_order_paid_revenue,
+              COALESCE((SELECT SUM(CASE WHEN o.status = 'delivered' THEN o.total_amount ELSE 0 END) FROM customer_orders o WHERE o.location_id = l.id AND DATE(o.created_at) = CURRENT_DATE), 0) as today_delivered_order_revenue
        FROM locations l
        LEFT JOIN sales s ON s.location_id = l.id
        WHERE l.is_active = true
@@ -791,7 +830,9 @@ router.get('/branches/summary', authenticateToken, authorizeRoles('admin'), asyn
     res.json(result.rows.map(row => ({
       ...row,
       today_total_costs: parseFloat(row.today_expenses || 0) + parseFloat(row.today_staff_payments || 0),
-      today_net: parseFloat(row.today_sales || 0) - parseFloat(row.today_expenses || 0) - parseFloat(row.today_staff_payments || 0)
+      today_net: parseFloat(row.today_sales || 0) - parseFloat(row.today_expenses || 0) - parseFloat(row.today_staff_payments || 0),
+      today_order_paid_revenue: parseFloat(row.today_order_paid_revenue || 0),
+      today_delivered_order_revenue: parseFloat(row.today_delivered_order_revenue || 0)
     })));
   } catch (err) {
     console.error('Branch summary error:', err);

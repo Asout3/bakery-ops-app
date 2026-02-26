@@ -14,18 +14,24 @@ router.get('/', authenticateToken, async (req, res) => {
 
     const result = role === 'admin'
       ? await query(
-          `SELECT p.*, c.name as category_name
+          `SELECT p.*, c.name as category_name,
+                  CASE WHEN p.is_active = false THEN 'inactive'
+                       WHEN EXISTS (SELECT 1 FROM inventory i WHERE i.product_id = p.id AND i.quantity > 0) THEN 'active'
+                       ELSE 'out_of_stock'
+                  END AS availability_status
            FROM products p
            LEFT JOIN categories c ON p.category_id = c.id
-           WHERE p.is_active = true
            ORDER BY c.name, p.name`
         )
       : await query(
-          `SELECT DISTINCT p.*, c.name as category_name
+          `SELECT DISTINCT p.*, c.name as category_name,
+                  CASE WHEN p.is_active = false THEN 'inactive'
+                       WHEN EXISTS (SELECT 1 FROM inventory i2 WHERE i2.product_id = p.id AND i2.location_id = $1 AND i2.quantity > 0) THEN 'active'
+                       ELSE 'out_of_stock'
+                  END AS availability_status
            FROM products p
            LEFT JOIN categories c ON p.category_id = c.id
            LEFT JOIN inventory i ON i.product_id = p.id AND i.location_id = $1
-           WHERE p.is_active = true
            ORDER BY c.name, p.name`,
           [locationId]
         );
@@ -65,20 +71,26 @@ router.post('/',
   authorizeRoles('admin', 'manager'),
   body('name').trim().notEmpty(),
   body('price').isFloat({ min: 0 }),
+  body('source').optional().isIn(['baked', 'purchased']),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, category_id, price, cost, unit } = req.body;
+    const { name, category_id, price, cost, unit, source } = req.body;
 
     try {
+      const existing = await query('SELECT id FROM products WHERE LOWER(name) = LOWER($1) LIMIT 1', [name]);
+      if (existing.rows.length > 0) {
+        return res.status(409).json({ error: 'Product name already exists', code: 'DUPLICATE_PRODUCT_NAME', requestId: req.requestId });
+      }
+
       const result = await query(
-        `INSERT INTO products (name, category_id, price, cost, unit) 
-         VALUES ($1, $2, $3, $4, $5) 
+        `INSERT INTO products (name, category_id, price, cost, unit, source) 
+         VALUES ($1, $2, $3, $4, $5, $6) 
          RETURNING *`,
-        [name, category_id || null, price, cost || null, unit || 'piece']
+        [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked']
       );
 
       // Log activity
@@ -111,10 +123,17 @@ router.put('/:id',
   authenticateToken,
   authorizeRoles('admin', 'manager'),
   async (req, res) => {
-    const { name, category_id, price, cost, unit, is_active } = req.body;
+    const { name, category_id, price, cost, unit, is_active, source } = req.body;
     const { id } = req.params;
 
     try {
+      if (name) {
+        const duplicate = await query('SELECT id FROM products WHERE LOWER(name) = LOWER($1) AND id <> $2 LIMIT 1', [name, id]);
+        if (duplicate.rows.length > 0) {
+          return res.status(409).json({ error: 'Product name already exists', code: 'DUPLICATE_PRODUCT_NAME', requestId: req.requestId });
+        }
+      }
+
       const result = await query(
         `UPDATE products 
          SET name = COALESCE($1, name),
@@ -123,10 +142,11 @@ router.put('/:id',
              cost = COALESCE($4, cost),
              unit = COALESCE($5, unit),
              is_active = COALESCE($6, is_active),
+             source = COALESCE($7, source),
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $7
+         WHERE id = $8
          RETURNING *`,
-        [name, category_id, price, cost, unit, is_active, id]
+        [name, category_id, price, cost, unit, is_active, source, id]
       );
 
       if (result.rows.length === 0) {

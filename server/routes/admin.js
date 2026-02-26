@@ -7,6 +7,11 @@ import { adminLifecycleRepository } from '../repositories/adminLifecycleReposito
 import { createStaffAccount, updateStaffAccount, archiveStaffAccount, archiveStaffProfile } from '../services/adminLifecycleService.js';
 
 const router = express.Router();
+
+function isEthiopianMobilePhone(value) {
+  return /^\+251(9|7)\d{8}$/.test(String(value || '').trim());
+}
+
 function roleRank(role, jobTitle) {
   if (role === 'admin') return 1;
   if (role === 'manager') return 2;
@@ -56,10 +61,10 @@ router.post(
   authenticateToken,
   authorizeRoles('admin'),
   body('full_name').trim().isLength({ min: 3 }),
-  body('phone_number').trim().isLength({ min: 8 }),
+  body('phone_number').trim().custom(isEthiopianMobilePhone),
   body('role_preference').isIn(['cashier', 'manager', 'other']),
   body('location_id').isInt({ min: 1 }),
-  body('age').optional().isInt({ min: 15, max: 100 }),
+  body('age').optional().isInt({ min: 16, max: 100 }),
   body('monthly_salary').optional().isFloat({ min: 0 }),
   body('payment_due_date').optional().isInt({ min: 1, max: 28 }),
   async (req, res) => {
@@ -79,6 +84,14 @@ router.post(
         hire_date,
         payment_due_date,
       } = req.body;
+
+      if (!isEthiopianMobilePhone(phone_number)) {
+        return res.status(400).json({ error: 'Phone number must be +2519XXXXXXXX or +2517XXXXXXXX', code: 'INVALID_PHONE_NUMBER', requestId: req.requestId });
+      }
+
+      if (age !== undefined && Number(age) < 16) {
+        return res.status(400).json({ error: 'Age must be at least 16', code: 'INVALID_AGE', requestId: req.requestId });
+      }
 
       if (national_id) {
         const existingNational = await query('SELECT id FROM staff_profiles WHERE national_id = $1 LIMIT 1', [national_id]);
@@ -182,6 +195,14 @@ router.put('/staff/:id', authenticateToken, authorizeRoles('admin'), async (req,
       hire_date,
       payment_due_date,
     } = req.body;
+
+    if (phone_number && !isEthiopianMobilePhone(phone_number)) {
+      return res.status(400).json({ error: 'Phone number must be +2519XXXXXXXX or +2517XXXXXXXX', code: 'INVALID_PHONE_NUMBER', requestId: req.requestId });
+    }
+
+    if (age !== undefined && age !== null && Number(age) < 16) {
+      return res.status(400).json({ error: 'Age must be at least 16', code: 'INVALID_AGE', requestId: req.requestId });
+    }
 
     const updated = await query(
       `UPDATE staff_profiles

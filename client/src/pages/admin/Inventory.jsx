@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { Plus, Edit, Trash2, Package, TrendingUp, TrendingDown } from 'lucide-react';
+import { Plus, Edit, Trash2, Package, TrendingUp, TrendingDown, Search } from 'lucide-react';
 import { enqueueOperation, listQueuedOperations } from '../../utils/offlineQueue';
 
 export default function AdminInventory() {
@@ -14,11 +14,11 @@ export default function AdminInventory() {
   const [showForm, setShowForm] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [message, setMessage] = useState(null);
+  const [search, setSearch] = useState('');
   const [formData, setFormData] = useState({
     product_id: '',
     location_id: '',
-    quantity: '',
-    source: 'baked'
+    quantity: ''
   });
 
   useEffect(() => {
@@ -186,7 +186,7 @@ export default function AdminInventory() {
           className="btn btn-primary"
           onClick={() => {
             setEditingItem(null);
-            setFormData({ product_id: '', location_id: '', quantity: '', source: 'baked' });
+            setFormData({ product_id: '', location_id: '', quantity: '' });
             setShowForm(true);
           }}
         >
@@ -196,6 +196,11 @@ export default function AdminInventory() {
 
       {message && <div className={`alert alert-${message.type} mb-3`}>{message.text}</div>}
 
+      <div className="card mb-3"><div className="card-body">
+        <div className="search-bar" style={{ maxWidth: '320px' }}><Search size={16}/><input className="input" placeholder="Search inventory by product..." value={search} onChange={(e)=>setSearch(e.target.value)} /></div>
+      </div></div>
+
+
       <div className="stats-grid mb-4">
         <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><Package size={24} /></div><div className="stat-content"><h3>{inventory.reduce((sum, item) => sum + Number(item.quantity || 0), 0)}</h3><p>Total Items</p></div></div>
         <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><TrendingUp size={24} /></div><div className="stat-content"><h3>{inventory.filter((item) => Number(item.quantity || 0) > 10).length}</h3><p>In Stock</p></div></div>
@@ -203,7 +208,7 @@ export default function AdminInventory() {
       </div>
 
       <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>ID</th><th>Product</th><th>Location</th><th>Quantity</th><th>Last Updated</th><th>Updated By</th><th>Source</th><th>Actions</th></tr></thead><tbody>
-        {inventory.map((item) => (
+        {inventory.filter((item) => (item.product_name || products.find((p) => p.id === item.product_id)?.name || '').toLowerCase().includes(search.toLowerCase())).map((item) => (
           <tr key={item.id}>
             <td>{item.id}</td>
             <td>{products.find((p) => p.id === item.product_id)?.name || item.product_id}</td>
@@ -228,7 +233,6 @@ export default function AdminInventory() {
               <div className="mb-3"><label className="form-label">Product *</label><select className="form-select" value={formData.product_id} onChange={(e) => setFormData({ ...formData, product_id: e.target.value })} required><option value="">Select Product</option>{availableProductsForCreate.map((product) => (<option key={product.id} value={product.id}>{product.name}</option>))}</select></div>
               <div className="mb-3"><label className="form-label">Location *</label><select className="form-select" value={formData.location_id} onChange={(e) => setFormData({ ...formData, location_id: e.target.value })} required><option value="">Select Location</option>{locations.map((location) => (<option key={location.id} value={location.id}>{location.name}</option>))}</select></div>
               <div className="mb-3"><label className="form-label">Quantity *</label><input type="number" className="form-control" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} required /></div>
-              <div className="mb-3"><label className="form-label">Source *</label><select className="form-select" value={formData.source} onChange={(e) => setFormData({ ...formData, source: e.target.value })} required><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div>
               <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForm}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : editingItem ? 'Update' : 'Add'} Item</button></div>
             </form>
           </div>
