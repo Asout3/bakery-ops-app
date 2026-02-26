@@ -15,9 +15,6 @@ import {
   Wallet,
   Users,
   Receipt,
-  Clock3,
-  RefreshCw,
-  Eye,
 } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
@@ -136,6 +133,7 @@ export default function Dashboard() {
 
   const topProducts = report?.top_products || [];
   const paymentMethods = report?.payment_methods || [];
+  const orderSummary = period === 'weekly' ? report?.summary?.orders : report?.orders;
   const expenseRows = report?.details?.expenses || [];
   const staffPaymentRows = report?.details?.staff_payments || [];
   const cashierRows = report?.details?.cashier_performance || [];
@@ -195,14 +193,6 @@ export default function Dashboard() {
         <StatCard icon={<Wallet size={18} />} label="Net Profit" value={formatMoney(totals.netProfit)} sub="Revenue - all costs" tone={totals.netProfit >= 0 ? 'success' : 'danger'} />
       </div>
 
-      {kpis && (
-        <div className="stats-grid compact-grid">
-          <StatCard icon={<Clock3 size={17} />} label="Cashier Avg Order Time" value={`${Number(kpis.avg_cashier_order_seconds || 0).toFixed(1)}s`} sub={`Target: < ${kpis.goals?.cashier_order_target_seconds || 20}s`} compact />
-          <StatCard icon={<RefreshCw size={17} />} label="Batch Zero-Retry Rate" value={`${Number(kpis.batch_zero_retry_rate_percent || 0).toFixed(1)}%`} sub={`Target: ${kpis.goals?.batch_zero_retry_target_percent || 80}%`} compact />
-          <StatCard icon={<Eye size={17} />} label="Owner Report Views (7d)" value={Number(kpis.owner_report_views_weekly || 0)} sub={`Target: ${kpis.goals?.owner_views_target_weekly || 5}/week`} compact />
-        </div>
-      )}
-
       <div className="details-grid">
         <div className="card">
           <div className="card-header"><h3>Top Products</h3></div>
@@ -259,6 +249,17 @@ export default function Dashboard() {
         headers={['Date', 'Category', 'Amount', 'Created By']}
         rows={expenseRows.map((r) => [formatShortDate(r.expense_date), r.category, formatMoney(r.amount), r.created_by_name || '-'])}
         empty="No expense records in this period."
+      />
+
+      <DataTable
+        title="Order Revenue Transparency"
+        headers={['Metric', 'Value', 'Note']}
+        rows={[
+          ['Total Created Orders', Number(orderSummary?.total_created_orders || 0), 'All created orders in selected period'],
+          ['Order Paid Revenue', formatMoney(orderSummary?.order_paid_revenue), 'Sum of upfront payments'],
+          ['Order Outstanding', formatMoney(orderSummary?.order_outstanding), 'Open orders remaining balance'],
+          ['Delivered Order Revenue', formatMoney(orderSummary?.delivered_order_revenue), 'Realized from delivered orders'],
+        ]}
       />
 
       <DataTable
