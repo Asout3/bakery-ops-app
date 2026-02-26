@@ -20,6 +20,9 @@ import activityRoutes from './routes/activity.js';
 import locationsRoutes from './routes/locations.js';
 import adminRoutes from './routes/admin.js';
 import syncRoutes from './routes/sync.js';
+import ordersRoutes, { processOrderDueNotifications } from './routes/orders.js';
+import archiveRoutes from './routes/archive.js';
+import { startArchiveScheduler } from './services/archiveService.js';
 
 dotenv.config();
 
@@ -132,6 +135,8 @@ app.use('/api/activity', activityRoutes);
 app.use('/api/locations', locationsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/sync', syncRoutes);
+app.use('/api/orders', ordersRoutes);
+app.use('/api/archive', archiveRoutes);
 
 app.use(errorHandler);
 
@@ -149,6 +154,13 @@ const server = app.listen(PORT, () => {
   console.log(`[INFO] Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`[INFO] Process ID: ${process.pid}`);
 });
+
+const oneDayMs = 1000 * 60 * 60 * 24;
+setInterval(() => {
+  processOrderDueNotifications().catch((err) => console.error('[ORDER] Notification check failed:', err.message));
+}, oneDayMs);
+
+startArchiveScheduler();
 
 let isShuttingDown = false;
 

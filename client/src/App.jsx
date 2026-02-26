@@ -21,12 +21,15 @@ const NotificationsPage = lazy(() => import('./pages/admin/Notifications'));
 const SyncQueuePage = lazy(() => import('./pages/admin/SyncQueue'));
 const BranchesAndStaffPage = lazy(() => import('./pages/admin/BranchesAndStaff'));
 const StaffManagementPage = lazy(() => import('./pages/admin/StaffManagement'));
+const HistoryLifecyclePage = lazy(() => import('./pages/admin/HistoryLifecycle'));
 const ManagerInventory = lazy(() => import('./pages/manager/Inventory'));
 const ManagerBatches = lazy(() => import('./pages/manager/Batches'));
+const ManagerOrders = lazy(() => import('./pages/manager/Orders'));
 const ManagerProducts = lazy(() => import('./pages/admin/Products'));
 const ManagerNotifications = lazy(() => import('./pages/admin/Notifications'));
 const CashierSales = lazy(() => import('./pages/cashier/Sales'));
 const CashierHistory = lazy(() => import('./pages/cashier/History'));
+const CashierOrders = lazy(() => import('./pages/cashier/Orders'));
 
 function PageFallback() {
   return <div className="loading-container"><div className="spinner"></div></div>;
@@ -50,16 +53,19 @@ function AppInner() {
             <Route path="sync" element={<SyncQueuePage />} />
             <Route path="team" element={<BranchesAndStaffPage />} />
             <Route path="staff" element={<StaffManagementPage />} />
+            <Route path="history-lifecycle" element={<HistoryLifecyclePage />} />
           </Route>
           <Route path="/manager" element={<ProtectedRoute roles={['manager', 'admin']}><Layout /></ProtectedRoute>}>
             <Route path="inventory" element={<ManagerInventory />} />
             <Route path="batches" element={<ManagerBatches />} />
+            <Route path="orders" element={<ManagerOrders />} />
             <Route path="products" element={<ManagerProducts />} />
             <Route path="notifications" element={<ManagerNotifications />} />
           </Route>
           <Route path="/cashier" element={<ProtectedRoute roles={['cashier', 'admin']}><Layout /></ProtectedRoute>}>
             <Route path="sales" element={<CashierSales />} />
             <Route path="history" element={<CashierHistory />} />
+            <Route path="orders" element={<CashierOrders />} />
           </Route>
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/unauthorized" element={<div style={{ padding: '2rem', textAlign: 'center' }}><h1>Unauthorized</h1><p>You don't have permission to access this page.</p></div>} />
