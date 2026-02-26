@@ -3,6 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { query } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
+import { ensureFeatureSchema } from '../services/featureSchemaService.js';
 
 const router = express.Router();
 
@@ -26,6 +27,7 @@ router.post(
     }
 
     try {
+      await ensureFeatureSchema({ orders: true });
       const locationId = await getTargetLocationId(req, query);
       const { customer_name, customer_phone, customer_note, order_details, pickup_at, total_amount, paid_amount, payment_method } = req.body;
 
@@ -58,6 +60,7 @@ router.post(
 
 router.get('/', authenticateToken, authorizeRoles('cashier', 'admin', 'manager'), async (req, res) => {
   try {
+    await ensureFeatureSchema({ orders: true });
     const locationId = await getTargetLocationId(req, query);
     const includeClosed = req.query.include_closed === 'true';
 
@@ -81,6 +84,7 @@ router.get('/', authenticateToken, authorizeRoles('cashier', 'admin', 'manager')
 
 router.put('/:id', authenticateToken, authorizeRoles('cashier', 'admin', 'manager'), async (req, res) => {
   try {
+    await ensureFeatureSchema({ orders: true });
     const locationId = await getTargetLocationId(req, query);
     const orderId = Number(req.params.id);
     const { customer_name, customer_phone, customer_note, order_details, pickup_at, total_amount, paid_amount, payment_method, status } = req.body;
@@ -126,6 +130,7 @@ router.put('/:id', authenticateToken, authorizeRoles('cashier', 'admin', 'manage
 
 router.put('/:id/baked', authenticateToken, authorizeRoles('manager', 'admin'), async (req, res) => {
   try {
+    await ensureFeatureSchema({ orders: true });
     const locationId = await getTargetLocationId(req, query);
     const orderId = Number(req.params.id);
 
@@ -160,6 +165,7 @@ router.put('/:id/baked', authenticateToken, authorizeRoles('manager', 'admin'), 
 });
 
 export async function processOrderDueNotifications() {
+  await ensureFeatureSchema({ orders: true });
   const dueRows = await query(
     `SELECT o.*, ARRAY_AGG(u.id) FILTER (WHERE u.id IS NOT NULL) AS manager_ids
      FROM customer_orders o

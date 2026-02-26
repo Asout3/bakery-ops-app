@@ -21,10 +21,11 @@ export default function CashierOrders() {
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
+  const [includeHistory, setIncludeHistory] = useState(false);
 
   const fetchOrders = async () => {
     try {
-      const response = await api.get('/orders');
+      const response = await api.get('/orders', { params: { include_closed: includeHistory } });
       setOrders(response.data || []);
     } catch (err) {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to load orders') });
@@ -35,7 +36,7 @@ export default function CashierOrders() {
     if (selectedLocationId) {
       fetchOrders();
     }
-  }, [selectedLocationId]);
+  }, [selectedLocationId, includeHistory]);
 
   const resetForm = () => {
     setForm(initialForm);
@@ -106,6 +107,10 @@ export default function CashierOrders() {
           <span className="badge badge-primary">Total: {summary.total}</span>
           <span className="badge badge-warning">Ready: {summary.ready}</span>
           <span className="badge badge-danger">Overdue: {summary.overdue}</span>
+          <label className="orders-history-toggle">
+            <input type="checkbox" checked={includeHistory} onChange={(e) => setIncludeHistory(e.target.checked)} />
+            Show order history
+          </label>
         </div>
       </div>
 
