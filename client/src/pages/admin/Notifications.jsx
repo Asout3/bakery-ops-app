@@ -11,8 +11,7 @@ export default function NotificationsPage() {
   const { user } = useAuth();
   const { notifications, fetchNotifications, markAsRead, markAllAsRead, deleteNotification, unreadCount, refresh } = useNotifications();
   const [loading, setLoading] = useState(true);
-  const [rules, setRules] = useState([]);
-  const [newRule, setNewRule] = useState({ event_type: 'high_sale', threshold: '' });
+
   const [filters, setFilters] = useState({
     type: '',
     status: '',
@@ -38,31 +37,6 @@ export default function NotificationsPage() {
     }
   };
 
-
-  const createRule = async () => {
-    try {
-      const response = await api.post('/notifications/rules', {
-        event_type: newRule.event_type,
-        threshold: Number(newRule.threshold),
-        enabled: true,
-      });
-      setRules([...rules, response.data]);
-      setNewRule({ event_type: 'high_sale', threshold: '' });
-    } catch (err) {
-      console.error('Failed to create rule:', err);
-    }
-  };
-
-  const toggleRule = async (rule) => {
-    try {
-      const response = await api.put(`/notifications/rules/${rule.id}`, {
-        enabled: !rule.enabled,
-      });
-      setRules(rules.map((r) => (r.id === rule.id ? response.data : r)));
-    } catch (err) {
-      console.error('Failed to update rule:', err);
-    }
-  };
 
   const filteredNotifications = notifications.filter(notification => {
     const matchesType = !filters.type || notification.notification_type === filters.type;
@@ -132,11 +106,9 @@ export default function NotificationsPage() {
                 onChange={(e) => setFilters({...filters, type: e.target.value})}
               >
                 <option value="">All Types</option>
-                <option value="inventory">Inventory</option>
-                <option value="sales">Sales</option>
-                <option value="system">System</option>
-                <option value="payment">Payment</option>
-                <option value="alert">Alert</option>
+                {[...new Set(notifications.map((n) => n.notification_type).filter(Boolean))].map((type) => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
               </select>
             </div>
             <div className="col-md-4">
@@ -154,46 +126,6 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-
-      <div className="notifications-summary mb-4">
-        <div className="summary-chip">Total: {notifications.length}</div>
-        <div className="summary-chip summary-chip-warning">Unread: {unreadCount}</div>
-        <div className="summary-chip">Read: {notifications.length - unreadCount}</div>
-      </div>
-
-      {user?.role === 'admin' && (
-      <div className="card mb-4">
-        <div className="card-header">
-          <h4>Alert Rules</h4>
-        </div>
-        <div className="card-body">
-          <div className="row g-2 mb-3">
-            <div className="col-md-4">
-              <select className="form-select" value={newRule.event_type} onChange={(e) => setNewRule({ ...newRule, event_type: e.target.value })}>
-                <option value="high_sale">High Sale</option>
-                <option value="low_stock">Low Stock</option>
-              </select>
-            </div>
-            <div className="col-md-4">
-              <input className="form-control" type="number" placeholder="Threshold" value={newRule.threshold} onChange={(e) => setNewRule({ ...newRule, threshold: e.target.value })} />
-            </div>
-            <div className="col-md-4">
-              <button className="btn btn-primary" onClick={createRule}>Add Rule</button>
-            </div>
-          </div>
-          <div className="rule-list">
-            {rules.map((rule) => (
-              <div key={rule.id} className="rule-item">
-                <span className="rule-text">{rule.event_type} ≥ {rule.threshold}</span>
-                <button className={`btn btn-sm ${rule.enabled ? 'btn-success' : 'btn-secondary'}`} onClick={() => toggleRule(rule)}>
-                  {rule.enabled ? 'Enabled' : 'Disabled'}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      )}
 
       <div className="notifications-list">
         {filteredNotifications.length === 0 ? (
