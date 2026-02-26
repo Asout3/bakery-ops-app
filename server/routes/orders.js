@@ -1,6 +1,6 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
-import { query } from '../db.js';
+import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
 import { ensureFeatureSchema } from '../services/featureSchemaService.js';
@@ -8,6 +8,12 @@ import { ensureFeatureSchema } from '../services/featureSchemaService.js';
 const router = express.Router();
 
 const ORDER_STATUSES = ['pending', 'confirmed', 'in_production', 'ready', 'delivered', 'cancelled', 'overdue'];
+
+function isPastPickupDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return true;
+  return date.getTime() < Date.now();
+}
 
 router.post(
   '/',
@@ -29,28 +35,60 @@ router.post(
     try {
       await ensureFeatureSchema({ orders: true });
       const locationId = await getTargetLocationId(req, query);
-      const { customer_name, customer_phone, customer_note, order_details, pickup_at, total_amount, paid_amount, payment_method } = req.body;
+      const { customer_name, customer_phone, order_details, pickup_at, total_amount, paid_amount, payment_method } = req.body;
+      const idempotencyKey = req.headers['x-idempotency-key'];
+
+      if (isPastPickupDate(pickup_at)) {
+        return res.status(400).json({ error: 'Pickup time cannot be in the past', code: 'INVALID_PICKUP_TIME', requestId: req.requestId });
+      }
 
       if (Number(paid_amount) > Number(total_amount)) {
         return res.status(400).json({ error: 'Paid amount cannot exceed total amount', code: 'INVALID_PAYMENT_SPLIT', requestId: req.requestId });
       }
 
-      const result = await query(
-        `INSERT INTO customer_orders
-        (location_id, cashier_id, customer_name, customer_phone, customer_note, order_details, pickup_at, total_amount, paid_amount, payment_method, status)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
-        RETURNING *`,
-        [locationId, req.user.id, customer_name, customer_phone, customer_note || null, order_details, pickup_at, total_amount, paid_amount, payment_method]
-      );
+      const createdOrder = await withTransaction(async (tx) => {
+        if (idempotencyKey) {
+          const existing = await tx.query(
+            `SELECT response_payload FROM idempotency_keys
+             WHERE user_id = $1 AND idempotency_key = $2`,
+            [req.user.id, idempotencyKey]
+          );
+          if (existing.rows.length > 0) {
+            const payload = existing.rows[0].response_payload;
+            return typeof payload === 'string' ? JSON.parse(payload) : payload;
+          }
+        }
 
-      await query(
-        `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-         SELECT id, $1, 'New pickup order', $2, 'order_created'
-         FROM users WHERE role = 'manager' AND location_id = $1 AND is_active = true`,
-        [locationId, `New order for ${customer_name} is due on ${new Date(pickup_at).toLocaleString()}.`]
-      );
+        const inserted = await tx.query(
+          `INSERT INTO customer_orders
+          (location_id, cashier_id, customer_name, customer_phone, order_details, pickup_at, total_amount, paid_amount, payment_method, status)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
+          RETURNING *`,
+          [locationId, req.user.id, customer_name, customer_phone, order_details, pickup_at, total_amount, paid_amount, payment_method]
+        );
 
-      res.status(201).json(result.rows[0]);
+        const order = inserted.rows[0];
+
+        await tx.query(
+          `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+           SELECT id, $1, 'New pickup order', $2, 'order_created'
+           FROM users WHERE role = 'manager' AND location_id = $1 AND is_active = true`,
+          [locationId, `New order for ${customer_name} is due on ${new Date(pickup_at).toLocaleString()}.`]
+        );
+
+        if (idempotencyKey) {
+          await tx.query(
+            `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
+             VALUES ($1, $2, $3, '/api/orders', $4)
+             ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
+            [req.user.id, locationId, idempotencyKey, JSON.stringify(order)]
+          );
+        }
+
+        return order;
+      });
+
+      res.status(201).json(createdOrder);
     } catch (err) {
       console.error('Create order error:', err);
       res.status(500).json({ error: 'Internal server error', code: 'ORDER_CREATE_ERROR', requestId: req.requestId });
@@ -87,39 +125,46 @@ router.put('/:id', authenticateToken, authorizeRoles('cashier', 'admin', 'manage
     await ensureFeatureSchema({ orders: true });
     const locationId = await getTargetLocationId(req, query);
     const orderId = Number(req.params.id);
-    const { customer_name, customer_phone, customer_note, order_details, pickup_at, total_amount, paid_amount, payment_method, status } = req.body;
+    const { customer_name, customer_phone, order_details, pickup_at, total_amount, paid_amount, payment_method, status } = req.body;
 
     if (status && !ORDER_STATUSES.includes(status)) {
       return res.status(400).json({ error: 'Invalid status', code: 'INVALID_ORDER_STATUS', requestId: req.requestId });
     }
 
-    if (paid_amount !== undefined && total_amount !== undefined && Number(paid_amount) > Number(total_amount)) {
+    const existingOrder = await query('SELECT total_amount, paid_amount, pickup_at FROM customer_orders WHERE id = $1 AND location_id = $2', [orderId, locationId]);
+    if (!existingOrder.rows.length) {
+      return res.status(404).json({ error: 'Order not found', code: 'ORDER_NOT_FOUND', requestId: req.requestId });
+    }
+
+    const effectiveTotal = total_amount !== undefined ? Number(total_amount) : Number(existingOrder.rows[0].total_amount);
+    const effectivePaid = paid_amount !== undefined ? Number(paid_amount) : Number(existingOrder.rows[0].paid_amount);
+    if (effectivePaid > effectiveTotal) {
       return res.status(400).json({ error: 'Paid amount cannot exceed total amount', code: 'INVALID_PAYMENT_SPLIT', requestId: req.requestId });
+    }
+
+    const effectivePickup = pickup_at !== undefined ? pickup_at : existingOrder.rows[0].pickup_at;
+    if (isPastPickupDate(effectivePickup) && status !== 'delivered' && status !== 'cancelled' && status !== 'overdue') {
+      return res.status(400).json({ error: 'Pickup time cannot be in the past', code: 'INVALID_PICKUP_TIME', requestId: req.requestId });
     }
 
     const result = await query(
       `UPDATE customer_orders
        SET customer_name = COALESCE($1, customer_name),
            customer_phone = COALESCE($2, customer_phone),
-           customer_note = COALESCE($3, customer_note),
-           order_details = COALESCE($4, order_details),
-           pickup_at = COALESCE($5, pickup_at),
-           total_amount = COALESCE($6, total_amount),
-           paid_amount = COALESCE($7, paid_amount),
-           payment_method = COALESCE($8, payment_method),
-           status = COALESCE($9, status),
-           delivered_at = CASE WHEN COALESCE($9, status) = 'delivered' THEN CURRENT_TIMESTAMP ELSE delivered_at END,
-           cancelled_at = CASE WHEN COALESCE($9, status) = 'cancelled' THEN CURRENT_TIMESTAMP ELSE cancelled_at END,
-           cancelled_by = CASE WHEN COALESCE($9, status) = 'cancelled' THEN $10 ELSE cancelled_by END,
+           order_details = COALESCE($3, order_details),
+           pickup_at = COALESCE($4, pickup_at),
+           total_amount = COALESCE($5, total_amount),
+           paid_amount = COALESCE($6, paid_amount),
+           payment_method = COALESCE($7, payment_method),
+           status = COALESCE($8, status),
+           delivered_at = CASE WHEN COALESCE($8, status) = 'delivered' THEN CURRENT_TIMESTAMP ELSE delivered_at END,
+           cancelled_at = CASE WHEN COALESCE($8, status) = 'cancelled' THEN CURRENT_TIMESTAMP ELSE cancelled_at END,
+           cancelled_by = CASE WHEN COALESCE($8, status) = 'cancelled' THEN $9 ELSE cancelled_by END,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $11 AND location_id = $12
+       WHERE id = $10 AND location_id = $11
        RETURNING *`,
-      [customer_name, customer_phone, customer_note, order_details, pickup_at, total_amount, paid_amount, payment_method, status, req.user.id, orderId, locationId]
+      [customer_name, customer_phone, order_details, pickup_at, total_amount, paid_amount, payment_method, status, req.user.id, orderId, locationId]
     );
-
-    if (!result.rows.length) {
-      return res.status(404).json({ error: 'Order not found', code: 'ORDER_NOT_FOUND', requestId: req.requestId });
-    }
 
     res.json({ ...result.rows[0], balance_due: Number(result.rows[0].total_amount) - Number(result.rows[0].paid_amount) });
   } catch (err) {

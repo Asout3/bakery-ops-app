@@ -4,8 +4,39 @@ import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 
 const router = express.Router();
 
+let syncAuditReady = false;
+
+async function ensureSyncAuditSchema() {
+  if (syncAuditReady) return;
+  await query(
+    `CREATE TABLE IF NOT EXISTS sync_audit_logs (
+      id BIGSERIAL PRIMARY KEY,
+      operation_id TEXT NOT NULL,
+      actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      actor_username TEXT,
+      location_id INTEGER REFERENCES locations(id) ON DELETE SET NULL,
+      method TEXT,
+      endpoint TEXT,
+      status TEXT NOT NULL CHECK (status IN ('synced', 'failed', 'conflict', 'needs_review', 'resolved', 'ignored')),
+      reason TEXT,
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      resolved_at TIMESTAMPTZ,
+      resolved_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      resolution_note TEXT
+    )`
+  );
+  await query('CREATE INDEX IF NOT EXISTS idx_sync_audit_logs_created_at ON sync_audit_logs(created_at DESC)');
+  await query('CREATE INDEX IF NOT EXISTS idx_sync_audit_logs_location_created ON sync_audit_logs(location_id, created_at DESC)');
+  await query('CREATE INDEX IF NOT EXISTS idx_sync_audit_logs_status_created ON sync_audit_logs(status, created_at DESC)');
+  await query('CREATE INDEX IF NOT EXISTS idx_sync_audit_logs_operation_id ON sync_audit_logs(operation_id)');
+  syncAuditReady = true;
+}
+
 router.post('/audit/bulk', authenticateToken, async (req, res) => {
   try {
+    await ensureSyncAuditSchema();
     const events = Array.isArray(req.body?.events) ? req.body.events : [];
     if (!events.length) {
       return res.json({ inserted: 0 });
@@ -54,6 +85,7 @@ router.post('/audit/bulk', authenticateToken, async (req, res) => {
 
 router.get('/audit', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
+    await ensureSyncAuditSchema();
     const limit = Math.min(500, Math.max(10, Number(req.query.limit || 200)));
     const locationId = req.query.location_id ? Number(req.query.location_id) : null;
     const status = req.query.status ? String(req.query.status) : null;
@@ -92,6 +124,7 @@ router.get('/audit', authenticateToken, authorizeRoles('admin'), async (req, res
 
 router.patch('/audit/:operationId', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
+    await ensureSyncAuditSchema();
     const operationId = String(req.params.operationId || '').trim();
     const status = String(req.body?.status || '').trim();
     const note = req.body?.note ? String(req.body.note).trim() : null;

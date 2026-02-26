@@ -8,6 +8,7 @@ export default function HistoryLifecycle() {
   const [confirmationPhrase, setConfirmationPhrase] = useState('');
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   const fetchData = async () => {
     try {
@@ -23,7 +24,20 @@ export default function HistoryLifecycle() {
     }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    const onOnline = () => {
+      setIsOnline(true);
+      fetchData();
+    };
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    fetchData();
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
 
   const saveSettings = async () => {
     setLoading(true);
@@ -39,6 +53,10 @@ export default function HistoryLifecycle() {
   };
 
   const runArchive = async () => {
+    if (!navigator.onLine) {
+      setMessage({ type: 'warning', text: 'Archive run requires online server connection.' });
+      return;
+    }
     setLoading(true);
     try {
       await api.post('/archive/run', { confirmation_phrase: confirmationPhrase });
@@ -57,6 +75,7 @@ export default function HistoryLifecycle() {
   return (
     <div>
       <div className="page-header"><h2>History Lifecycle</h2></div>
+      {!isOnline && <div className="alert alert-warning">You are offline. Archive actions are disabled.</div>}
       {message && <div className={`alert alert-${message.type}`}>{message.text}</div>}
 
       <div className="card mb-4">
@@ -74,7 +93,7 @@ export default function HistoryLifecycle() {
             <input className="input" type="number" min="6" max="60" value={settingsForm.cold_storage_after_months} onChange={(e) => setSettingsForm({ ...settingsForm, cold_storage_after_months: Number(e.target.value) })} />
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-            <button className="btn btn-primary" disabled={loading} onClick={saveSettings}>Save Settings</button>
+            <button className="btn btn-primary" disabled={loading || !isOnline} onClick={saveSettings}>Save Settings</button>
           </div>
         </div>
       </div>
@@ -98,7 +117,7 @@ export default function HistoryLifecycle() {
           <p>To run archive now, type the exact confirmation phrase:</p>
           <code>{expectedPhrase}</code>
           <input className="input" style={{ marginTop: '0.75rem' }} value={confirmationPhrase} onChange={(e) => setConfirmationPhrase(e.target.value)} placeholder="Type confirmation phrase" />
-          <button className="btn btn-danger" style={{ marginTop: '0.75rem' }} disabled={confirmationPhrase !== expectedPhrase || loading} onClick={runArchive}>
+          <button className="btn btn-danger" style={{ marginTop: '0.75rem' }} disabled={confirmationPhrase !== expectedPhrase || loading || !isOnline} onClick={runArchive}>
             Confirm and archive last 6 month history
           </button>
         </div>

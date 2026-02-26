@@ -1,20 +1,45 @@
 import { useEffect, useState } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
+import { enqueueOperation } from '../../utils/offlineQueue';
 
 export default function ManagerOrders() {
   const { selectedLocationId } = useBranch();
   const [orders, setOrders] = useState([]);
   const [message, setMessage] = useState(null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   const fetchOrders = async () => {
+    const cacheKey = `manager_orders_cache_${selectedLocationId || 'default'}`;
     try {
       const response = await api.get('/orders');
-      setOrders(response.data || []);
+      const rows = response.data || [];
+      setOrders(rows);
+      localStorage.setItem(cacheKey, JSON.stringify(rows));
     } catch (err) {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        setOrders(JSON.parse(cached));
+        setMessage({ type: 'warning', text: 'Offline mode: showing cached orders.' });
+        return;
+      }
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to load orders') });
     }
   };
+
+  useEffect(() => {
+    const onOnline = () => {
+      setIsOnline(true);
+      fetchOrders();
+    };
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, [selectedLocationId]);
 
   useEffect(() => {
     if (selectedLocationId) {
@@ -27,7 +52,20 @@ export default function ManagerOrders() {
       await api.put(`/orders/${id}/baked`);
       fetchOrders();
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to mark baked') });
+      if (!err.response) {
+        const idempotencyKey = `order-baked-${id}-${Date.now()}`;
+        await enqueueOperation({
+          id: idempotencyKey,
+          url: `/orders/${id}/baked`,
+          method: 'put',
+          data: {},
+          idempotencyKey,
+        });
+        setMessage({ type: 'warning', text: 'Offline: baked update queued.' });
+        setOrders((current) => current.map((order) => (order.id === id ? { ...order, baked_done: true, status: 'ready' } : order)));
+      } else {
+        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to mark baked') });
+      }
     }
   };
 
@@ -36,13 +74,27 @@ export default function ManagerOrders() {
       await api.put(`/orders/${id}`, { status });
       fetchOrders();
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to update order') });
+      if (!err.response) {
+        const idempotencyKey = `manager-order-status-${id}-${Date.now()}`;
+        await enqueueOperation({
+          id: idempotencyKey,
+          url: `/orders/${id}`,
+          method: 'put',
+          data: { status },
+          idempotencyKey,
+        });
+        setMessage({ type: 'warning', text: 'Offline: order status update queued.' });
+        setOrders((current) => current.map((order) => (order.id === id ? { ...order, status } : order)));
+      } else {
+        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to update order') });
+      }
     }
   };
 
   return (
     <div>
       <div className="page-header"><h2>Order Baking Queue</h2></div>
+      {!isOnline && <div className="alert alert-warning">You are offline. Baking updates are queued.</div>}
       {message && <div className={`alert alert-${message.type}`}>{message.text}</div>}
       <div className="table-container">
         <table className="table">
@@ -63,7 +115,6 @@ export default function ManagerOrders() {
                   <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                     <button className="btn btn-sm btn-success" onClick={() => markBaked(order.id)} disabled={order.baked_done}>Mark Baked</button>
                     <button className="btn btn-sm btn-secondary" onClick={() => updateStatus(order.id, 'in_production')}>In Production</button>
-                    <button className="btn btn-sm btn-primary" onClick={() => updateStatus(order.id, 'ready')}>Ready</button>
                   </div>
                 </td>
               </tr>

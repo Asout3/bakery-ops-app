@@ -1,18 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
+import { enqueueOperation } from '../../utils/offlineQueue';
 import './Orders.css';
 
 const initialForm = {
   customer_name: '',
   customer_phone: '',
-  customer_note: '',
   order_details: '',
   pickup_at: '',
   total_amount: '',
   paid_amount: '',
   payment_method: 'cash',
 };
+
+function toLocalDateTimeValue(dateInput) {
+  const value = new Date(dateInput);
+  if (Number.isNaN(value.getTime())) return '';
+  return new Date(value.getTime() - value.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function getCacheKey(locationId, includeHistory) {
+  return `cashier_orders_cache_${locationId || 'default'}_${includeHistory ? 'all' : 'open'}`;
+}
 
 export default function CashierOrders() {
   const { selectedLocationId } = useBranch();
@@ -22,15 +32,39 @@ export default function CashierOrders() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
   const [includeHistory, setIncludeHistory] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   const fetchOrders = async () => {
+    const cacheKey = getCacheKey(selectedLocationId, includeHistory);
     try {
       const response = await api.get('/orders', { params: { include_closed: includeHistory } });
-      setOrders(response.data || []);
+      const rows = response.data || [];
+      setOrders(rows);
+      localStorage.setItem(cacheKey, JSON.stringify(rows));
     } catch (err) {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        setOrders(JSON.parse(cached));
+        setMessage({ type: 'warning', text: 'Offline mode: showing cached orders.' });
+        return;
+      }
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to load orders') });
     }
   };
+
+  useEffect(() => {
+    const onOnline = () => {
+      setIsOnline(true);
+      fetchOrders();
+    };
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, [selectedLocationId, includeHistory]);
 
   useEffect(() => {
     if (selectedLocationId) {
@@ -47,18 +81,45 @@ export default function CashierOrders() {
     e.preventDefault();
     setLoading(true);
     try {
+      const pickupTs = new Date(form.pickup_at).getTime();
+      if (Number.isNaN(pickupTs) || pickupTs < Date.now()) {
+        setMessage({ type: 'danger', text: 'Pickup time cannot be in the past.' });
+        return;
+      }
+
       const payload = {
         ...form,
         total_amount: Number(form.total_amount),
         paid_amount: Number(form.paid_amount),
       };
 
+      if (payload.paid_amount > payload.total_amount) {
+        setMessage({ type: 'danger', text: 'Paid amount cannot exceed total cost.' });
+        return;
+      }
+
       if (editingId) {
         await api.put(`/orders/${editingId}`, payload);
         setMessage({ type: 'success', text: 'Order updated successfully.' });
       } else {
-        await api.post('/orders', payload);
-        setMessage({ type: 'success', text: 'Order created successfully.' });
+        const idempotencyKey = `order-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        try {
+          await api.post('/orders', payload, { headers: { 'X-Idempotency-Key': idempotencyKey } });
+          setMessage({ type: 'success', text: 'Order created successfully.' });
+        } catch (err) {
+          if (!err.response) {
+            await enqueueOperation({
+              id: idempotencyKey,
+              url: '/orders',
+              method: 'post',
+              data: payload,
+              idempotencyKey,
+            });
+            setMessage({ type: 'warning', text: 'Offline: order queued for sync.' });
+          } else {
+            throw err;
+          }
+        }
       }
       resetForm();
       fetchOrders();
@@ -74,9 +135,8 @@ export default function CashierOrders() {
     setForm({
       customer_name: order.customer_name,
       customer_phone: order.customer_phone,
-      customer_note: order.customer_note || '',
       order_details: order.order_details,
-      pickup_at: new Date(order.pickup_at).toISOString().slice(0, 16),
+      pickup_at: toLocalDateTimeValue(order.pickup_at),
       total_amount: order.total_amount,
       paid_amount: order.paid_amount,
       payment_method: order.payment_method,
@@ -88,7 +148,20 @@ export default function CashierOrders() {
       await api.put(`/orders/${orderId}`, { status });
       fetchOrders();
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to update status') });
+      if (!err.response) {
+        const idempotencyKey = `order-status-${orderId}-${Date.now()}`;
+        await enqueueOperation({
+          id: idempotencyKey,
+          url: `/orders/${orderId}`,
+          method: 'put',
+          data: { status },
+          idempotencyKey,
+        });
+        setMessage({ type: 'warning', text: 'Offline: order status update queued.' });
+        setOrders((current) => current.map((order) => (order.id === orderId ? { ...order, status } : order)));
+      } else {
+        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to update status') });
+      }
     }
   };
 
@@ -103,6 +176,7 @@ export default function CashierOrders() {
     <div className="orders-page">
       <div className="orders-header">
         <h2>Pickup Orders</h2>
+        {!isOnline && <div className="alert alert-warning">You are offline. New orders and updates will be queued.</div>}
         <div className="orders-summary">
           <span className="badge badge-primary">Total: {summary.total}</span>
           <span className="badge badge-warning">Ready: {summary.ready}</span>
@@ -122,11 +196,10 @@ export default function CashierOrders() {
           <form className="order-form" onSubmit={submit}>
             <input className="input" placeholder="Customer name" value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} required />
             <input className="input" placeholder="Phone number" value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} required />
-            <input className="input" placeholder="Optional note" value={form.customer_note} onChange={(e) => setForm({ ...form, customer_note: e.target.value })} />
             <textarea className="input" placeholder="Custom order details" value={form.order_details} onChange={(e) => setForm({ ...form, order_details: e.target.value })} required rows={3} />
-            <input className="input" type="datetime-local" value={form.pickup_at} onChange={(e) => setForm({ ...form, pickup_at: e.target.value })} required />
+            <input className="input" type="datetime-local" min={toLocalDateTimeValue(new Date())} value={form.pickup_at} onChange={(e) => setForm({ ...form, pickup_at: e.target.value })} required />
             <input className="input" type="number" min="0.01" step="0.01" placeholder="Total cost" value={form.total_amount} onChange={(e) => setForm({ ...form, total_amount: e.target.value })} required />
-            <input className="input" type="number" min="0" step="0.01" placeholder="Paid up front" value={form.paid_amount} onChange={(e) => setForm({ ...form, paid_amount: e.target.value })} required />
+            <input className="input" type="number" min="0" step="0.01" max={form.total_amount || undefined} placeholder="Paid up front" value={form.paid_amount} onChange={(e) => setForm({ ...form, paid_amount: e.target.value })} required />
             <select className="input" value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value })}>
               <option value="cash">Cash</option>
               <option value="mobile">Mobile</option>
@@ -162,7 +235,6 @@ export default function CashierOrders() {
                 <td>
                   <div className="row-actions">
                     <button className="btn btn-sm btn-secondary" onClick={() => onEdit(order)}>Edit</button>
-                    <button className="btn btn-sm btn-warning" onClick={() => setStatus(order.id, 'confirmed')}>Confirm</button>
                     <button className="btn btn-sm btn-success" onClick={() => setStatus(order.id, 'delivered')}>Delivered</button>
                     <button className="btn btn-sm btn-danger" onClick={() => setStatus(order.id, 'cancelled')}>Cancel</button>
                   </div>
