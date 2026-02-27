@@ -11,7 +11,7 @@
 - `server/routes/*`: request validation, auth guards, transport contracts.
 - `server/services/*`: business flows and cross-table operations.
 - `server/db.js`: connection pooling, transaction safety, transient error annotations.
-- `database/migrations/*`: all schema evolution. Do not rely on runtime schema patching for required production schema changes.
+- `database/migrations/*`: all schema evolution. Runtime schema patching in request paths is removed; keep schema changes migration-only.
 
 ## Error Contract
 
@@ -72,3 +72,15 @@ Use `docs/offline-contract.md` as canonical behavior semantics.
 - Run `npm run lint` before commit.
 - For schema changes, add migration file and run `npm run setup-db` on a clean environment.
 
+
+
+## Auth Hardening Status
+
+- Login now enforces account lockout/backoff after repeated failed credential attempts.
+- Refresh-token rotation is available via `POST /api/auth/refresh-token/rotate`.
+- Keep refresh token table cleanup in regular maintenance tasks.
+
+## Scheduler Deployment Pattern
+
+- Use `RUN_SCHEDULERS_IN_API=false` for API instances when running dedicated workers.
+- Run scheduler loops with `npm run worker` in a separate worker deployment for clearer operational isolation.

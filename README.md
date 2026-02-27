@@ -178,6 +178,8 @@ flowchart TB
 ### Security Controls in Place
 
 - JWT secret length enforcement and issuer validation.
+- Account lockout/backoff after repeated failed logins.
+- Refresh-token rotation endpoint for stronger session lifecycle handling.
 - Role-based access control on privileged routes.
 - Rate limiting tiers (auth/general/strict).
 - Helmet security headers and production-oriented CORS controls.
@@ -187,9 +189,9 @@ flowchart TB
 
 ### Security Roadmap Recommendations
 
-- Add account-centric lock/backoff for repeated credential failures.
-- Implement refresh-token rotation and revocation policy.
 - Extend structured security event logging for SIEM-friendly ingestion.
+- Add automated refresh-token cleanup/retention jobs and suspicious-login alerting.
+- Introduce tenant-aware session revocation controls for emergency lockout scenarios.
 
 ---
 

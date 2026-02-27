@@ -1,5 +1,4 @@
 import { query, withTransaction } from '../db.js';
-import { ensureFeatureSchema } from './featureSchemaService.js';
 import { JOB_LOCK_KEYS, withAdvisoryJobLock } from './jobLockService.js';
 
 const DEFAULT_CONFIRMATION_PHRASE = 'I CONFIRM TO ARCHIVE THE LAST 6 MONTH HISTORY';
@@ -14,7 +13,6 @@ async function getLocationsToProcess(locationId = null) {
 }
 
 export async function ensureArchiveSettings(locationId, userId = null) {
-  await ensureFeatureSchema({ archive: true });
   const ensured = await query(
     `INSERT INTO archive_settings (location_id, created_by, updated_by)
      VALUES ($1, $2, $2)
@@ -177,7 +175,6 @@ async function moveRowsToArchive(tx, config) {
 }
 
 export async function runArchiveForLocation({ locationId, userId = null, runType = 'scheduled' }) {
-  await ensureFeatureSchema({ archive: true });
   const settings = await ensureArchiveSettings(locationId, userId);
   if (!settings.enabled) {
     await query(
@@ -234,7 +231,6 @@ export async function runArchiveForLocation({ locationId, userId = null, runType
 
 export async function runScheduledArchive() {
   const lockResult = await withAdvisoryJobLock(JOB_LOCK_KEYS.ARCHIVE_SCHEDULER, async () => {
-    await ensureFeatureSchema({ archive: true });
     const locations = await getLocationsToProcess();
     for (const location of locations) {
       try {
@@ -281,7 +277,6 @@ export function startArchiveScheduler() {
 }
 
 export async function getArchiveDashboard(locationId) {
-  await ensureFeatureSchema({ archive: true });
   const settings = await ensureArchiveSettings(locationId);
   const recentRuns = await query(
     `SELECT id, run_type, status, cutoff_at, details, error_message, created_at
@@ -312,7 +307,6 @@ export async function getArchiveDashboard(locationId) {
 }
 
 export async function updateArchiveSettings({ locationId, userId, enabled, retentionMonths, coldStorageAfterMonths }) {
-  await ensureFeatureSchema({ archive: true });
   await ensureArchiveSettings(locationId, userId);
   const result = await query(
     `UPDATE archive_settings

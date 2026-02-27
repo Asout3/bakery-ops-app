@@ -156,18 +156,24 @@ const server = app.listen(PORT, () => {
   console.log(`[INFO] Process ID: ${process.pid}`);
 });
 
-const oneDayMs = 1000 * 60 * 60 * 24;
-setInterval(() => {
-  withAdvisoryJobLock(JOB_LOCK_KEYS.ORDER_DUE_NOTIFICATIONS, () => processOrderDueNotifications())
-    .then((lockResult) => {
-      if (lockResult.skipped) {
-        console.log('[ORDER] Skipping notification run: lock not acquired');
-      }
-    })
-    .catch((err) => console.error('[ORDER] Notification check failed:', err.message));
-}, oneDayMs);
+const shouldRunSchedulersInApi = process.env.RUN_SCHEDULERS_IN_API !== 'false';
 
-startArchiveScheduler();
+if (shouldRunSchedulersInApi) {
+  const oneDayMs = 1000 * 60 * 60 * 24;
+  setInterval(() => {
+    withAdvisoryJobLock(JOB_LOCK_KEYS.ORDER_DUE_NOTIFICATIONS, () => processOrderDueNotifications())
+      .then((lockResult) => {
+        if (lockResult.skipped) {
+          console.log('[ORDER] Skipping notification run: lock not acquired');
+        }
+      })
+      .catch((err) => console.error('[ORDER] Notification check failed:', err.message));
+  }, oneDayMs);
+
+  startArchiveScheduler();
+} else {
+  console.log('[INFO] API scheduler loops disabled (RUN_SCHEDULERS_IN_API=false)');
+}
 
 warmInventoryRouteCaches().catch((err) => {
   console.error('[WARN] Failed to warm inventory route caches:', err.message);

@@ -25,6 +25,7 @@ flowchart LR
 ### Backend
 
 - Run Node API in at least 2 instances behind a load balancer.
+- Run scheduler loops in a dedicated worker process (`npm run worker`) for cleaner separation from API request handling.
 - Keep health endpoints wired:
   - `/api/live`
   - `/api/ready`
@@ -89,6 +90,7 @@ Track:
 ## 6) Multi-instance Safety
 
 - Keep scheduler advisory lock behavior enabled.
+- Prefer `RUN_SCHEDULERS_IN_API=false` on API pods and run one or more worker pods with `npm run worker`.
 - Verify only one instance runs each scheduled job cycle.
 - Alert when lock-acquired runs fail repeatedly.
 

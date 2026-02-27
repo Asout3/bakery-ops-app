@@ -54,7 +54,7 @@ stateDiagram-v2
 
 1. Do not remove idempotency key handling on write endpoints.
 2. Do not remove fallback cache read path for orders/batches pages.
-3. Do not change service worker production registration flow without validating offline refresh.
+3. Do not change service worker production registration flow without validating offline refresh; development no longer force-clears service workers.
 4. Do not add route redirects that assume online API bootstrap success.
 5. Do not return inconsistent error JSON shapes in modified endpoints.
 
