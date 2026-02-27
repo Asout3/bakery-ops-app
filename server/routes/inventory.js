@@ -61,7 +61,6 @@ router.post(
   authorizeRoles('admin', 'manager'),
   body('product_id').isInt({ min: 1 }),
   body('quantity').isInt({ min: 0 }),
-  body('source').optional().isIn(['baked', 'purchased']),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -70,7 +69,12 @@ router.post(
 
     try {
       const locationId = await getTargetLocationId(req, query);
-      const { product_id, quantity, source = 'baked' } = req.body;
+      const { product_id, quantity } = req.body;
+      const productRes = await query('SELECT source FROM products WHERE id = $1', [product_id]);
+      if (!productRes.rows.length) {
+        return res.status(404).json({ error: 'Product not found', code: 'PRODUCT_NOT_FOUND', requestId: req.requestId });
+      }
+      const source = productRes.rows[0].source || 'baked';
 
       const result = await query(
         `INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)
@@ -94,7 +98,6 @@ router.put(
   authenticateToken,
   authorizeRoles('admin', 'manager'),
   body('quantity').isInt({ min: 0 }),
-  body('source').isIn(['baked', 'purchased']),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -102,10 +105,15 @@ router.put(
     }
 
     const { productId } = req.params;
-    const { quantity, source } = req.body;
+    const { quantity } = req.body;
 
     try {
       const locationId = await getTargetLocationId(req, query);
+      const productRes = await query('SELECT source FROM products WHERE id = $1', [productId]);
+      if (!productRes.rows.length) {
+        return res.status(404).json({ error: 'Product not found', code: 'PRODUCT_NOT_FOUND', requestId: req.requestId });
+      }
+      const source = productRes.rows[0].source || 'baked';
       const result = await query(
         `INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)
          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
@@ -179,7 +187,6 @@ router.post(
   body('items').isArray({ min: 1 }),
   body('items.*.product_id').isInt({ min: 1 }),
   body('items.*.quantity').isInt({ min: 1 }),
-  body('items.*.source').isIn(['baked', 'purchased']),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -277,10 +284,18 @@ router.post(
         const createdBatch = batchResult.rows[0];
 
         for (const item of items) {
+          const productSourceRes = await tx.query('SELECT source FROM products WHERE id = $1', [item.product_id]);
+          if (!productSourceRes.rows.length) {
+            const sourceErr = new Error(`Product ${item.product_id} not found`);
+            sourceErr.status = 404;
+            throw sourceErr;
+          }
+          const itemSource = productSourceRes.rows[0].source || 'baked';
+
           await tx.query(
             `INSERT INTO batch_items (batch_id, product_id, quantity, source)
              VALUES ($1, $2, $3, $4)`,
-            [createdBatch.id, item.product_id, item.quantity, item.source]
+            [createdBatch.id, item.product_id, item.quantity, itemSource]
           );
 
           await tx.query(
@@ -291,14 +306,14 @@ router.post(
                quantity = inventory.quantity + $3,
                source = $4,
                last_updated = CURRENT_TIMESTAMP`,
-            [item.product_id, locationId, item.quantity, item.source]
+            [item.product_id, locationId, item.quantity, itemSource]
           );
 
           await tx.query(
             `INSERT INTO inventory_movements
              (location_id, product_id, movement_type, quantity_change, source, reference_type, reference_id, created_by, metadata)
              VALUES ($1, $2, 'batch_in', $3, $4, 'batch', $5, $6, $7)`,
-            [locationId, item.product_id, item.quantity, item.source, createdBatch.id, effectiveCreatedBy, JSON.stringify({ notes: notes || null, synced_by_user_id: req.user.id })]
+            [locationId, item.product_id, item.quantity, itemSource, createdBatch.id, effectiveCreatedBy, JSON.stringify({ notes: notes || null, synced_by_user_id: req.user.id })]
           );
         }
 
