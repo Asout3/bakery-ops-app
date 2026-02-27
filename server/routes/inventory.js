@@ -6,6 +6,37 @@ import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
 const BATCH_EDIT_WINDOW_MINUTES = 20;
+const INVENTORY_BATCH_ALLOWED_STATUSES = ['pending', 'sent', 'received', 'edited', 'voided'];
+let inventoryBatchConstraintReady = null;
+
+async function ensureInventoryBatchStatusConstraint(db) {
+  if (!inventoryBatchConstraintReady) {
+    inventoryBatchConstraintReady = (async () => {
+      const constraintResult = await db.query(
+        `SELECT pg_get_constraintdef(oid) as definition
+         FROM pg_constraint
+         WHERE conname = 'inventory_batches_status_check'
+         LIMIT 1`
+      );
+
+      const definition = constraintResult.rows[0]?.definition || '';
+      const hasAllStatuses = INVENTORY_BATCH_ALLOWED_STATUSES.every((status) => definition.includes(`'${status}'`));
+      if (hasAllStatuses) return;
+
+      await db.query('ALTER TABLE inventory_batches DROP CONSTRAINT IF EXISTS inventory_batches_status_check');
+      await db.query(
+        `ALTER TABLE inventory_batches
+         ADD CONSTRAINT inventory_batches_status_check
+         CHECK (status IN ('pending', 'sent', 'received', 'edited', 'voided'))`
+      );
+    })().catch((err) => {
+      inventoryBatchConstraintReady = null;
+      throw err;
+    });
+  }
+
+  await inventoryBatchConstraintReady;
+}
 
 async function getInventoryBatchColumns(db) {
   const result = await db.query(
@@ -524,6 +555,7 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
     const { items, notes } = req.body;
 
     const updatedBatch = await withTransaction(async (tx) => {
+      await ensureInventoryBatchStatusConstraint(tx);
       const batchRes = await tx.query(
         `SELECT *,
                 (CURRENT_TIMESTAMP < (created_at + make_interval(mins => $3::int))) as can_edit,
@@ -591,6 +623,7 @@ router.post('/batches/:id/void', authenticateToken, authorizeRoles('admin', 'man
     const locationId = await getTargetLocationId(req, query);
 
     const voided = await withTransaction(async (tx) => {
+      await ensureInventoryBatchStatusConstraint(tx);
       const batchRes = await tx.query(
         `SELECT *,
                 (CURRENT_TIMESTAMP < (created_at + make_interval(mins => $3::int))) as can_edit,
