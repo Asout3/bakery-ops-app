@@ -10,7 +10,7 @@ import { errorHandler } from './utils/errors.js';
 
 import authRoutes from './routes/auth.js';
 import productsRoutes from './routes/products.js';
-import inventoryRoutes from './routes/inventory.js';
+import inventoryRoutes, { warmInventoryRouteCaches } from './routes/inventory.js';
 import salesRoutes from './routes/sales.js';
 import expensesRoutes from './routes/expenses.js';
 import paymentsRoutes from './routes/payments.js';
@@ -23,6 +23,7 @@ import syncRoutes from './routes/sync.js';
 import ordersRoutes, { processOrderDueNotifications } from './routes/orders.js';
 import archiveRoutes from './routes/archive.js';
 import { startArchiveScheduler } from './services/archiveService.js';
+import { JOB_LOCK_KEYS, withAdvisoryJobLock } from './services/jobLockService.js';
 
 dotenv.config();
 
@@ -155,12 +156,28 @@ const server = app.listen(PORT, () => {
   console.log(`[INFO] Process ID: ${process.pid}`);
 });
 
-const oneDayMs = 1000 * 60 * 60 * 24;
-setInterval(() => {
-  processOrderDueNotifications().catch((err) => console.error('[ORDER] Notification check failed:', err.message));
-}, oneDayMs);
+const shouldRunSchedulersInApi = process.env.RUN_SCHEDULERS_IN_API !== 'false';
 
-startArchiveScheduler();
+if (shouldRunSchedulersInApi) {
+  const oneDayMs = 1000 * 60 * 60 * 24;
+  setInterval(() => {
+    withAdvisoryJobLock(JOB_LOCK_KEYS.ORDER_DUE_NOTIFICATIONS, () => processOrderDueNotifications())
+      .then((lockResult) => {
+        if (lockResult.skipped) {
+          console.log('[ORDER] Skipping notification run: lock not acquired');
+        }
+      })
+      .catch((err) => console.error('[ORDER] Notification check failed:', err.message));
+  }, oneDayMs);
+
+  startArchiveScheduler();
+} else {
+  console.log('[INFO] API scheduler loops disabled (RUN_SCHEDULERS_IN_API=false)');
+}
+
+warmInventoryRouteCaches().catch((err) => {
+  console.error('[WARN] Failed to warm inventory route caches:', err.message);
+});
 
 let isShuttingDown = false;
 

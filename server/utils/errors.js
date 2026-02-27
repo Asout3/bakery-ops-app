@@ -104,6 +104,16 @@ export const errorHandler = (err, req, res, next) => {
     });
   }
 
+
+  if (Number.isInteger(err.status) && typeof err.code === 'string' && typeof err.message === 'string') {
+    return res.status(err.status).json({
+      error: err.message,
+      code: err.code,
+      requestId,
+      ...(!isProduction ? { stack: err.stack } : {}),
+    });
+  }
+
   console.error(`[${requestId}] Unhandled error:`, {
     message: err.message,
     stack: isProduction ? undefined : err.stack,

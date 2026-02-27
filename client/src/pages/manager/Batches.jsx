@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Package, Clock, User, Eye, Edit, Ban, RefreshCw, Wifi, WifiOff, CheckCircle, XCircle } from 'lucide-react';
@@ -8,6 +8,7 @@ import { useToast } from '../../context/ToastContext';
 import { useConfirm } from '../../context/ConfirmContext';
 
 const BATCH_EDIT_WINDOW_MINUTES = 20;
+const BATCH_CACHE_KEY_PREFIX = 'manager_batches_cache';
 
 export default function ManagerBatches() {
   const { selectedLocationId } = useBranch();
@@ -18,8 +19,65 @@ export default function ManagerBatches() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDay, setSelectedDay] = useState('');
   const [tick, setTick] = useState(Date.now());
+  const lastOfflineToastAtRef = useRef(0);
   const toast = useToast();
   const { confirm } = useConfirm();
+
+  const getCacheKey = useCallback(() => {
+    const locationPart = selectedLocationId || 'all';
+    const dayPart = selectedDay || 'all';
+    return `${BATCH_CACHE_KEY_PREFIX}:${locationPart}:${dayPart}`;
+  }, [selectedLocationId, selectedDay]);
+
+  const readCachedBatches = useCallback(() => {
+    try {
+      const cached = localStorage.getItem(getCacheKey());
+      if (!cached) return null;
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) {
+        return { batches: parsed, summary: null };
+      }
+      if (Array.isArray(parsed?.batches)) {
+        return { batches: parsed.batches, summary: parsed.summary || null };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }, [getCacheKey]);
+
+  const readBestCachedBatches = useCallback(() => {
+    const direct = readCachedBatches();
+    if (direct?.batches?.length) return direct;
+
+    try {
+      const locationPart = selectedLocationId || 'all';
+      const prefix = `${BATCH_CACHE_KEY_PREFIX}:${locationPart}:`;
+      const matching = Object.keys(localStorage).filter((key) => key.startsWith(prefix));
+      for (const key of matching) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length) {
+          return { batches: parsed, summary: null };
+        }
+        if (Array.isArray(parsed?.batches) && parsed.batches.length) {
+          return { batches: parsed.batches, summary: parsed.summary || null };
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }, [readCachedBatches, selectedLocationId]);
+
+  const writeCachedBatches = useCallback((payload) => {
+    try {
+      localStorage.setItem(getCacheKey(), JSON.stringify(payload));
+    } catch {
+      console.error('Failed to persist batch cache');
+    }
+  }, [getCacheKey]);
 
   useEffect(() => {
     const timer = setInterval(() => setTick(Date.now()), 30000);
@@ -40,30 +98,55 @@ export default function ManagerBatches() {
     return Math.max(0, Math.ceil(BATCH_EDIT_WINDOW_MINUTES - elapsedMinutes));
   }, [tick]);
 
+  const normalizeBoolean = (value) => value === true || value === 'true' || value === 't' || value === 1 || value === '1';
+
+  const normalizeBatch = useCallback((batch) => {
+    const wasSynced = normalizeBoolean(batch?.was_synced) || Boolean(batch?.synced_by_name) || Boolean(batch?.synced_at);
+    const isOffline = normalizeBoolean(batch?.is_offline) || wasSynced;
+    return {
+      ...batch,
+      was_synced: wasSynced,
+      is_offline: isOffline,
+      can_edit: normalizeBoolean(batch?.can_edit),
+      fetched_at_ms: Date.now(),
+    };
+  }, []);
+
   const isBatchEditable = useCallback((batch) => {
-    if (!batch || batch.status === 'voided') return false;
-    return getMinutesRemaining(batch) > 0 || Boolean(batch.can_edit);
-  }, [getMinutesRemaining]);
+    if (!batch) return false;
+    return batch.status !== 'voided';
+  }, []);
 
   const fetchBatches = useCallback(async (isRefresh = false) => {
+    if (isRefresh && !navigator.onLine) {
+      const cached = readBestCachedBatches();
+      if (cached) {
+        setBatches(cached.batches.map((batch) => normalizeBatch(batch)));
+      }
+      setRefreshing(false);
+      return;
+    }
+
     if (isRefresh) {
       setRefreshing(true);
     } else {
-      setLoading(true);
+      if (batches.length === 0) {
+        setLoading(true);
+      }
     }
     try {
       const response = await api.get('/inventory/batches', {
         params: {
           limit: 100,
+          include_summary: false,
           ...(selectedDay ? { start_date: selectedDay, end_date: selectedDay } : {}),
         },
       });
-      const normalized = (response.data || [])
-        .map((batch) => ({
-          ...batch,
-          is_offline: Boolean(batch.is_offline || batch.was_synced),
-          fetched_at_ms: Date.now(),
-        }))
+      const payload = response.data;
+      const sourceRows = Array.isArray(payload) ? payload : (payload?.batches || []);
+      const normalized = sourceRows
+        .filter((batch) => batch && typeof batch === 'object')
+        .map((batch) => normalizeBatch(batch))
         .sort((a, b) => {
           const aTime = new Date(a.created_at || a.batch_date || 0).getTime() || 0;
           const bTime = new Date(b.created_at || b.batch_date || 0).getTime() || 0;
@@ -72,13 +155,25 @@ export default function ManagerBatches() {
           return Number(b.id || 0) - Number(a.id || 0);
         });
       setBatches(normalized);
+      writeCachedBatches({ batches: normalized, summary: null });
     } catch (err) {
-      toast.error(getErrorMessage(err, 'Failed to fetch batches.'));
+      const cached = readBestCachedBatches();
+      if (cached && (!navigator.onLine || !err?.response)) {
+        const hydrated = cached.batches.map((batch) => normalizeBatch(batch));
+        setBatches(hydrated);
+        const now = Date.now();
+        if (now - lastOfflineToastAtRef.current > 120000) {
+          toast.info('Offline: loaded cached batch history.');
+          lastOfflineToastAtRef.current = now;
+        }
+      } else {
+        toast.error(getErrorMessage(err, 'Failed to fetch batches.'));
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedDay]);
+  }, [selectedDay, normalizeBatch, readBestCachedBatches, writeCachedBatches, batches.length]);
 
   useEffect(() => {
     fetchBatches();
@@ -89,7 +184,7 @@ export default function ManagerBatches() {
   const fetchBatchDetails = async (batchId) => {
     try {
       const response = await api.get(`/inventory/batches/${batchId}`);
-      setSelectedBatch({ ...response.data, is_offline: Boolean(response.data?.is_offline || response.data?.was_synced) });
+      setSelectedBatch(normalizeBatch(response.data));
       setEditingItems(response.data.items?.map((item) => ({ ...item })) || []);
     } catch (err) {
       toast.error(getErrorMessage(err, 'Failed to fetch batch details.'));
@@ -136,11 +231,11 @@ export default function ManagerBatches() {
 
   const stats = {
     total: batches.length,
-    sent: batches.filter(b => b.status === 'sent').length,
-    voided: batches.filter(b => b.status === 'voided').length,
-    edited: batches.filter(b => b.status === 'edited').length,
-    offline: batches.filter(b => b.is_offline).length,
-    synced: batches.filter(b => b.was_synced).length,
+    sent: batches.filter((b) => b.status === 'sent').length,
+    voided: batches.filter((b) => b.status === 'voided').length,
+    edited: batches.filter((b) => b.status === 'edited').length,
+    offline: batches.filter((b) => b.is_offline).length,
+    synced: batches.filter((b) => b.was_synced).length,
   };
 
   const getStatusBadge = (status) => {
@@ -190,22 +285,12 @@ export default function ManagerBatches() {
         </div>
       </div>
 
-      <div className="stats-grid mb-4">
-        <div className="stat-card card bg-light">
-          <div className="stat-icon bg-primary text-white"><Package size={24} /></div>
-          <div className="stat-content"><h3>{stats.total}</h3><p>Total Batches</p></div>
-        </div>
-        <div className="stat-card card bg-light">
-          <div className="stat-icon bg-success text-white"><CheckCircle size={24} /></div>
-          <div className="stat-content"><h3>{stats.sent}</h3><p>Sent</p></div>
-        </div>
-        <div className="stat-card card bg-light">
-          <div className="stat-icon bg-danger text-white"><XCircle size={24} /></div>
-          <div className="stat-content"><h3>{stats.voided}</h3><p>Voided</p></div>
-        </div>
-        <div className="stat-card card bg-light">
-          <div className="stat-icon bg-warning text-white"><WifiOff size={24} /></div>
-          <div className="stat-content"><h3>{stats.offline}</h3><p>Offline Sync</p></div>
+      <div className="card mb-4">
+        <div className="card-body d-flex gap-2 flex-wrap align-items-center">
+          <span className="badge bg-secondary">Showing {stats.total} rows</span>
+          <span className="badge bg-success">Sent: {stats.sent}</span>
+          <span className="badge bg-danger">Voided: {stats.voided}</span>
+          <span className="badge bg-warning text-dark">Offline synced: {stats.offline}</span>
         </div>
       </div>
 
@@ -269,11 +354,9 @@ export default function ManagerBatches() {
                       </td>
                       <td>
                         <div className="d-flex gap-1">
-                          {batch.status !== 'voided' && (
-                            <span className={`badge ${isBatchEditable(batch) ? 'bg-warning text-dark' : 'bg-secondary'}`}>
-                              {isBatchEditable(batch) ? `Locks in ${getMinutesRemaining(batch)}m` : 'Locked'}
-                            </span>
-                          )}
+                          <span className={`badge ${isBatchEditable(batch) ? 'bg-success' : 'bg-secondary'}`}>
+                            {isBatchEditable(batch) ? 'Editable' : 'Locked'}
+                          </span>
                           <button 
                             className="btn btn-sm btn-outline-primary" 
                             onClick={() => fetchBatchDetails(batch.id)}
@@ -281,15 +364,22 @@ export default function ManagerBatches() {
                           >
                             <Eye size={14} />
                           </button>
-                          {isBatchEditable(batch) && (
-                            <button 
-                              className="btn btn-sm btn-outline-danger" 
-                              onClick={() => handleVoidBatch(batch.id)}
-                              title="Void Batch (within 20 min)"
-                            >
-                              <Ban size={14} />
-                            </button>
-                          )}
+                          <button
+                            className="btn btn-sm btn-outline-secondary"
+                            onClick={() => fetchBatchDetails(batch.id)}
+                            title={isBatchEditable(batch) ? 'Edit Batch' : 'View locked batch'}
+                            disabled={!isBatchEditable(batch)}
+                          >
+                            <Edit size={14} />
+                          </button>
+                          <button 
+                            className="btn btn-sm btn-outline-danger" 
+                            onClick={() => handleVoidBatch(batch.id)}
+                            title={isBatchEditable(batch) ? 'Void Batch' : 'Batch is already voided'}
+                            disabled={!isBatchEditable(batch)}
+                          >
+                            <Ban size={14} />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -348,6 +438,12 @@ export default function ManagerBatches() {
                     <div className="stat-box-value">ETB {Number(selectedBatch.total_cost || 0).toFixed(2)}</div>
                   </div>
                 </div>
+              </div>
+
+              <div className={`alert ${isBatchEditable(selectedBatch) ? 'alert-success' : 'alert-secondary'} mb-4`}>
+                {isBatchEditable(selectedBatch)
+                  ? 'This batch is editable and can be voided from this page.'
+                  : 'This batch is locked because it is already voided.'}
               </div>
 
               {selectedBatch.was_synced && selectedBatch.synced_by_name && (
@@ -409,14 +505,12 @@ export default function ManagerBatches() {
                 </table>
               </div>
             </div>
-            {isBatchEditable(selectedBatch) && (
-              <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setSelectedBatch(null)}>Close</button>
-                <button className="btn btn-primary" onClick={handleSaveEdit}>
-                  <Edit size={14} className="me-1" /> Save Changes
-                </button>
-              </div>
-            )}
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setSelectedBatch(null)}>Close</button>
+              <button className="btn btn-primary" onClick={handleSaveEdit} disabled={!isBatchEditable(selectedBatch)}>
+                <Edit size={14} className="me-1" /> Save Changes
+              </button>
+            </div>
           </div>
         </div>
       )}

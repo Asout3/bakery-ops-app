@@ -56,10 +56,12 @@ if (!shouldRejectUnauthorized && isProduction) {
   console.warn('[WARN] SSL_REJECT_UNAUTHORIZED is disabled in production. This is insecure!');
 }
 
-const MAX_POOL_SIZE = Number(process.env.DB_MAX_POOL_SIZE || 20);
+const MAX_POOL_SIZE = Number(process.env.DB_MAX_POOL_SIZE || (isProduction ? 10 : 20));
 const MIN_POOL_SIZE = Number(process.env.DB_MIN_POOL_SIZE || 2);
 const CONNECTION_TIMEOUT = Number(process.env.DB_CONNECTION_TIMEOUT_MS || 10000);
 const IDLE_TIMEOUT = Number(process.env.DB_IDLE_TIMEOUT_MS || 30000);
+const STATEMENT_TIMEOUT = Number(process.env.DB_STATEMENT_TIMEOUT_MS || 15000);
+const IDLE_IN_TX_TIMEOUT = Number(process.env.DB_IDLE_IN_TRANSACTION_TIMEOUT_MS || 15000);
 
 const TRANSIENT_DB_ERROR_CODES = new Set([
   '57P01',
@@ -99,6 +101,9 @@ const pool = new Pool({
   connectionTimeoutMillis: CONNECTION_TIMEOUT,
   idleTimeoutMillis: IDLE_TIMEOUT,
   allowExitOnIdle: false,
+  statement_timeout: STATEMENT_TIMEOUT,
+  idle_in_transaction_session_timeout: IDLE_IN_TX_TIMEOUT,
+  application_name: process.env.DB_APPLICATION_NAME || 'bakery-ops-api',
 });
 
 pool.on('connect', () => {
@@ -158,11 +163,12 @@ export const withTransaction = async (callback) => {
 
     return result;
   } catch (error) {
-    shouldDestroyClient = true;
+    shouldDestroyClient = isTransientDbError(error);
     if (client) {
       try {
         await client.query('ROLLBACK');
       } catch (rollbackError) {
+        shouldDestroyClient = true;
         console.error('[DB TRANSACTION ERROR] Rollback failed:', rollbackError.message);
       }
     }

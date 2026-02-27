@@ -11,6 +11,23 @@ dotenv.config();
 
 const dbIpFamily = Number(process.env.DB_IP_FAMILY || 4);
 
+const isProduction = process.env.NODE_ENV === 'production';
+const shouldRejectUnauthorized = process.env.SSL_REJECT_UNAUTHORIZED !== 'false';
+
+async function ensureDefaultAdminSeed(client) {
+  const allowDevSeed = process.env.ALLOW_DEV_SEED !== 'false';
+  if (isProduction || !allowDevSeed) {
+    return;
+  }
+
+  await client.query(
+    `INSERT INTO users (username, email, password_hash, role)
+     VALUES ('admin', 'admin@bakery.com', $1, 'admin')
+     ON CONFLICT (username) DO NOTHING`,
+    ['$2a$10$dn8KZ/YdUSxWjAWlAnK2We/oAbn6LIhLGDsQYurAhjDWkzpLYvmL2']
+  );
+}
+
 async function getMigrationFiles() {
   const migrationsDir = path.join(__dirname, '../database/migrations');
   const files = fs.readdirSync(migrationsDir)
@@ -44,6 +61,15 @@ async function recordMigration(client, filename) {
   );
 }
 
+
+async function acquireSetupLock(client) {
+  await client.query('SELECT pg_advisory_lock($1)', [90421001]);
+}
+
+async function releaseSetupLock(client) {
+  await client.query('SELECT pg_advisory_unlock($1)', [90421001]);
+}
+
 async function checkTablesExist(client) {
   const result = await client.query(`
     SELECT EXISTS (
@@ -60,7 +86,8 @@ async function setupDatabase() {
     connectionString: process.env.DATABASE_URL,
     ssl: process.env.DATABASE_URL
       ? {
-          rejectUnauthorized: false,
+          rejectUnauthorized: shouldRejectUnauthorized,
+          ...(shouldRejectUnauthorized && process.env.SSL_CA_CERT ? { ca: process.env.SSL_CA_CERT } : {}),
         }
       : false,
     family: dbIpFamily,
@@ -71,6 +98,7 @@ async function setupDatabase() {
     await client.connect();
     console.log('✅ Connected to database!');
 
+    await acquireSetupLock(client);
     await ensureMigrationsTable(client);
 
     const tablesExist = await checkTablesExist(client);
@@ -80,10 +108,12 @@ async function setupDatabase() {
       const schema = fs.readFileSync(path.join(__dirname, '../database/schema.sql'), 'utf8');
       
       console.log('🚀 Creating base tables and initial data...');
+      await client.query('BEGIN');
       await client.query(schema);
-      console.log('✅ Base schema applied!');
-      
       await recordMigration(client, 'schema.sql');
+      await ensureDefaultAdminSeed(client);
+      await client.query('COMMIT');
+      console.log('✅ Base schema applied!');
     } else {
       console.log('📋 Database tables already exist. Checking for new migrations...');
     }
@@ -106,14 +136,16 @@ async function setupDatabase() {
       );
       
       try {
+        await client.query('BEGIN');
         await client.query(migrationSql);
         await recordMigration(client, file);
+        await client.query('COMMIT');
         migrationsRun++;
         console.log(`  ✅ ${file} complete!`);
       } catch (migrationError) {
-        console.error(`  ⚠️  Warning in ${file}: ${migrationError.message}`);
-        console.log(`  ⏭️  Recording as complete anyway to prevent re-running...`);
-        await recordMigration(client, file);
+        await client.query('ROLLBACK');
+        console.error(`  ❌ Migration failed in ${file}: ${migrationError.message}`);
+        throw migrationError;
       }
     }
     
@@ -126,15 +158,22 @@ async function setupDatabase() {
     console.log('');
     console.log('✅ Database setup complete!');
     console.log('');
-    console.log('Default login credentials:');
-    console.log('  Username: admin');
-    console.log('  Password: admin123');
-    console.log('');
+    if (!isProduction && process.env.ALLOW_DEV_SEED !== 'false') {
+      console.log('Default login credentials:');
+      console.log('  Username: admin');
+      console.log('  Password: admin123');
+      console.log('');
+    }
     
   } catch (error) {
     console.error('❌ Error setting up database:', error);
     process.exit(1);
   } finally {
+    try {
+      await releaseSetupLock(client);
+    } catch (lockErr) {
+      console.error('⚠️ Failed to release setup lock:', lockErr.message);
+    }
     await client.end();
   }
 }

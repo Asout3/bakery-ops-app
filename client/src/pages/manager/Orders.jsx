@@ -9,17 +9,56 @@ export default function ManagerOrders() {
   const [message, setMessage] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
+  const readCachedOrders = (cacheKey) => {
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const writeCachedOrders = (cacheKey, rows) => {
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(rows));
+    } catch {
+      console.error('Failed to persist manager orders cache');
+    }
+  };
+
+  const readBestCachedOrders = (cacheKey) => {
+    const exact = readCachedOrders(cacheKey);
+    if (exact && exact.length) return exact;
+    try {
+      const prefix = `manager_orders_cache_${selectedLocationId || 'default'}`;
+      const key = Object.keys(localStorage).find((k) => k.startsWith(prefix));
+      if (!key) return null;
+      return readCachedOrders(key);
+    } catch {
+      return null;
+    }
+  };
+
   const fetchOrders = async () => {
     const cacheKey = `manager_orders_cache_${selectedLocationId || 'default'}`;
+    if (!navigator.onLine) {
+      const cached = readBestCachedOrders(cacheKey);
+      if (cached) {
+        setOrders(cached);
+        return;
+      }
+    }
     try {
       const response = await api.get('/orders');
       const rows = response.data || [];
       setOrders(rows);
-      localStorage.setItem(cacheKey, JSON.stringify(rows));
+      writeCachedOrders(cacheKey, rows);
     } catch (err) {
-      const cached = localStorage.getItem(cacheKey);
+      const cached = readBestCachedOrders(cacheKey);
       if (cached) {
-        setOrders(JSON.parse(cached));
+        setOrders(cached);
         setMessage({ type: 'warning', text: 'Offline mode: showing cached orders.' });
         return;
       }

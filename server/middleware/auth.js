@@ -15,6 +15,10 @@ if (JWT_SECRET.length < 32) {
 const TOKEN_EXPIRY = '24h';
 const ISSUER = 'bakery-ops';
 
+function getRequestId(req) {
+  return req.requestId || req.headers['x-request-id'] || `req-${Date.now()}`;
+}
+
 export const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -22,7 +26,8 @@ export const authenticateToken = (req, res, next) => {
   if (!token) {
     return res.status(401).json({ 
       error: 'Access token required',
-      code: 'AUTH_TOKEN_REQUIRED'
+      code: 'AUTH_TOKEN_REQUIRED',
+      requestId: getRequestId(req)
     });
   }
 
@@ -35,31 +40,36 @@ export const authenticateToken = (req, res, next) => {
         return res.status(401).json({
           error: 'Token has expired',
           code: 'AUTH_TOKEN_EXPIRED',
-          expiredAt: err.expiredAt
+          expiredAt: err.expiredAt,
+          requestId: getRequestId(req)
         });
       }
       if (err.name === 'JsonWebTokenError') {
         return res.status(401).json({
           error: 'Invalid token',
-          code: 'AUTH_TOKEN_INVALID'
+          code: 'AUTH_TOKEN_INVALID',
+          requestId: getRequestId(req)
         });
       }
       if (err.name === 'NotBeforeError') {
         return res.status(401).json({
           error: 'Token not yet active',
-          code: 'AUTH_TOKEN_NOT_ACTIVE'
+          code: 'AUTH_TOKEN_NOT_ACTIVE',
+          requestId: getRequestId(req)
         });
       }
       return res.status(403).json({ 
         error: 'Token verification failed',
-        code: 'AUTH_TOKEN_VERIFICATION_FAILED'
+        code: 'AUTH_TOKEN_VERIFICATION_FAILED',
+        requestId: getRequestId(req)
       });
     }
 
     if (!user.id || !user.role) {
       return res.status(403).json({
         error: 'Invalid token payload',
-        code: 'AUTH_TOKEN_INVALID_PAYLOAD'
+        code: 'AUTH_TOKEN_INVALID_PAYLOAD',
+        requestId: getRequestId(req)
       });
     }
     
@@ -73,7 +83,8 @@ export const authorizeRoles = (...roles) => {
     if (!req.user) {
       return res.status(401).json({ 
         error: 'Authentication required',
-        code: 'AUTH_REQUIRED'
+        code: 'AUTH_REQUIRED',
+        requestId: getRequestId(req)
       });
     }
     
@@ -82,7 +93,8 @@ export const authorizeRoles = (...roles) => {
         error: 'Insufficient permissions',
         code: 'AUTH_INSUFFICIENT_PERMISSIONS',
         required: roles,
-        current: req.user.role
+        current: req.user.role,
+        requestId: getRequestId(req)
       });
     }
     
@@ -117,7 +129,8 @@ export const requireOwnershipOrRole = (paramUserIdField = 'userId') => {
     if (!req.user) {
       return res.status(401).json({
         error: 'Authentication required',
-        code: 'AUTH_REQUIRED'
+        code: 'AUTH_REQUIRED',
+        requestId: getRequestId(req)
       });
     }
 
@@ -130,7 +143,8 @@ export const requireOwnershipOrRole = (paramUserIdField = 'userId') => {
     if (req.user.id !== targetUserId) {
       return res.status(403).json({
         error: 'You can only access your own resources',
-        code: 'AUTH_RESOURCE_OWNERSHIP_REQUIRED'
+        code: 'AUTH_RESOURCE_OWNERSHIP_REQUIRED',
+        requestId: getRequestId(req)
       });
     }
 

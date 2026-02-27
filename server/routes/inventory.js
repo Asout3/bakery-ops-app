@@ -6,8 +6,53 @@ import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
 const BATCH_EDIT_WINDOW_MINUTES = 20;
+const INVENTORY_BATCH_ALLOWED_STATUSES = ['pending', 'sent', 'received', 'edited', 'voided'];
+let inventoryBatchConstraintReady = null;
+let inventoryBatchColumnsCache = null;
+
+
+function clampLimit(value, fallback = 50, max = 200) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(Math.trunc(parsed), max);
+}
+
+function isValidDateFilter(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+}
+
+async function ensureInventoryBatchStatusConstraint(db) {
+  if (!inventoryBatchConstraintReady) {
+    inventoryBatchConstraintReady = (async () => {
+      const constraintResult = await db.query(
+        `SELECT pg_get_constraintdef(oid) as definition
+         FROM pg_constraint
+         WHERE conname = 'inventory_batches_status_check'
+         LIMIT 1`
+      );
+
+      const definition = constraintResult.rows[0]?.definition || '';
+      const hasAllStatuses = INVENTORY_BATCH_ALLOWED_STATUSES.every((status) => definition.includes(`'${status}'`));
+      if (hasAllStatuses) return;
+
+      await db.query('ALTER TABLE inventory_batches DROP CONSTRAINT IF EXISTS inventory_batches_status_check');
+      await db.query(
+        `ALTER TABLE inventory_batches
+         ADD CONSTRAINT inventory_batches_status_check
+         CHECK (status IN ('pending', 'sent', 'received', 'edited', 'voided'))`
+      );
+    })().catch((err) => {
+      inventoryBatchConstraintReady = null;
+      throw err;
+    });
+  }
+
+  await inventoryBatchConstraintReady;
+}
 
 async function getInventoryBatchColumns(db) {
+  if (inventoryBatchColumnsCache) return inventoryBatchColumnsCache;
+
   const result = await db.query(
     `SELECT column_name
      FROM information_schema.columns
@@ -15,7 +60,7 @@ async function getInventoryBatchColumns(db) {
   );
 
   const columns = new Set(result.rows.map((row) => row.column_name));
-  return {
+  inventoryBatchColumnsCache = {
     hasOfflineFlag: columns.has('is_offline'),
     hasOriginalActorId: columns.has('original_actor_id'),
     hasOriginalActorName: columns.has('original_actor_name'),
@@ -23,6 +68,13 @@ async function getInventoryBatchColumns(db) {
     hasSyncedByName: columns.has('synced_by_name'),
     hasSyncedAt: columns.has('synced_at'),
   };
+
+  return inventoryBatchColumnsCache;
+}
+
+export async function warmInventoryRouteCaches() {
+  await ensureInventoryBatchStatusConstraint({ query });
+  await getInventoryBatchColumns({ query });
 }
 
 router.get('/', authenticateToken, async (req, res) => {
@@ -50,7 +102,7 @@ router.get('/', authenticateToken, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('Get inventory error:', err);
-    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
   }
 });
 
@@ -64,7 +116,7 @@ router.post(
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
     }
 
     try {
@@ -88,7 +140,7 @@ router.post(
       res.status(201).json(result.rows[0]);
     } catch (err) {
       console.error('Create inventory row error:', err);
-      res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
     }
   }
 );
@@ -101,7 +153,7 @@ router.put(
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
     }
 
     const { productId } = req.params;
@@ -145,7 +197,7 @@ router.put(
       res.json(result.rows[0]);
     } catch (err) {
       console.error('Update inventory error:', err);
-      res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
     }
   }
 );
@@ -160,7 +212,7 @@ router.delete('/:id', authenticateToken, authorizeRoles('admin', 'manager'), asy
     );
 
     if (target.rows.length === 0) {
-      return res.status(404).json({ error: 'Inventory item not found' });
+      return res.status(404).json({ error: 'Inventory item not found', code: 'NOT_FOUND', requestId: req.requestId });
     }
 
     const item = target.rows[0];
@@ -176,7 +228,7 @@ router.delete('/:id', authenticateToken, authorizeRoles('admin', 'manager'), asy
     return res.json({ message: 'Inventory item deleted successfully', deleted: item });
   } catch (err) {
     console.error('Delete inventory error:', err);
-    return res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+    return res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
   }
 });
 
@@ -190,7 +242,7 @@ router.post(
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
     }
 
     const { items, notes } = req.body;
@@ -282,15 +334,23 @@ router.post(
         );
 
         const createdBatch = batchResult.rows[0];
+        const uniqueProductIds = [...new Set(items.map((item) => Number(item.product_id)))];
+        const productSources = await tx.query(
+          'SELECT id, source FROM products WHERE id = ANY($1::int[])',
+          [uniqueProductIds]
+        );
+        const sourceByProductId = new Map(productSources.rows.map((row) => [Number(row.id), row.source || 'baked']));
 
-        for (const item of items) {
-          const productSourceRes = await tx.query('SELECT source FROM products WHERE id = $1', [item.product_id]);
-          if (!productSourceRes.rows.length) {
-            const sourceErr = new Error(`Product ${item.product_id} not found`);
+        for (const productId of uniqueProductIds) {
+          if (!sourceByProductId.has(productId)) {
+            const sourceErr = new Error(`Product ${productId} not found`);
             sourceErr.status = 404;
             throw sourceErr;
           }
-          const itemSource = productSourceRes.rows[0].source || 'baked';
+        }
+
+        for (const item of items) {
+          const itemSource = sourceByProductId.get(Number(item.product_id));
           if (item.source && item.source !== itemSource) {
             const sourceErr = new Error(`Product ${item.product_id} must be batched as ${itemSource}`);
             sourceErr.status = 400;
@@ -378,7 +438,7 @@ router.post(
       res.status(201).json(batch);
     } catch (err) {
       console.error('Create batch error:', err);
-      res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
     }
   }
 );
@@ -386,9 +446,18 @@ router.post(
 router.get('/batches', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
-    const limit = parseInt(req.query.limit, 10) || 50;
+    const limit = clampLimit(req.query.limit, 50, 200);
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
+    const includeSummary = req.query.include_summary === 'true';
+
+    if ((startDate && !isValidDateFilter(startDate)) || (endDate && !isValidDateFilter(endDate))) {
+      return res.status(400).json({
+        error: 'Invalid date filter format. Use YYYY-MM-DD.',
+        code: 'VALIDATION_ERROR',
+        requestId: req.requestId,
+      });
+    }
     const batchColumns = await getInventoryBatchColumns({ query });
 
     const displayCreatorExpr = batchColumns.hasOriginalActorName
@@ -400,6 +469,21 @@ router.get('/batches', authenticateToken, async (req, res) => {
       ? (batchColumns.hasSyncedById ? '(COALESCE(b.is_offline, false) OR b.synced_by_id IS NOT NULL)' : 'COALESCE(b.is_offline, false)')
       : (batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false');
 
+    let whereClause = 'b.location_id = $1';
+    const whereParams = [locationId];
+
+    if (startDate) {
+      whereParams.push(startDate);
+      whereClause += ` AND DATE(b.created_at) >= $${whereParams.length}`;
+    }
+
+    if (endDate) {
+      whereParams.push(endDate);
+      whereClause += ` AND DATE(b.created_at) <= $${whereParams.length}`;
+    }
+
+    const editWindowParamIndex = whereParams.length + 1;
+
     let queryText = `SELECT b.*, u.username as created_by_name,
               ${displayCreatorExpr} as display_creator_name,
               ${syncedByNameExpr} as synced_by_name,
@@ -410,33 +494,43 @@ router.get('/batches', authenticateToken, async (req, res) => {
                         FROM batch_items bi
                         JOIN products p ON p.id = bi.product_id
                         WHERE bi.batch_id = b.id), 0) as total_cost,
-              (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60) <= $2 as can_edit,
+              (CURRENT_TIMESTAMP < (b.created_at + make_interval(mins => $${editWindowParamIndex}::int))) as can_edit,
               EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60 as age_minutes
        FROM inventory_batches b
        JOIN users u ON b.created_by = u.id
-       WHERE b.location_id = $1`;
+       WHERE ${whereClause}`;
 
-    const params = [locationId, BATCH_EDIT_WINDOW_MINUTES];
-
-    if (startDate) {
-      params.push(startDate);
-      queryText += ` AND DATE(b.created_at) >= $${params.length}`;
-    }
-
-    if (endDate) {
-      params.push(endDate);
-      queryText += ` AND DATE(b.created_at) <= $${params.length}`;
-    }
+    const params = [...whereParams, BATCH_EDIT_WINDOW_MINUTES];
 
     queryText += ` ORDER BY b.created_at DESC, b.id DESC LIMIT $${params.length + 1}`;
     params.push(limit);
 
     const result = await query(queryText, params);
+    let summary = null;
 
-    res.json(result.rows);
+    if (includeSummary) {
+      const summaryResult = await query(
+        `SELECT COUNT(*) as total,
+                COUNT(*) FILTER (WHERE COALESCE(b.status, 'sent') = 'sent') as sent,
+                COUNT(*) FILTER (WHERE COALESCE(b.status, 'sent') = 'voided') as voided,
+                COUNT(*) FILTER (WHERE COALESCE(b.status, 'sent') = 'edited') as edited,
+                COUNT(*) FILTER (WHERE ${isOfflineExpr}) as offline,
+                COUNT(*) FILTER (WHERE ${wasSyncedExpr}) as synced
+         FROM inventory_batches b
+         WHERE ${whereClause}`,
+        whereParams
+      );
+      summary = summaryResult.rows[0] || { total: 0, sent: 0, voided: 0, edited: 0, offline: 0, synced: 0 };
+    }
+
+    res.json({
+      batches: result.rows,
+      summary,
+      applied_limit: limit,
+    });
   } catch (err) {
     console.error('Get batches error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
   }
 });
 
@@ -459,7 +553,7 @@ router.get('/batches/:id', authenticateToken, async (req, res) => {
               ${syncedByNameExpr} as synced_by_name,
               ${wasSyncedExpr} as was_synced,
               ${isOfflineExpr} as is_offline,
-              (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60) <= $3 as can_edit,
+              (CURRENT_TIMESTAMP < (b.created_at + make_interval(mins => $3::int))) as can_edit,
               EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60 as age_minutes
        FROM inventory_batches b
        JOIN users u ON b.created_by = u.id
@@ -468,7 +562,7 @@ router.get('/batches/:id', authenticateToken, async (req, res) => {
     );
 
     if (batchResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Batch not found' });
+      return res.status(404).json({ error: 'Batch not found', code: 'NOT_FOUND', requestId: req.requestId });
     }
 
     const itemsResult = await query(
@@ -486,7 +580,7 @@ router.get('/batches/:id', authenticateToken, async (req, res) => {
     res.json(batch);
   } catch (err) {
     console.error('Get batch details error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
   }
 });
 
@@ -494,7 +588,7 @@ router.get('/batches/:id', authenticateToken, async (req, res) => {
 router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager'), body('items').isArray({ min: 1 }), async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
+    return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
   }
 
   try {
@@ -502,7 +596,16 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
     const { items, notes } = req.body;
 
     const updatedBatch = await withTransaction(async (tx) => {
-      const batchRes = await tx.query(`SELECT * FROM inventory_batches WHERE id = $1 AND location_id = $2 FOR UPDATE`, [req.params.id, locationId]);
+      await ensureInventoryBatchStatusConstraint(tx);
+      const batchRes = await tx.query(
+        `SELECT *,
+                (CURRENT_TIMESTAMP < (created_at + make_interval(mins => $3::int))) as can_edit,
+                EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - created_at)) / 60 as age_minutes
+         FROM inventory_batches
+         WHERE id = $1 AND location_id = $2
+         FOR UPDATE`,
+        [req.params.id, locationId, BATCH_EDIT_WINDOW_MINUTES]
+      );
       if (!batchRes.rows.length) {
         const err = new Error('Batch not found');
         err.status = 404;
@@ -510,9 +613,8 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
       }
 
       const batch = batchRes.rows[0];
-      const ageMinutes = (Date.now() - new Date(batch.created_at).getTime()) / 60000;
-      if (ageMinutes > BATCH_EDIT_WINDOW_MINUTES) {
-        const err = new Error('Batch edit window has expired');
+      if (batch.status === 'voided') {
+        const err = new Error('Voided batches cannot be edited');
         err.status = 400;
         throw err;
       }
@@ -524,14 +626,23 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
 
       await tx.query('DELETE FROM batch_items WHERE batch_id = $1', [req.params.id]);
 
-      for (const item of items) {
-        const productSourceRes = await tx.query('SELECT source FROM products WHERE id = $1', [item.product_id]);
-        if (!productSourceRes.rows.length) {
-          const err = new Error(`Product ${item.product_id} not found`);
+      const uniqueProductIds = [...new Set(items.map((item) => Number(item.product_id)))];
+      const productSources = await tx.query(
+        'SELECT id, source FROM products WHERE id = ANY($1::int[])',
+        [uniqueProductIds]
+      );
+      const sourceByProductId = new Map(productSources.rows.map((row) => [Number(row.id), row.source || 'baked']));
+
+      for (const productId of uniqueProductIds) {
+        if (!sourceByProductId.has(productId)) {
+          const err = new Error(`Product ${productId} not found`);
           err.status = 404;
           throw err;
         }
-        const itemSource = productSourceRes.rows[0].source || 'baked';
+      }
+
+      for (const item of items) {
+        const itemSource = sourceByProductId.get(Number(item.product_id));
         if (item.source && item.source !== itemSource) {
           const err = new Error(`Product ${item.product_id} must be batched as ${itemSource}`);
           err.status = 400;
@@ -553,7 +664,7 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
     return res.json(updatedBatch);
   } catch (err) {
     console.error('Edit batch error:', err);
-    return res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+    return res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
   }
 });
 
@@ -562,19 +673,22 @@ router.post('/batches/:id/void', authenticateToken, authorizeRoles('admin', 'man
     const locationId = await getTargetLocationId(req, query);
 
     const voided = await withTransaction(async (tx) => {
-      const batchRes = await tx.query(`SELECT * FROM inventory_batches WHERE id = $1 AND location_id = $2 FOR UPDATE`, [req.params.id, locationId]);
+      await ensureInventoryBatchStatusConstraint(tx);
+      const batchRes = await tx.query(
+        `SELECT *,
+                (CURRENT_TIMESTAMP < (created_at + make_interval(mins => $3::int))) as can_edit,
+                EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - created_at)) / 60 as age_minutes
+         FROM inventory_batches
+         WHERE id = $1 AND location_id = $2
+         FOR UPDATE`,
+        [req.params.id, locationId, BATCH_EDIT_WINDOW_MINUTES]
+      );
       if (!batchRes.rows.length) {
         const err = new Error('Batch not found');
         err.status = 404;
         throw err;
       }
       const batch = batchRes.rows[0];
-      const ageMinutes = (Date.now() - new Date(batch.created_at).getTime()) / 60000;
-      if (ageMinutes > BATCH_EDIT_WINDOW_MINUTES) {
-        const err = new Error('Batch void window has expired');
-        err.status = 400;
-        throw err;
-      }
       if (batch.status === 'voided') {
         return batch;
       }
@@ -591,7 +705,7 @@ router.post('/batches/:id/void', authenticateToken, authorizeRoles('admin', 'man
     return res.json(voided);
   } catch (err) {
     console.error('Void batch error:', err);
-    return res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+    return res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
   }
 });
 

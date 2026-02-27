@@ -6,6 +6,16 @@ import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
 
+function clampLimit(value, fallback = 100, max = 500) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(Math.trunc(parsed), max);
+}
+
+function isValidDateFilter(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+}
+
 router.post(
   '/',
   authenticateToken,
@@ -210,9 +220,17 @@ router.post(
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
-    const limit = parseInt(req.query.limit, 10) || 100;
+    const limit = clampLimit(req.query.limit, 100, 500);
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
+
+    if ((startDate && !isValidDateFilter(startDate)) || (endDate && !isValidDateFilter(endDate))) {
+      return res.status(400).json({
+        error: 'Invalid date filter format. Use YYYY-MM-DD.',
+        code: 'VALIDATION_ERROR',
+        requestId: req.requestId,
+      });
+    }
 
     let queryText = `
       SELECT s.*, u.username as cashier_name,

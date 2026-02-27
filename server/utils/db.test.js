@@ -28,3 +28,30 @@ test('withTransaction annotates transient connection failures from pool.connect'
     (error) => error.status === 503 && error.code === '08006'
   );
 });
+
+test('withTransaction keeps client for non-transient business errors', async (t) => {
+  const originalConnect = pool.connect;
+  t.after(() => {
+    pool.connect = originalConnect;
+  });
+
+  let releaseArg;
+  const fakeClient = {
+    async query(sql) {
+      if (sql === 'BEGIN' || sql === 'ROLLBACK') return;
+      throw new Error('business validation failure');
+    },
+    release(arg) {
+      releaseArg = arg;
+    },
+  };
+
+  pool.connect = async () => fakeClient;
+
+  await assert.rejects(
+    () => withTransaction(async (tx) => tx.query('SELECT 1')),
+    (error) => error.message.includes('business validation failure')
+  );
+
+  assert.equal(releaseArg, false);
+});

@@ -1,5 +1,5 @@
 import { query, withTransaction } from '../db.js';
-import { ensureFeatureSchema } from './featureSchemaService.js';
+import { JOB_LOCK_KEYS, withAdvisoryJobLock } from './jobLockService.js';
 
 const DEFAULT_CONFIRMATION_PHRASE = 'I CONFIRM TO ARCHIVE THE LAST 6 MONTH HISTORY';
 
@@ -13,7 +13,6 @@ async function getLocationsToProcess(locationId = null) {
 }
 
 export async function ensureArchiveSettings(locationId, userId = null) {
-  await ensureFeatureSchema({ archive: true });
   const ensured = await query(
     `INSERT INTO archive_settings (location_id, created_by, updated_by)
      VALUES ($1, $2, $2)
@@ -36,6 +35,43 @@ async function createArchiveNotification(tx, locationId, title, message, type = 
 
 async function moveRowsToArchive(tx, config) {
   const counts = {};
+
+  const batches = await tx.query(
+    `WITH moved AS (
+      INSERT INTO inventory_batches_archive
+      SELECT * FROM inventory_batches
+      WHERE location_id = $1 AND created_at < $2
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id
+    )
+    SELECT COUNT(*)::int AS count FROM moved`,
+    [config.locationId, config.cutoffAt]
+  );
+  counts.inventory_batches = batches.rows[0].count;
+
+  if (counts.inventory_batches > 0) {
+    await tx.query(
+      `INSERT INTO batch_items_archive
+       SELECT bi.* FROM batch_items bi
+       JOIN inventory_batches_archive iba ON iba.id = bi.batch_id
+       LEFT JOIN batch_items_archive bia ON bia.id = bi.id
+       WHERE iba.location_id = $1 AND bia.id IS NULL`,
+      [config.locationId]
+    );
+
+    await tx.query(
+      `DELETE FROM batch_items
+       WHERE batch_id IN (
+         SELECT id FROM inventory_batches_archive WHERE location_id = $1 AND created_at < $2
+       )`,
+      [config.locationId, config.cutoffAt]
+    );
+
+    await tx.query(
+      'DELETE FROM inventory_batches WHERE location_id = $1 AND created_at < $2',
+      [config.locationId, config.cutoffAt]
+    );
+  }
 
   const sales = await tx.query(
     `WITH moved_sales AS (
@@ -139,7 +175,6 @@ async function moveRowsToArchive(tx, config) {
 }
 
 export async function runArchiveForLocation({ locationId, userId = null, runType = 'scheduled' }) {
-  await ensureFeatureSchema({ archive: true });
   const settings = await ensureArchiveSettings(locationId, userId);
   if (!settings.enabled) {
     await query(
@@ -176,7 +211,7 @@ export async function runArchiveForLocation({ locationId, userId = null, runType
         tx,
         locationId,
         'Archive run completed',
-        `History archiving finished. Sales: ${counts.sales}, Inventory logs: ${counts.inventory_movements}, Activity logs: ${counts.activity_log}, Expenses: ${counts.expenses}, Staff payments: ${counts.staff_payments}.`,
+        `History archiving finished. Batches: ${counts.inventory_batches}, Sales: ${counts.sales}, Inventory logs: ${counts.inventory_movements}, Activity logs: ${counts.activity_log}, Expenses: ${counts.expenses}, Staff payments: ${counts.staff_payments}.`,
         'archive_completed'
       );
 
@@ -195,29 +230,34 @@ export async function runArchiveForLocation({ locationId, userId = null, runType
 }
 
 export async function runScheduledArchive() {
-  await ensureFeatureSchema({ archive: true });
-  const locations = await getLocationsToProcess();
-  for (const location of locations) {
-    try {
-      const settings = await ensureArchiveSettings(location.id);
-      const lastReminderAgo = settings.last_reminder_at ? Date.now() - new Date(settings.last_reminder_at).getTime() : Number.MAX_SAFE_INTEGER;
-      const sixMonthsMs = 1000 * 60 * 60 * 24 * 30 * 6;
-      if (lastReminderAgo >= sixMonthsMs) {
-        await withTransaction(async (tx) => {
-          await createArchiveNotification(
-            tx,
-            location.id,
-            'Archive reminder',
-            'Your branch history can be archived to keep active data clean. Review Admin > History Lifecycle settings.',
-            'archive_reminder'
-          );
-          await tx.query('UPDATE archive_settings SET last_reminder_at = CURRENT_TIMESTAMP WHERE location_id = $1', [location.id]);
-        });
+  const lockResult = await withAdvisoryJobLock(JOB_LOCK_KEYS.ARCHIVE_SCHEDULER, async () => {
+    const locations = await getLocationsToProcess();
+    for (const location of locations) {
+      try {
+        const settings = await ensureArchiveSettings(location.id);
+        const lastReminderAgo = settings.last_reminder_at ? Date.now() - new Date(settings.last_reminder_at).getTime() : Number.MAX_SAFE_INTEGER;
+        const sixMonthsMs = 1000 * 60 * 60 * 24 * 30 * 6;
+        if (lastReminderAgo >= sixMonthsMs) {
+          await withTransaction(async (tx) => {
+            await createArchiveNotification(
+              tx,
+              location.id,
+              'Archive reminder',
+              'Your branch history can be archived to keep active data clean. Review Admin > History Lifecycle settings.',
+              'archive_reminder'
+            );
+            await tx.query('UPDATE archive_settings SET last_reminder_at = CURRENT_TIMESTAMP WHERE location_id = $1', [location.id]);
+          });
+        }
+        await runArchiveForLocation({ locationId: location.id, runType: 'scheduled' });
+      } catch (err) {
+        console.error(`[ARCHIVE] Failed scheduled run for location ${location.id}:`, err.message);
       }
-      await runArchiveForLocation({ locationId: location.id, runType: 'scheduled' });
-    } catch (err) {
-      console.error(`[ARCHIVE] Failed scheduled run for location ${location.id}:`, err.message);
     }
+  });
+
+  if (lockResult.skipped) {
+    console.log('[ARCHIVE] Skipping scheduled run: lock not acquired');
   }
 }
 
@@ -237,7 +277,6 @@ export function startArchiveScheduler() {
 }
 
 export async function getArchiveDashboard(locationId) {
-  await ensureFeatureSchema({ archive: true });
   const settings = await ensureArchiveSettings(locationId);
   const recentRuns = await query(
     `SELECT id, run_type, status, cutoff_at, details, error_message, created_at
@@ -249,6 +288,8 @@ export async function getArchiveDashboard(locationId) {
   );
   const archiveCounts = await query(
     `SELECT
+      (SELECT COUNT(*)::int FROM inventory_batches_archive WHERE location_id = $1) AS inventory_batches,
+      (SELECT COUNT(*)::int FROM batch_items_archive bia JOIN inventory_batches_archive iba ON iba.id = bia.batch_id WHERE iba.location_id = $1) AS batch_items,
       (SELECT COUNT(*)::int FROM sales_archive WHERE location_id = $1) AS sales,
       (SELECT COUNT(*)::int FROM inventory_movements_archive WHERE location_id = $1) AS inventory_movements,
       (SELECT COUNT(*)::int FROM activity_log_archive WHERE location_id = $1) AS activity_log,
@@ -266,7 +307,6 @@ export async function getArchiveDashboard(locationId) {
 }
 
 export async function updateArchiveSettings({ locationId, userId, enabled, retentionMonths, coldStorageAfterMonths }) {
-  await ensureFeatureSchema({ archive: true });
   await ensureArchiveSettings(locationId, userId);
   const result = await query(
     `UPDATE archive_settings

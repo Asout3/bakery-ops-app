@@ -59,8 +59,26 @@ export default function HistoryLifecycle() {
     }
     setLoading(true);
     try {
-      await api.post('/archive/run', { confirmation_phrase: confirmationPhrase });
-      setMessage({ type: 'success', text: 'Archive job started successfully.' });
+      const response = await api.post('/archive/run', { confirmation_phrase: confirmationPhrase });
+      const details = response.data?.details || {};
+      const movedTotal = Number(details.inventory_batches || 0)
+        + Number(details.sales || 0)
+        + Number(details.inventory_movements || 0)
+        + Number(details.activity_log || 0)
+        + Number(details.expenses || 0)
+        + Number(details.staff_payments || 0);
+
+      if (movedTotal === 0) {
+        setMessage({
+          type: 'warning',
+          text: `Archive run completed but no rows were eligible before cutoff (${new Date(response.data?.cutoffAt || Date.now()).toLocaleDateString()}).`,
+        });
+      } else {
+        setMessage({
+          type: 'success',
+          text: `Archive completed. Moved ${movedTotal} records (Batches: ${Number(details.inventory_batches || 0)}, Sales: ${Number(details.sales || 0)}, Inventory Logs: ${Number(details.inventory_movements || 0)}, Activity Logs: ${Number(details.activity_log || 0)}).`,
+        });
+      }
       setConfirmationPhrase('');
       fetchData();
     } catch (err) {
@@ -101,6 +119,8 @@ export default function HistoryLifecycle() {
       <div className="card mb-4">
         <div className="card-header"><h4>Archived Data Counts</h4></div>
         <div className="card-body" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <span className="badge badge-primary">Batches: {data?.archive_counts?.inventory_batches || 0}</span>
+          <span className="badge badge-primary">Batch Items: {data?.archive_counts?.batch_items || 0}</span>
           <span className="badge badge-primary">Sales: {data?.archive_counts?.sales || 0}</span>
           <span className="badge badge-primary">Inventory Logs: {data?.archive_counts?.inventory_movements || 0}</span>
           <span className="badge badge-primary">Activity Logs: {data?.archive_counts?.activity_log || 0}</span>

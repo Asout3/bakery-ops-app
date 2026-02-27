@@ -203,11 +203,6 @@ CREATE INDEX idx_notifications_user ON notifications(user_id, is_read);
 CREATE INDEX idx_batch_items_batch ON batch_items(batch_id);
 CREATE INDEX idx_sale_items_sale ON sale_items(sale_id);
 
--- Insert default admin user (password: admin123)
-INSERT INTO users (username, email, password_hash, role) 
-VALUES ('admin', 'admin@bakery.com', '$2a$10$dn8KZ/YdUSxWjAWlAnK2We/oAbn6LIhLGDsQYurAhjDWkzpLYvmL2', 'admin')
-ON CONFLICT (username) DO NOTHING;
-
 -- Insert sample categories
 INSERT INTO categories (name, description) VALUES
 ('Bread', 'Various types of bread'),
