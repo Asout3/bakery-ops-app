@@ -400,6 +400,19 @@ router.get('/batches', authenticateToken, async (req, res) => {
       ? (batchColumns.hasSyncedById ? '(COALESCE(b.is_offline, false) OR b.synced_by_id IS NOT NULL)' : 'COALESCE(b.is_offline, false)')
       : (batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false');
 
+    let whereClause = 'b.location_id = $1';
+    const whereParams = [locationId];
+
+    if (startDate) {
+      whereParams.push(startDate);
+      whereClause += ` AND DATE(b.created_at) >= $${whereParams.length}`;
+    }
+
+    if (endDate) {
+      whereParams.push(endDate);
+      whereClause += ` AND DATE(b.created_at) <= $${whereParams.length}`;
+    }
+
     let queryText = `SELECT b.*, u.username as created_by_name,
               ${displayCreatorExpr} as display_creator_name,
               ${syncedByNameExpr} as synced_by_name,
@@ -414,26 +427,33 @@ router.get('/batches', authenticateToken, async (req, res) => {
               EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60 as age_minutes
        FROM inventory_batches b
        JOIN users u ON b.created_by = u.id
-       WHERE b.location_id = $1`;
+       WHERE ${whereClause}`;
 
-    const params = [locationId, BATCH_EDIT_WINDOW_MINUTES];
-
-    if (startDate) {
-      params.push(startDate);
-      queryText += ` AND DATE(b.created_at) >= $${params.length}`;
-    }
-
-    if (endDate) {
-      params.push(endDate);
-      queryText += ` AND DATE(b.created_at) <= $${params.length}`;
-    }
+    const params = [...whereParams, BATCH_EDIT_WINDOW_MINUTES];
 
     queryText += ` ORDER BY b.created_at DESC, b.id DESC LIMIT $${params.length + 1}`;
     params.push(limit);
 
-    const result = await query(queryText, params);
+    const [result, summaryResult] = await Promise.all([
+      query(queryText, params),
+      query(
+        `SELECT COUNT(*) as total,
+                COUNT(*) FILTER (WHERE COALESCE(b.status, 'sent') = 'sent') as sent,
+                COUNT(*) FILTER (WHERE COALESCE(b.status, 'sent') = 'voided') as voided,
+                COUNT(*) FILTER (WHERE COALESCE(b.status, 'sent') = 'edited') as edited,
+                COUNT(*) FILTER (WHERE ${isOfflineExpr}) as offline,
+                COUNT(*) FILTER (WHERE ${wasSyncedExpr}) as synced
+         FROM inventory_batches b
+         WHERE ${whereClause}`,
+        whereParams
+      )
+    ]);
 
-    res.json(result.rows);
+    res.json({
+      batches: result.rows,
+      summary: summaryResult.rows[0] || { total: 0, sent: 0, voided: 0, edited: 0, offline: 0, synced: 0 },
+      applied_limit: limit,
+    });
   } catch (err) {
     console.error('Get batches error:', err);
     res.status(500).json({ error: 'Internal server error' });

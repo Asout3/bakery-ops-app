@@ -19,6 +19,7 @@ export default function ManagerBatches() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDay, setSelectedDay] = useState('');
   const [tick, setTick] = useState(Date.now());
+  const [summaryStats, setSummaryStats] = useState({ total: 0, sent: 0, voided: 0, edited: 0, offline: 0, synced: 0 });
   const toast = useToast();
   const { confirm } = useConfirm();
 
@@ -33,7 +34,13 @@ export default function ManagerBatches() {
       const cached = localStorage.getItem(getCacheKey());
       if (!cached) return null;
       const parsed = JSON.parse(cached);
-      return Array.isArray(parsed) ? parsed : null;
+      if (Array.isArray(parsed)) {
+        return { batches: parsed, summary: null };
+      }
+      if (Array.isArray(parsed?.batches)) {
+        return { batches: parsed.batches, summary: parsed.summary || null };
+      }
+      return null;
     } catch {
       return null;
     }
@@ -79,7 +86,9 @@ export default function ManagerBatches() {
           ...(selectedDay ? { start_date: selectedDay, end_date: selectedDay } : {}),
         },
       });
-      const normalized = (response.data || [])
+      const payload = response.data;
+      const sourceRows = Array.isArray(payload) ? payload : (payload?.batches || []);
+      const normalized = sourceRows
         .map((batch) => ({
           ...batch,
           is_offline: Boolean(batch.is_offline || batch.was_synced),
@@ -92,16 +101,36 @@ export default function ManagerBatches() {
           if (timeDiff !== 0) return timeDiff;
           return Number(b.id || 0) - Number(a.id || 0);
         });
+      const summary = Array.isArray(payload)
+        ? null
+        : (payload?.summary || null);
       setBatches(normalized);
-      localStorage.setItem(getCacheKey(), JSON.stringify(normalized));
+      setSummaryStats({
+        total: Number(summary?.total ?? normalized.length),
+        sent: Number(summary?.sent ?? normalized.filter((b) => b.status === 'sent').length),
+        voided: Number(summary?.voided ?? normalized.filter((b) => b.status === 'voided').length),
+        edited: Number(summary?.edited ?? normalized.filter((b) => b.status === 'edited').length),
+        offline: Number(summary?.offline ?? normalized.filter((b) => b.is_offline).length),
+        synced: Number(summary?.synced ?? normalized.filter((b) => b.was_synced).length),
+      });
+      localStorage.setItem(getCacheKey(), JSON.stringify({ batches: normalized, summary }));
     } catch (err) {
       const cached = readCachedBatches();
       if (cached && (!navigator.onLine || !err?.response)) {
-        const hydrated = cached.map((batch) => ({
+        const hydrated = cached.batches.map((batch) => ({
           ...batch,
           fetched_at_ms: Date.now(),
         }));
         setBatches(hydrated);
+        const cachedSummary = cached.summary;
+        setSummaryStats({
+          total: Number(cachedSummary?.total ?? hydrated.length),
+          sent: Number(cachedSummary?.sent ?? hydrated.filter((b) => b.status === 'sent').length),
+          voided: Number(cachedSummary?.voided ?? hydrated.filter((b) => b.status === 'voided').length),
+          edited: Number(cachedSummary?.edited ?? hydrated.filter((b) => b.status === 'edited').length),
+          offline: Number(cachedSummary?.offline ?? hydrated.filter((b) => b.is_offline).length),
+          synced: Number(cachedSummary?.synced ?? hydrated.filter((b) => b.was_synced).length),
+        });
         toast.info('Offline: loaded cached batch history.');
       } else {
         toast.error(getErrorMessage(err, 'Failed to fetch batches.'));
@@ -166,14 +195,7 @@ export default function ManagerBatches() {
     }
   };
 
-  const stats = {
-    total: batches.length,
-    sent: batches.filter(b => b.status === 'sent').length,
-    voided: batches.filter(b => b.status === 'voided').length,
-    edited: batches.filter(b => b.status === 'edited').length,
-    offline: batches.filter(b => b.is_offline).length,
-    synced: batches.filter(b => b.was_synced).length,
-  };
+  const stats = summaryStats;
 
   const getStatusBadge = (status) => {
     const statusMap = {
