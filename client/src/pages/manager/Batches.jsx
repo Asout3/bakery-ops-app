@@ -31,6 +31,11 @@ export default function ManagerBatches() {
     return Math.max(0, Math.ceil(BATCH_EDIT_WINDOW_MINUTES - elapsedMinutes));
   }, [tick]);
 
+  const isBatchEditable = useCallback((batch) => {
+    if (!batch || batch.status === 'voided') return false;
+    return getMinutesRemaining(batch) > 0;
+  }, [getMinutesRemaining]);
+
   const fetchBatches = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
       setRefreshing(true);
@@ -258,8 +263,8 @@ export default function ManagerBatches() {
                       <td>
                         <div className="d-flex gap-1">
                           {batch.status !== 'voided' && (
-                            <span className={`badge ${batch.can_edit ? 'bg-warning text-dark' : 'bg-secondary'}`}>
-                              {batch.can_edit ? `Locks in ${getMinutesRemaining(batch)}m` : 'Locked'}
+                            <span className={`badge ${isBatchEditable(batch) ? 'bg-warning text-dark' : 'bg-secondary'}`}>
+                              {isBatchEditable(batch) ? `Locks in ${getMinutesRemaining(batch)}m` : 'Locked'}
                             </span>
                           )}
                           <button 
@@ -269,7 +274,7 @@ export default function ManagerBatches() {
                           >
                             <Eye size={14} />
                           </button>
-                          {batch.can_edit && batch.status !== 'voided' && (
+                          {isBatchEditable(batch) && (
                             <button 
                               className="btn btn-sm btn-outline-danger" 
                               onClick={() => handleVoidBatch(batch.id)}
@@ -277,11 +282,6 @@ export default function ManagerBatches() {
                             >
                               <Ban size={14} />
                             </button>
-                          )}
-                          {!batch.can_edit && batch.status !== 'voided' && (
-                            <span className="badge bg-secondary" title="Edit window expired">
-                              Locked
-                            </span>
                           )}
                         </div>
                       </td>
@@ -367,7 +367,7 @@ export default function ManagerBatches() {
                       <tr key={item.id || idx}>
                         <td>{item.product_name}</td>
                         <td style={{ width: '100px' }}>
-                          {selectedBatch.can_edit && selectedBatch.status !== 'voided' ? (
+                          {isBatchEditable(selectedBatch) ? (
                             <input 
                               className="form-control form-control-sm" 
                               type="number" 
@@ -402,7 +402,7 @@ export default function ManagerBatches() {
                 </table>
               </div>
             </div>
-            {selectedBatch.can_edit && selectedBatch.status !== 'voided' && (
+            {isBatchEditable(selectedBatch) && (
               <div className="modal-footer">
                 <button className="btn btn-secondary" onClick={() => setSelectedBatch(null)}>Close</button>
                 <button className="btn btn-primary" onClick={handleSaveEdit}>
