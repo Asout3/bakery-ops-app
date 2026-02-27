@@ -1,7 +1,7 @@
-const CACHE_VERSION = 'bakery-ops-shell-v7';
+const CACHE_VERSION = 'bakery-ops-shell-v8';
 const SHELL_CACHE = `shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
-const BASE_SHELL_ASSETS = ['/', '/index.html', '/vite.svg'];
+const BASE_SHELL_ASSETS = ['/', '/index.html'];
 
 function isApiRequest(requestUrl) {
   return requestUrl.pathname.startsWith('/api');
@@ -15,7 +15,9 @@ function isStaticAsset(requestUrl) {
     || requestUrl.pathname.endsWith('.jpeg')
     || requestUrl.pathname.endsWith('.webp')
     || requestUrl.pathname.endsWith('.js')
-    || requestUrl.pathname.endsWith('.css');
+    || requestUrl.pathname.endsWith('.css')
+    || requestUrl.pathname.endsWith('.woff')
+    || requestUrl.pathname.endsWith('.woff2');
 }
 
 function extractAssetUrls(indexHtml) {
@@ -34,9 +36,26 @@ function extractAssetUrls(indexHtml) {
   return [...assets];
 }
 
+async function cacheRequest(cache, url) {
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (response && response.ok) {
+      await cache.put(url, response.clone());
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+async function cacheUrlsBestEffort(cache, urls) {
+  await Promise.all(urls.map((url) => cacheRequest(cache, url)));
+}
+
 async function cacheAppShell() {
   const shellCache = await caches.open(SHELL_CACHE);
-  await shellCache.addAll(BASE_SHELL_ASSETS);
+  await cacheUrlsBestEffort(shellCache, BASE_SHELL_ASSETS);
 
   try {
     const indexResponse = await fetch('/index.html', { cache: 'no-store' });
@@ -44,16 +63,12 @@ async function cacheAppShell() {
       return;
     }
 
-    const indexClone = indexResponse.clone();
-    await shellCache.put('/index.html', indexClone);
-
+    await shellCache.put('/index.html', indexResponse.clone());
     const indexHtml = await indexResponse.text();
     const discoveredAssets = extractAssetUrls(indexHtml);
-    if (discoveredAssets.length) {
-      await shellCache.addAll(discoveredAssets);
-    }
+    await cacheUrlsBestEffort(shellCache, discoveredAssets);
   } catch {
-    // noop
+    return;
   }
 }
 
@@ -74,8 +89,8 @@ self.addEventListener('activate', (event) => {
 async function networkThenCache(request) {
   const response = await fetch(request);
   if (response && response.ok) {
-    const cache = await caches.open(RUNTIME_CACHE);
-    cache.put(request, response.clone());
+    const runtimeCache = await caches.open(RUNTIME_CACHE);
+    runtimeCache.put(request, response.clone());
   }
   return response;
 }
@@ -88,7 +103,7 @@ async function cacheFirst(request) {
 
 async function navigationFallback() {
   const shellCache = await caches.open(SHELL_CACHE);
-  return (await shellCache.match('/index.html')) || (await shellCache.match('/')) || Response.error();
+  return (await shellCache.match('/index.html')) || (await shellCache.match('/')) || new Response('Offline', { status: 503 });
 }
 
 self.addEventListener('fetch', (event) => {
@@ -103,7 +118,7 @@ self.addEventListener('fetch', (event) => {
         .then(async (response) => {
           if (response && response.ok) {
             const shellCache = await caches.open(SHELL_CACHE);
-            shellCache.put('/index.html', response.clone());
+            await shellCache.put('/index.html', response.clone());
             event.waitUntil(cacheAppShell());
           }
           return response;
@@ -124,6 +139,6 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    networkThenCache(event.request).catch(async () => (await caches.match(event.request)) || Response.error())
+    networkThenCache(event.request).catch(async () => (await caches.match(event.request)) || new Response('Offline', { status: 503 }))
   );
 });
