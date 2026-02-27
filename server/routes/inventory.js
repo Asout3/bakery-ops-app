@@ -420,6 +420,7 @@ router.get('/batches', authenticateToken, async (req, res) => {
     const limit = parseInt(req.query.limit, 10) || 50;
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
+    const includeSummary = req.query.include_summary === 'true';
     const batchColumns = await getInventoryBatchColumns({ query });
 
     const displayCreatorExpr = batchColumns.hasOriginalActorName
@@ -467,9 +468,11 @@ router.get('/batches', authenticateToken, async (req, res) => {
     queryText += ` ORDER BY b.created_at DESC, b.id DESC LIMIT $${params.length + 1}`;
     params.push(limit);
 
-    const [result, summaryResult] = await Promise.all([
-      query(queryText, params),
-      query(
+    const result = await query(queryText, params);
+    let summary = null;
+
+    if (includeSummary) {
+      const summaryResult = await query(
         `SELECT COUNT(*) as total,
                 COUNT(*) FILTER (WHERE COALESCE(b.status, 'sent') = 'sent') as sent,
                 COUNT(*) FILTER (WHERE COALESCE(b.status, 'sent') = 'voided') as voided,
@@ -479,12 +482,13 @@ router.get('/batches', authenticateToken, async (req, res) => {
          FROM inventory_batches b
          WHERE ${whereClause}`,
         whereParams
-      )
-    ]);
+      );
+      summary = summaryResult.rows[0] || { total: 0, sent: 0, voided: 0, edited: 0, offline: 0, synced: 0 };
+    }
 
     res.json({
       batches: result.rows,
-      summary: summaryResult.rows[0] || { total: 0, sent: 0, voided: 0, edited: 0, offline: 0, synced: 0 },
+      summary,
       applied_limit: limit,
     });
   } catch (err) {

@@ -19,7 +19,6 @@ export default function ManagerBatches() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDay, setSelectedDay] = useState('');
   const [tick, setTick] = useState(Date.now());
-  const [summaryStats, setSummaryStats] = useState({ total: 0, sent: 0, voided: 0, edited: 0, offline: 0, synced: 0 });
   const toast = useToast();
   const { confirm } = useConfirm();
 
@@ -94,6 +93,7 @@ export default function ManagerBatches() {
       const response = await api.get('/inventory/batches', {
         params: {
           limit: 100,
+          include_summary: false,
           ...(selectedDay ? { start_date: selectedDay, end_date: selectedDay } : {}),
         },
       });
@@ -108,33 +108,13 @@ export default function ManagerBatches() {
           if (timeDiff !== 0) return timeDiff;
           return Number(b.id || 0) - Number(a.id || 0);
         });
-      const summary = Array.isArray(payload)
-        ? null
-        : (payload?.summary || null);
       setBatches(normalized);
-      setSummaryStats({
-        total: Number(summary?.total ?? normalized.length),
-        sent: Number(summary?.sent ?? normalized.filter((b) => b.status === 'sent').length),
-        voided: Number(summary?.voided ?? normalized.filter((b) => b.status === 'voided').length),
-        edited: Number(summary?.edited ?? normalized.filter((b) => b.status === 'edited').length),
-        offline: Number(summary?.offline ?? normalized.filter((b) => b.is_offline).length),
-        synced: Number(summary?.synced ?? normalized.filter((b) => b.was_synced).length),
-      });
-      localStorage.setItem(getCacheKey(), JSON.stringify({ batches: normalized, summary }));
+      localStorage.setItem(getCacheKey(), JSON.stringify({ batches: normalized, summary: null }));
     } catch (err) {
       const cached = readCachedBatches();
       if (cached && (!navigator.onLine || !err?.response)) {
         const hydrated = cached.batches.map((batch) => normalizeBatch(batch));
         setBatches(hydrated);
-        const cachedSummary = cached.summary;
-        setSummaryStats({
-          total: Number(cachedSummary?.total ?? hydrated.length),
-          sent: Number(cachedSummary?.sent ?? hydrated.filter((b) => b.status === 'sent').length),
-          voided: Number(cachedSummary?.voided ?? hydrated.filter((b) => b.status === 'voided').length),
-          edited: Number(cachedSummary?.edited ?? hydrated.filter((b) => b.status === 'edited').length),
-          offline: Number(cachedSummary?.offline ?? hydrated.filter((b) => b.is_offline).length),
-          synced: Number(cachedSummary?.synced ?? hydrated.filter((b) => b.was_synced).length),
-        });
         toast.info('Offline: loaded cached batch history.');
       } else {
         toast.error(getErrorMessage(err, 'Failed to fetch batches.'));
@@ -199,7 +179,14 @@ export default function ManagerBatches() {
     }
   };
 
-  const stats = summaryStats;
+  const stats = {
+    total: batches.length,
+    sent: batches.filter((b) => b.status === 'sent').length,
+    voided: batches.filter((b) => b.status === 'voided').length,
+    edited: batches.filter((b) => b.status === 'edited').length,
+    offline: batches.filter((b) => b.is_offline).length,
+    synced: batches.filter((b) => b.was_synced).length,
+  };
 
   const getStatusBadge = (status) => {
     const statusMap = {
@@ -248,22 +235,12 @@ export default function ManagerBatches() {
         </div>
       </div>
 
-      <div className="stats-grid mb-4">
-        <div className="stat-card card bg-light">
-          <div className="stat-icon bg-primary text-white"><Package size={24} /></div>
-          <div className="stat-content"><h3>{stats.total}</h3><p>Total Batches</p></div>
-        </div>
-        <div className="stat-card card bg-light">
-          <div className="stat-icon bg-success text-white"><CheckCircle size={24} /></div>
-          <div className="stat-content"><h3>{stats.sent}</h3><p>Sent</p></div>
-        </div>
-        <div className="stat-card card bg-light">
-          <div className="stat-icon bg-danger text-white"><XCircle size={24} /></div>
-          <div className="stat-content"><h3>{stats.voided}</h3><p>Voided</p></div>
-        </div>
-        <div className="stat-card card bg-light">
-          <div className="stat-icon bg-warning text-white"><WifiOff size={24} /></div>
-          <div className="stat-content"><h3>{stats.offline}</h3><p>Offline Sync</p></div>
+      <div className="card mb-4">
+        <div className="card-body d-flex gap-2 flex-wrap align-items-center">
+          <span className="badge bg-secondary">Showing {stats.total} rows</span>
+          <span className="badge bg-success">Sent: {stats.sent}</span>
+          <span className="badge bg-danger">Voided: {stats.voided}</span>
+          <span className="badge bg-warning text-dark">Offline synced: {stats.offline}</span>
         </div>
       </div>
 
