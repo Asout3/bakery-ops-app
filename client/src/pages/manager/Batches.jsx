@@ -65,6 +65,20 @@ export default function ManagerBatches() {
     return Math.max(0, Math.ceil(BATCH_EDIT_WINDOW_MINUTES - elapsedMinutes));
   }, [tick]);
 
+  const normalizeBoolean = (value) => value === true || value === 'true' || value === 't' || value === 1 || value === '1';
+
+  const normalizeBatch = useCallback((batch) => {
+    const wasSynced = normalizeBoolean(batch?.was_synced) || Boolean(batch?.synced_by_name) || Boolean(batch?.synced_at);
+    const isOffline = normalizeBoolean(batch?.is_offline) || wasSynced;
+    return {
+      ...batch,
+      was_synced: wasSynced,
+      is_offline: isOffline,
+      can_edit: normalizeBoolean(batch?.can_edit),
+      fetched_at_ms: Date.now(),
+    };
+  }, []);
+
   const isBatchEditable = useCallback((batch) => {
     if (!batch || batch.status === 'voided') return false;
     if (Number.isFinite(Number(batch.age_minutes))) {
@@ -89,11 +103,7 @@ export default function ManagerBatches() {
       const payload = response.data;
       const sourceRows = Array.isArray(payload) ? payload : (payload?.batches || []);
       const normalized = sourceRows
-        .map((batch) => ({
-          ...batch,
-          is_offline: Boolean(batch.is_offline || batch.was_synced),
-          fetched_at_ms: Date.now(),
-        }))
+        .map((batch) => normalizeBatch(batch))
         .sort((a, b) => {
           const aTime = new Date(a.created_at || a.batch_date || 0).getTime() || 0;
           const bTime = new Date(b.created_at || b.batch_date || 0).getTime() || 0;
@@ -117,10 +127,7 @@ export default function ManagerBatches() {
     } catch (err) {
       const cached = readCachedBatches();
       if (cached && (!navigator.onLine || !err?.response)) {
-        const hydrated = cached.batches.map((batch) => ({
-          ...batch,
-          fetched_at_ms: Date.now(),
-        }));
+        const hydrated = cached.batches.map((batch) => normalizeBatch(batch));
         setBatches(hydrated);
         const cachedSummary = cached.summary;
         setSummaryStats({
@@ -139,7 +146,7 @@ export default function ManagerBatches() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedDay, getCacheKey, readCachedBatches]);
+  }, [selectedDay, getCacheKey, normalizeBatch, readCachedBatches]);
 
   useEffect(() => {
     fetchBatches();
@@ -150,7 +157,7 @@ export default function ManagerBatches() {
   const fetchBatchDetails = async (batchId) => {
     try {
       const response = await api.get(`/inventory/batches/${batchId}`);
-      setSelectedBatch({ ...response.data, is_offline: Boolean(response.data?.is_offline || response.data?.was_synced), fetched_at_ms: Date.now() });
+      setSelectedBatch(normalizeBatch(response.data));
       setEditingItems(response.data.items?.map((item) => ({ ...item })) || []);
     } catch (err) {
       toast.error(getErrorMessage(err, 'Failed to fetch batch details.'));
@@ -334,6 +341,13 @@ export default function ManagerBatches() {
                             title="View Details"
                           >
                             <Eye size={14} />
+                          </button>
+                          <button
+                            className="btn btn-sm btn-outline-secondary"
+                            onClick={() => fetchBatchDetails(batch.id)}
+                            title={isBatchEditable(batch) ? 'Edit Batch' : 'View locked batch'}
+                          >
+                            <Edit size={14} />
                           </button>
                           <button 
                             className="btn btn-sm btn-outline-danger" 
