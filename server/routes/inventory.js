@@ -410,7 +410,8 @@ router.get('/batches', authenticateToken, async (req, res) => {
                         FROM batch_items bi
                         JOIN products p ON p.id = bi.product_id
                         WHERE bi.batch_id = b.id), 0) as total_cost,
-              (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60) <= $2 as can_edit
+              (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60) <= $2 as can_edit,
+              EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60 as age_minutes
        FROM inventory_batches b
        JOIN users u ON b.created_by = u.id
        WHERE b.location_id = $1`;
@@ -458,7 +459,8 @@ router.get('/batches/:id', authenticateToken, async (req, res) => {
               ${syncedByNameExpr} as synced_by_name,
               ${wasSyncedExpr} as was_synced,
               ${isOfflineExpr} as is_offline,
-              (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60) <= $3 as can_edit
+              (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60) <= $3 as can_edit,
+              EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60 as age_minutes
        FROM inventory_batches b
        JOIN users u ON b.created_by = u.id
        WHERE b.id = $1 AND b.location_id = $2`,

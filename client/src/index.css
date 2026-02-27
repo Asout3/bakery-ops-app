@@ -566,3 +566,66 @@ textarea.form-control {
 }
 
 .table-responsive { overflow-x: auto; }
+
+.toast-stack {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1500;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  max-width: min(420px, calc(100vw - 2rem));
+}
+
+.toast-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  color: #fff;
+}
+
+.toast-success { background: #16a34a; }
+.toast-danger { background: #dc2626; }
+.toast-warning { background: #d97706; }
+.toast-info { background: #2563eb; }
+
+.toast-close {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1600;
+  padding: 1rem;
+}
+
+.confirm-modal {
+  width: min(460px, 100%);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 1.1rem 1.2rem;
+  box-shadow: var(--shadow-lg);
+}
+
+.confirm-actions {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
