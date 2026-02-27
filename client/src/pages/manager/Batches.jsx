@@ -2,7 +2,12 @@ import { useEffect, useState, useCallback } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Package, Clock, User, Eye, Edit, Ban, RefreshCw, Wifi, WifiOff, CheckCircle, XCircle } from 'lucide-react';
+import { formatAddisDateTime } from '../../utils/time';
 import './Batches.css';
+import { useToast } from '../../context/ToastContext';
+import { useConfirm } from '../../context/ConfirmContext';
+
+const BATCH_EDIT_WINDOW_MINUTES = 20;
 
 export default function ManagerBatches() {
   const { selectedLocationId } = useBranch();
@@ -11,8 +16,34 @@ export default function ManagerBatches() {
   const [editingItems, setEditingItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [message, setMessage] = useState(null);
   const [selectedDay, setSelectedDay] = useState('');
+  const [tick, setTick] = useState(Date.now());
+  const toast = useToast();
+  const { confirm } = useConfirm();
+
+  useEffect(() => {
+    const timer = setInterval(() => setTick(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getMinutesRemaining = useCallback((batch) => {
+    if (!batch) return 0;
+    const serverAgeMinutes = Number(batch.age_minutes);
+    if (Number.isFinite(serverAgeMinutes)) {
+      const elapsedSinceFetch = Math.max(0, (tick - Number(batch.fetched_at_ms || tick)) / 60000);
+      return Math.max(0, Math.ceil(BATCH_EDIT_WINDOW_MINUTES - serverAgeMinutes - elapsedSinceFetch));
+    }
+    const createdAtValue = batch.created_at || batch.batch_date;
+    const createdAt = createdAtValue ? new Date(createdAtValue) : null;
+    if (!createdAt || Number.isNaN(createdAt.getTime())) return batch.can_edit ? BATCH_EDIT_WINDOW_MINUTES : 0;
+    const elapsedMinutes = (tick - createdAt.getTime()) / 60000;
+    return Math.max(0, Math.ceil(BATCH_EDIT_WINDOW_MINUTES - elapsedMinutes));
+  }, [tick]);
+
+  const isBatchEditable = useCallback((batch) => {
+    if (!batch || batch.status === 'voided') return false;
+    return getMinutesRemaining(batch) > 0 || Boolean(batch.can_edit);
+  }, [getMinutesRemaining]);
 
   const fetchBatches = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
@@ -31,6 +62,7 @@ export default function ManagerBatches() {
         .map((batch) => ({
           ...batch,
           is_offline: Boolean(batch.is_offline || batch.was_synced),
+          fetched_at_ms: Date.now(),
         }))
         .sort((a, b) => {
           const aTime = new Date(a.created_at || a.batch_date || 0).getTime() || 0;
@@ -41,7 +73,7 @@ export default function ManagerBatches() {
         });
       setBatches(normalized);
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to fetch batches.') });
+      toast.error(getErrorMessage(err, 'Failed to fetch batches.'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -60,21 +92,25 @@ export default function ManagerBatches() {
       setSelectedBatch({ ...response.data, is_offline: Boolean(response.data?.is_offline || response.data?.was_synced) });
       setEditingItems(response.data.items?.map((item) => ({ ...item })) || []);
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to fetch batch details.') });
+      toast.error(getErrorMessage(err, 'Failed to fetch batch details.'));
     }
   };
 
   const handleVoidBatch = async (batchId) => {
-    if (!window.confirm(`Are you sure you want to void batch #${batchId}? This will remove items from inventory.`)) {
-      return;
-    }
+    const ok = await confirm({
+      title: `Void Batch #${batchId}?`,
+      message: 'This will remove items from inventory and cannot be undone.',
+      confirmText: 'Void Batch',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.post(`/inventory/batches/${batchId}/void`);
-      setMessage({ type: 'success', text: `Batch #${batchId} was voided.` });
+      toast.success(`Batch #${batchId} was voided.`);
       setSelectedBatch(null);
       fetchBatches();
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to void batch.') });
+      toast.error(getErrorMessage(err, 'Failed to void batch.'));
     }
   };
 
@@ -90,11 +126,11 @@ export default function ManagerBatches() {
         })),
         notes: selectedBatch.notes,
       });
-      setMessage({ type: 'success', text: `Batch #${selectedBatch.id} updated.` });
+      toast.success(`Batch #${selectedBatch.id} updated.`);
       await fetchBatchDetails(selectedBatch.id);
       await fetchBatches();
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to update batch.') });
+      toast.error(getErrorMessage(err, 'Failed to update batch.'));
     }
   };
 
@@ -138,13 +174,6 @@ export default function ManagerBatches() {
           </button>
         </div>
       </div>
-
-      {message && (
-        <div className={`alert alert-${message.type} mb-3`}>
-          {message.text}
-          <button className="btn-close float-end" onClick={() => setMessage(null)}></button>
-        </div>
-      )}
 
       <div className="card mb-4">
         <div className="card-body d-flex align-items-end gap-3 flex-wrap">
@@ -209,7 +238,7 @@ export default function ManagerBatches() {
                       <td><strong>#{batch.id}</strong></td>
                       <td>
                         <div>{new Date(batch.created_at).toLocaleDateString()}</div>
-                        <small className="text-muted">{new Date(batch.created_at).toLocaleTimeString()}</small>
+                        <small className="text-muted">{formatAddisDateTime(batch.created_at || batch.batch_date)}</small>
                       </td>
                       <td>{getStatusBadge(batch.status)}</td>
                       <td><span className="badge bg-secondary">{batch.items_count || 0} items</span></td>
@@ -240,6 +269,11 @@ export default function ManagerBatches() {
                       </td>
                       <td>
                         <div className="d-flex gap-1">
+                          {batch.status !== 'voided' && (
+                            <span className={`badge ${isBatchEditable(batch) ? 'bg-warning text-dark' : 'bg-secondary'}`}>
+                              {isBatchEditable(batch) ? `Locks in ${getMinutesRemaining(batch)}m` : 'Locked'}
+                            </span>
+                          )}
                           <button 
                             className="btn btn-sm btn-outline-primary" 
                             onClick={() => fetchBatchDetails(batch.id)}
@@ -247,7 +281,7 @@ export default function ManagerBatches() {
                           >
                             <Eye size={14} />
                           </button>
-                          {batch.can_edit && batch.status !== 'voided' && (
+                          {isBatchEditable(batch) && (
                             <button 
                               className="btn btn-sm btn-outline-danger" 
                               onClick={() => handleVoidBatch(batch.id)}
@@ -255,11 +289,6 @@ export default function ManagerBatches() {
                             >
                               <Ban size={14} />
                             </button>
-                          )}
-                          {!batch.can_edit && batch.status !== 'voided' && (
-                            <span className="badge bg-secondary" title="Edit window expired">
-                              Locked
-                            </span>
                           )}
                         </div>
                       </td>
@@ -288,7 +317,7 @@ export default function ManagerBatches() {
                   <div className="detail-item">
                     <Clock size={14} className="me-2 text-muted" />
                     <span className="text-muted">Created:</span>
-                    <strong>{new Date(selectedBatch.created_at).toLocaleString()}</strong>
+                    <strong>{formatAddisDateTime(selectedBatch.created_at || selectedBatch.batch_date)}</strong>
                   </div>
                 </div>
                 <div className="col-md-6">
@@ -345,7 +374,7 @@ export default function ManagerBatches() {
                       <tr key={item.id || idx}>
                         <td>{item.product_name}</td>
                         <td style={{ width: '100px' }}>
-                          {selectedBatch.can_edit && selectedBatch.status !== 'voided' ? (
+                          {isBatchEditable(selectedBatch) ? (
                             <input 
                               className="form-control form-control-sm" 
                               type="number" 
@@ -380,7 +409,7 @@ export default function ManagerBatches() {
                 </table>
               </div>
             </div>
-            {selectedBatch.can_edit && selectedBatch.status !== 'voided' && (
+            {isBatchEditable(selectedBatch) && (
               <div className="modal-footer">
                 <button className="btn btn-secondary" onClick={() => setSelectedBatch(null)}>Close</button>
                 <button className="btn btn-primary" onClick={handleSaveEdit}>

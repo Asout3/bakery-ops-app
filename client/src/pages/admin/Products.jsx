@@ -152,7 +152,14 @@ export default function ProductsPage() {
     { id: 5, name: 'Beverages' }
   ];
 
-  const filteredProducts = useMemo(() => products.filter((product) => product.name.toLowerCase().includes(search.toLowerCase())), [products, search]);
+  const filteredProducts = useMemo(() => products
+    .filter((product) => product.name.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => {
+      const aActive = a.availability_status !== 'inactive' && a.is_active !== false;
+      const bActive = b.availability_status !== 'inactive' && b.is_active !== false;
+      if (aActive !== bActive) return aActive ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    }), [products, search]);
 
   if (loading) return <div className="loading-container"><div className="spinner"></div></div>;
 

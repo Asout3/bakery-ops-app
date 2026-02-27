@@ -4,6 +4,8 @@ import { AuthProvider } from './context/AuthContext';
 import { BranchProvider } from './context/BranchContext';
 import { LanguageProvider } from './context/LanguageContext';
 import { NotificationProvider } from './context/NotificationContext';
+import { ToastProvider } from './context/ToastContext';
+import { ConfirmProvider } from './context/ConfirmContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import AppErrorBoundary from './components/AppErrorBoundary';
@@ -82,9 +84,13 @@ function App() {
       <AuthProvider>
         <BranchProvider>
           <NotificationProvider>
-            <AppErrorBoundary>
-              <AppInner />
-            </AppErrorBoundary>
+            <ToastProvider>
+              <ConfirmProvider>
+                <AppErrorBoundary>
+                  <AppInner />
+                </AppErrorBoundary>
+              </ConfirmProvider>
+            </ToastProvider>
           </NotificationProvider>
         </BranchProvider>
       </AuthProvider>

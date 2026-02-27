@@ -119,7 +119,9 @@ export async function archiveStaffProfile(staffId, repository) {
     throw toError('Staff member not found', 404, 'STAFF_NOT_FOUND');
   }
   if (staff.linked_user_id) {
-    throw toError('Cannot delete staff with active account. Delete account first.', 400, 'STAFF_HAS_ACTIVE_ACCOUNT');
+    await repository.archiveUser(staff.linked_user_id);
+    await repository.unlinkStaffFromUser(staff.linked_user_id);
+    await repository.deleteUserLocations(staff.linked_user_id);
   }
   await repository.archiveStaff(staffId);
   return { archived: true };

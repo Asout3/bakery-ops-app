@@ -4,6 +4,7 @@ import { useBranch } from '../../context/BranchContext';
 import { Package, Send, Plus, Minus } from 'lucide-react';
 import './Inventory.css';
 import { enqueueOperation, listQueuedOperations } from '../../utils/offlineQueue';
+import { useToast } from '../../context/ToastContext';
 
 export default function Inventory() {
   const { selectedLocationId } = useBranch();
@@ -11,8 +12,8 @@ export default function Inventory() {
   const [inventory, setInventory] = useState({});
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const toast = useToast();
 
   useEffect(() => {
     fetchProducts();
@@ -39,14 +40,18 @@ export default function Inventory() {
       const [productsRes, inventoryRes] = await Promise.all([api.get('/products'), api.get('/inventory')]);
       const availableIds = new Set((inventoryRes.data || []).map((it) => Number(it.product_id)));
       const availableProducts = (productsRes.data || []).filter((product) => availableIds.has(Number(product.id)));
-      setProducts(availableProducts);
-      localStorage.setItem(`manager_products_cache_${selectedLocationId || 'default'}`, JSON.stringify(availableProducts));
+      const normalizedProducts = availableProducts.map((product) => ({
+        ...product,
+        source: product.source || 'baked',
+      }));
+      setProducts(normalizedProducts);
+      localStorage.setItem(`manager_products_cache_${selectedLocationId || 'default'}`, JSON.stringify(normalizedProducts));
     } catch (err) {
       console.error('Failed to fetch products:', err);
       const cached = localStorage.getItem(`manager_products_cache_${selectedLocationId || 'default'}`);
       if (cached) {
         setProducts(JSON.parse(cached));
-        setMessage({ type: 'warning', text: 'Offline mode: using cached products list.' });
+        toast.warning('Offline mode: using cached products list.');
       }
     }
   };
@@ -96,7 +101,8 @@ export default function Inventory() {
     return pendingBatches.reduce((acc, op) => applyBatchItemsToInventory(acc, op.data?.items || []), baseInventory);
   };
 
-  const addToCart = (product, source) => {
+  const addToCart = (product) => {
+    const source = product.source || 'baked';
     const existing = cart.find(
       (item) => item.product_id === product.id && item.source === source
     );
@@ -144,9 +150,26 @@ export default function Inventory() {
     );
   };
 
+
+  const setCartQuantity = (productId, source, nextQuantity) => {
+    const quantity = Number(nextQuantity || 0);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      removeFromCart(productId, source);
+      return;
+    }
+
+    setCart(
+      cart.map((item) => (
+        item.product_id === productId && item.source === source
+          ? { ...item, quantity }
+          : item
+      ))
+    );
+  };
+
   const handleSendBatch = async () => {
     if (cart.length === 0) {
-      setMessage({ type: 'warning', text: 'Cart is empty' });
+      toast.warning('Cart is empty');
       return;
     }
 
@@ -157,14 +180,14 @@ export default function Inventory() {
         notes: 'Batch sent from manager',
       });
 
-      setMessage({ type: 'success', text: 'Batch sent successfully!' });
+      toast.success('Batch sent successfully!');
       const optimisticInventory = applyBatchItemsToInventory(inventory, cart);
       setInventory(optimisticInventory);
       persistInventoryCache(optimisticInventory);
       setCart([]);
       fetchInventory();
 
-      setTimeout(() => setMessage(null), 5000);
+      
     } catch (err) {
       if (!err.response) {
         const payload = { items: cart, notes: 'Batch sent from manager' };
@@ -173,13 +196,10 @@ export default function Inventory() {
         const optimisticInventory = applyBatchItemsToInventory(inventory, cart);
         setInventory(optimisticInventory);
         persistInventoryCache(optimisticInventory);
-        setMessage({ type: 'warning', text: 'Offline: batch queued for sync.' });
+        toast.info('Offline: batch queued for sync.');
         setCart([]);
       } else {
-        setMessage({
-          type: 'danger',
-          text: getErrorMessage(err, 'Failed to send batch'),
-        });
+        toast.error(getErrorMessage(err, 'Failed to send batch'));
       }
     } finally {
       setLoading(false);
@@ -191,7 +211,6 @@ export default function Inventory() {
       <div className="inventory-header">
         <h2>Inventory Management</h2>
         {!isOnline && <div className="alert alert-warning">You are offline. Batch operations will be queued.</div>}
-        {message && <div className={`alert alert-${message.type}`}>{message.text}</div>}
       </div>
 
       <div className="inventory-layout">
@@ -207,8 +226,8 @@ export default function Inventory() {
                     <tr>
                       <th>Product</th>
                       <th>Current Stock</th>
-                      <th>Add Baked</th>
-                      <th>Add Purchased</th>
+                      <th>Add to Batch</th>
+                      <th>Source</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -232,20 +251,18 @@ export default function Inventory() {
                           <td>
                             <button
                               className="btn btn-sm btn-success"
-                              onClick={() => addToCart(product, 'baked')}
+                              onClick={() => addToCart(product)}
                             >
                               <Plus size={16} />
-                              Baked
+                              Add
                             </button>
                           </td>
                           <td>
-                            <button
-                              className="btn btn-sm btn-secondary"
-                              onClick={() => addToCart(product, 'purchased')}
+                            <span
+                              className={`badge ${product.source === 'baked' ? 'badge-success' : 'badge-secondary'}`}
                             >
-                              <Plus size={16} />
-                              Purchased
-                            </button>
+                              {product.source}
+                            </span>
                           </td>
                         </tr>
                       );
@@ -298,7 +315,14 @@ export default function Inventory() {
                         >
                           <Minus size={14} />
                         </button>
-                        <span className="cart-item-qty">{item.quantity}</span>
+                        <input
+                          type="number"
+                          min="1"
+                          className="form-control form-control-sm"
+                          style={{ width: '72px', textAlign: 'center' }}
+                          value={item.quantity}
+                          onChange={(e) => setCartQuantity(item.product_id, item.source, Number(e.target.value))}
+                        />
                         <button
                           className="btn btn-sm btn-secondary"
                           onClick={() =>

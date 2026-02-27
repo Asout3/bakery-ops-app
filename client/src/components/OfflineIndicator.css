@@ -163,16 +163,18 @@
   justify-content: center;
   z-index: 1100;
   pointer-events: none;
+  background: radial-gradient(circle at center, rgba(15,23,42,0.12), transparent 55%);
 }
 
 .sync-center-modal {
   pointer-events: auto;
-  min-width: 280px;
-  max-width: 420px;
-  padding: 16px 18px;
-  border-radius: 14px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.2);
-  border: 1px solid #e8ecf2;
+  min-width: 300px;
+  max-width: 430px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
   text-align: center;
 }
 

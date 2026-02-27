@@ -147,19 +147,28 @@ export default function Sales() {
     }
   };
 
-  const updateQuantity = (productId, change) => {
+  const setQuantity = (productId, nextQuantity) => {
     const product = products.find((item) => item.id === productId);
-    setCart(cart.map((item) => {
-      if (item.product_id === productId) {
-        const newQty = item.quantity + change;
-        if (change > 0 && product && newQty > Number(product.stock_quantity || 0)) {
-          setMessage({ type: 'warning', text: `${item.name} has insufficient stock.` });
-          return item;
-        }
-        return newQty > 0 ? { ...item, quantity: newQty } : item;
-      }
-      return item;
-    }).filter(item => item.quantity > 0));
+    const maxQty = Number(product?.stock_quantity || 0);
+    const qty = Number(nextQuantity || 0);
+
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setCart((current) => current.filter((item) => item.product_id !== productId));
+      return;
+    }
+
+    if (qty > maxQty) {
+      setMessage({ type: 'warning', text: `${product?.name || 'Item'} has insufficient stock.` });
+      setCart((current) => current.map((item) => item.product_id === productId ? { ...item, quantity: maxQty } : item));
+      return;
+    }
+
+    setCart((current) => current.map((item) => item.product_id === productId ? { ...item, quantity: qty } : item));
+  };
+
+  const updateQuantity = (productId, change) => {
+    const currentQty = cart.find((item) => item.product_id === productId)?.quantity || 0;
+    setQuantity(productId, currentQty + change);
   };
 
   const removeFromCart = (productId) => {
@@ -307,7 +316,14 @@ export default function Sales() {
                         >
                           <Minus size={14} />
                         </button>
-                        <span className="cart-item-qty">{item.quantity}</span>
+                        <input
+                          type="number"
+                          min="1"
+                          className="form-control form-control-sm"
+                          style={{ width: '72px', textAlign: 'center' }}
+                          value={item.quantity}
+                          onChange={(e) => setQuantity(item.product_id, Number(e.target.value))}
+                        />
                         <button
                           className="btn btn-sm btn-secondary"
                           onClick={() => updateQuantity(item.product_id, 1)}

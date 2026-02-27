@@ -2,9 +2,22 @@ import { useEffect, useMemo, useState } from 'react';
 import { UserPlus, Users } from 'lucide-react';
 import api from '../../api/axios';
 
+
+const ETHIOPIA_PHONE_REGEX = /^\+251(9|7)\d{8}$/;
+
+function normalizeEthiopianPhone(input) {
+  const raw = String(input || '').replace(/\s+/g, '');
+  if (!raw) return '+251';
+  if (raw.startsWith('+251')) return raw;
+  if (raw.startsWith('251')) return `+${raw}`;
+  if (raw.startsWith('0')) return `+251${raw.slice(1)}`;
+  if (raw.startsWith('9') || raw.startsWith('7')) return `+251${raw}`;
+  return raw;
+}
+
 const emptyStaff = {
   full_name: '',
-  phone_number: '',
+  phone_number: '+251',
   national_id: '',
   age: '',
   monthly_salary: '',
@@ -25,6 +38,10 @@ export default function StaffManagement() {
   const [profile, setProfile] = useState(null);
 
   const activeStaff = useMemo(() => staff.filter((u) => u.is_active), [staff]);
+  const sortedStaff = useMemo(() => [...staff].sort((a, b) => {
+    if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+    return String(a.full_name || '').localeCompare(String(b.full_name || ''));
+  }), [staff]);
 
   const load = async () => {
     try {
@@ -53,11 +70,21 @@ export default function StaffManagement() {
       setFeedback({ type: 'danger', message: 'Please select a branch' });
       return;
     }
+    const normalizedPhone = normalizeEthiopianPhone(staffForm.phone_number);
+    if (!ETHIOPIA_PHONE_REGEX.test(normalizedPhone)) {
+      setFeedback({ type: 'danger', message: 'Phone must be +2519XXXXXXXX or +2517XXXXXXXX.' });
+      return;
+    }
+    if (staffForm.age && Number(staffForm.age) < 17) {
+      setFeedback({ type: 'danger', message: 'Age must be greater than 16.' });
+      return;
+    }
     setSaving(true);
     try {
       await api.post('/admin/staff', {
         ...staffForm,
         location_id: Number(staffForm.location_id),
+        phone_number: normalizedPhone,
         age: staffForm.age ? Number(staffForm.age) : undefined,
         monthly_salary: staffForm.monthly_salary ? Number(staffForm.monthly_salary) : 0,
         payment_due_date: staffForm.payment_due_date ? Number(staffForm.payment_due_date) : 25,
@@ -84,8 +111,16 @@ export default function StaffManagement() {
 
   const editStaff = async (row) => {
     const full_name = row.full_name;
-    const phone_number = row.phone_number || '';
+    const phone_number = normalizeEthiopianPhone(row.phone_number || '+251');
     const monthly_salary = Number(row.monthly_salary || 0);
+    if (!ETHIOPIA_PHONE_REGEX.test(phone_number)) {
+      setFeedback({ type: 'danger', message: 'Phone must be +2519XXXXXXXX or +2517XXXXXXXX.' });
+      return;
+    }
+    if (row.age && Number(row.age) < 17) {
+      setFeedback({ type: 'danger', message: 'Age must be greater than 16.' });
+      return;
+    }
     const role_preference = row.role_preference || 'cashier';
     const location_id = Number(row.location_id);
     try {
@@ -143,11 +178,11 @@ export default function StaffManagement() {
         <form onSubmit={createStaff}>
           <div className="row g-2">
             <div className="col-md-6 mb-3"><label className="form-label">Full Name</label><input className="form-control" required value={staffForm.full_name} onChange={(e)=>setStaffForm((p)=>({...p,full_name:e.target.value}))} /></div>
-            <div className="col-md-6 mb-3"><label className="form-label">Phone Number</label><input className="form-control" required value={staffForm.phone_number} onChange={(e)=>setStaffForm((p)=>({...p,phone_number:e.target.value}))} /></div>
+            <div className="col-md-6 mb-3"><label className="form-label">Phone Number</label><input className="form-control" required placeholder="+2519XXXXXXXX" pattern="^\+251(9|7)\d{8}$" value={staffForm.phone_number} onChange={(e)=>setStaffForm((p)=>({...p,phone_number:normalizeEthiopianPhone(e.target.value)}))} /></div>
           </div>
           <div className="row g-2">
             <div className="col-md-4 mb-3"><label className="form-label">National ID (optional)</label><input className="form-control" value={staffForm.national_id} onChange={(e)=>setStaffForm((p)=>({...p,national_id:e.target.value}))} /></div>
-            <div className="col-md-4 mb-3"><label className="form-label">Age</label><input type="number" className="form-control" value={staffForm.age} onChange={(e)=>setStaffForm((p)=>({...p,age:e.target.value}))} /></div>
+            <div className="col-md-4 mb-3"><label className="form-label">Age</label><input type="number" min="17" className="form-control" value={staffForm.age} onChange={(e)=>setStaffForm((p)=>({...p,age:e.target.value}))} /></div>
             <div className="col-md-4 mb-3"><label className="form-label">Monthly Salary</label><input type="number" step="0.01" className="form-control" value={staffForm.monthly_salary} onChange={(e)=>setStaffForm((p)=>({...p,monthly_salary:e.target.value}))} /></div>
           </div>
           <div className="row g-2">
@@ -162,7 +197,7 @@ export default function StaffManagement() {
 
       <div className="card"><div className="card-header"><h4>Staff Directory</h4></div><div className="card-body table-container">
         <table className="table"><thead><tr><th>Name</th><th>Role</th><th>Branch</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {staff.map((row) => <tr key={row.id}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{row.location_name || row.location_id}</td><td>${Number(row.monthly_salary || 0).toFixed(2)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className={`badge ${row.is_active ? 'badge-success':'badge-warning'}`}>{row.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-secondary" onClick={()=>editStaff(row)}>Quick Save</button><button className={`btn btn-sm ${row.is_active ? 'btn-danger':'btn-success'}`} onClick={()=>toggleStatus(row)}>{row.is_active ? 'Disable':'Enable'}</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}
+          {sortedStaff.map((row) => <tr key={row.id}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{row.location_name || row.location_id}</td><td>${Number(row.monthly_salary || 0).toFixed(2)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className={`badge ${row.is_active ? 'badge-success':'badge-warning'}`}>{row.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-secondary" onClick={()=>editStaff(row)}>Quick Save</button><button className={`btn btn-sm ${row.is_active ? 'btn-danger':'btn-success'}`} onClick={()=>toggleStatus(row)}>{row.is_active ? 'Disable':'Enable'}</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}
         </tbody></table>
       </div></div>
 
@@ -173,13 +208,18 @@ export default function StaffManagement() {
             <div className="modal-body">
               <div className="row g-2">
                 <div className="col-md-6 mb-3"><label className="form-label">Full Name</label><input className="form-control" value={profile.full_name || ''} onChange={(e)=>setProfile((p)=>({...p,full_name:e.target.value}))} /></div>
-                <div className="col-md-6 mb-3"><label className="form-label">Phone</label><input className="form-control" value={profile.phone_number || ''} onChange={(e)=>setProfile((p)=>({...p,phone_number:e.target.value}))} /></div>
+                <div className="col-md-6 mb-3"><label className="form-label">Phone</label><input className="form-control" placeholder="+2519XXXXXXXX" pattern="^\+251(9|7)\d{8}$" value={profile.phone_number || '+251'} onChange={(e)=>setProfile((p)=>({...p,phone_number:normalizeEthiopianPhone(e.target.value)}))} /></div>
               </div>
               <div className="row g-2">
                 <div className="col-md-4 mb-3"><label className="form-label">National ID</label><input className="form-control" value={profile.national_id || ''} onChange={(e)=>setProfile((p)=>({...p,national_id:e.target.value}))} /></div>
-                <div className="col-md-4 mb-3"><label className="form-label">Age</label><input type="number" className="form-control" value={profile.age || ''} onChange={(e)=>setProfile((p)=>({...p,age:e.target.value}))} /></div>
+                <div className="col-md-4 mb-3"><label className="form-label">Age</label><input type="number" min="17" className="form-control" value={profile.age || ''} onChange={(e)=>setProfile((p)=>({...p,age:e.target.value}))} /></div>
                 <div className="col-md-4 mb-3"><label className="form-label">Monthly Salary</label><input type="number" className="form-control" value={profile.monthly_salary || ''} onChange={(e)=>setProfile((p)=>({...p,monthly_salary:e.target.value}))} /></div>
               </div>
+              <div className="row g-2">
+                <div className="col-md-8 mb-3"><label className="form-label">Salary Growth (ETB)</label><input type="number" min="0" step="0.01" className="form-control" value={profile.salary_growth || ''} onChange={(e)=>setProfile((p)=>({...p,salary_growth:e.target.value}))} placeholder="Increase amount" /></div>
+                <div className="col-md-4 mb-3 d-flex align-items-end"><button className="btn btn-outline-primary w-100" type="button" onClick={() => setProfile((p) => ({ ...p, monthly_salary: (Number(p.monthly_salary || 0) + Number(p.salary_growth || 0)).toFixed(2), salary_growth: '' }))}>Apply Growth</button></div>
+              </div>
+
               <div className="row g-2">
                 <div className="col-md-4 mb-3"><label className="form-label">Role</label><select className="form-select" value={profile.role_preference || 'cashier'} onChange={(e)=>setProfile((p)=>({...p,role_preference:e.target.value}))}><option value="cashier">Cashier</option><option value="manager">Ground Manager</option><option value="other">Other</option></select></div>
                 <div className="col-md-4 mb-3"><label className="form-label">Branch</label><select className="form-select" value={profile.location_id || ''} onChange={(e)=>setProfile((p)=>({...p,location_id:e.target.value}))}>{locations.map((l)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
