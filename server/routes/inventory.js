@@ -410,7 +410,7 @@ router.get('/batches', authenticateToken, async (req, res) => {
                         FROM batch_items bi
                         JOIN products p ON p.id = bi.product_id
                         WHERE bi.batch_id = b.id), 0) as total_cost,
-              (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60) < $2 as can_edit,
+              (CURRENT_TIMESTAMP < (b.created_at + make_interval(mins => $2::int))) as can_edit,
               EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60 as age_minutes
        FROM inventory_batches b
        JOIN users u ON b.created_by = u.id
@@ -459,7 +459,7 @@ router.get('/batches/:id', authenticateToken, async (req, res) => {
               ${syncedByNameExpr} as synced_by_name,
               ${wasSyncedExpr} as was_synced,
               ${isOfflineExpr} as is_offline,
-              (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60) < $3 as can_edit,
+              (CURRENT_TIMESTAMP < (b.created_at + make_interval(mins => $3::int))) as can_edit,
               EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60 as age_minutes
        FROM inventory_batches b
        JOIN users u ON b.created_by = u.id
@@ -502,7 +502,15 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
     const { items, notes } = req.body;
 
     const updatedBatch = await withTransaction(async (tx) => {
-      const batchRes = await tx.query(`SELECT * FROM inventory_batches WHERE id = $1 AND location_id = $2 FOR UPDATE`, [req.params.id, locationId]);
+      const batchRes = await tx.query(
+        `SELECT *,
+                (CURRENT_TIMESTAMP < (created_at + make_interval(mins => $3::int))) as can_edit,
+                EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - created_at)) / 60 as age_minutes
+         FROM inventory_batches
+         WHERE id = $1 AND location_id = $2
+         FOR UPDATE`,
+        [req.params.id, locationId, BATCH_EDIT_WINDOW_MINUTES]
+      );
       if (!batchRes.rows.length) {
         const err = new Error('Batch not found');
         err.status = 404;
@@ -510,8 +518,7 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
       }
 
       const batch = batchRes.rows[0];
-      const ageMinutes = (Date.now() - new Date(batch.created_at).getTime()) / 60000;
-      if (ageMinutes >= BATCH_EDIT_WINDOW_MINUTES) {
+      if (!batch.can_edit) {
         const err = new Error('Batch edit window has expired');
         err.status = 400;
         throw err;
@@ -567,15 +574,22 @@ router.post('/batches/:id/void', authenticateToken, authorizeRoles('admin', 'man
     const locationId = await getTargetLocationId(req, query);
 
     const voided = await withTransaction(async (tx) => {
-      const batchRes = await tx.query(`SELECT * FROM inventory_batches WHERE id = $1 AND location_id = $2 FOR UPDATE`, [req.params.id, locationId]);
+      const batchRes = await tx.query(
+        `SELECT *,
+                (CURRENT_TIMESTAMP < (created_at + make_interval(mins => $3::int))) as can_edit,
+                EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - created_at)) / 60 as age_minutes
+         FROM inventory_batches
+         WHERE id = $1 AND location_id = $2
+         FOR UPDATE`,
+        [req.params.id, locationId, BATCH_EDIT_WINDOW_MINUTES]
+      );
       if (!batchRes.rows.length) {
         const err = new Error('Batch not found');
         err.status = 404;
         throw err;
       }
       const batch = batchRes.rows[0];
-      const ageMinutes = (Date.now() - new Date(batch.created_at).getTime()) / 60000;
-      if (ageMinutes >= BATCH_EDIT_WINDOW_MINUTES) {
+      if (!batch.can_edit) {
         const err = new Error('Batch void window has expired');
         err.status = 400;
         throw err;
