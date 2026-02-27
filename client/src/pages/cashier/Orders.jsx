@@ -34,17 +34,56 @@ export default function CashierOrders() {
   const [includeHistory, setIncludeHistory] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
+  const readCachedOrders = (cacheKey) => {
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const writeCachedOrders = (cacheKey, rows) => {
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(rows));
+    } catch {
+      console.error('Failed to persist cashier orders cache');
+    }
+  };
+
+  const readBestCachedOrders = (cacheKey) => {
+    const exact = readCachedOrders(cacheKey);
+    if (exact && exact.length) return exact;
+    try {
+      const locationPrefix = `cashier_orders_cache_${selectedLocationId || 'default'}_`;
+      const fallbackKey = Object.keys(localStorage).find((key) => key.startsWith(locationPrefix));
+      if (!fallbackKey) return null;
+      return readCachedOrders(fallbackKey);
+    } catch {
+      return null;
+    }
+  };
+
   const fetchOrders = async () => {
     const cacheKey = getCacheKey(selectedLocationId, includeHistory);
+    if (!navigator.onLine) {
+      const cached = readBestCachedOrders(cacheKey);
+      if (cached) {
+        setOrders(cached);
+        return;
+      }
+    }
     try {
       const response = await api.get('/orders', { params: { include_closed: includeHistory } });
       const rows = response.data || [];
       setOrders(rows);
-      localStorage.setItem(cacheKey, JSON.stringify(rows));
+      writeCachedOrders(cacheKey, rows);
     } catch (err) {
-      const cached = localStorage.getItem(cacheKey);
+      const cached = readBestCachedOrders(cacheKey);
       if (cached) {
-        setOrders(JSON.parse(cached));
+        setOrders(cached);
         setMessage({ type: 'warning', text: 'Offline mode: showing cached orders.' });
         return;
       }
