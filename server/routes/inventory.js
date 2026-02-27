@@ -291,6 +291,11 @@ router.post(
             throw sourceErr;
           }
           const itemSource = productSourceRes.rows[0].source || 'baked';
+          if (item.source && item.source !== itemSource) {
+            const sourceErr = new Error(`Product ${item.product_id} must be batched as ${itemSource}`);
+            sourceErr.status = 400;
+            throw sourceErr;
+          }
 
           await tx.query(
             `INSERT INTO batch_items (batch_id, product_id, quantity, source)
@@ -518,12 +523,25 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
       await tx.query('DELETE FROM batch_items WHERE batch_id = $1', [req.params.id]);
 
       for (const item of items) {
-        await tx.query(`INSERT INTO batch_items (batch_id, product_id, quantity, source) VALUES ($1, $2, $3, $4)`, [req.params.id, item.product_id, item.quantity, item.source]);
+        const productSourceRes = await tx.query('SELECT source FROM products WHERE id = $1', [item.product_id]);
+        if (!productSourceRes.rows.length) {
+          const err = new Error(`Product ${item.product_id} not found`);
+          err.status = 404;
+          throw err;
+        }
+        const itemSource = productSourceRes.rows[0].source || 'baked';
+        if (item.source && item.source !== itemSource) {
+          const err = new Error(`Product ${item.product_id} must be batched as ${itemSource}`);
+          err.status = 400;
+          throw err;
+        }
+
+        await tx.query(`INSERT INTO batch_items (batch_id, product_id, quantity, source) VALUES ($1, $2, $3, $4)`, [req.params.id, item.product_id, item.quantity, itemSource]);
         await tx.query(`INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)
                         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
                         ON CONFLICT (product_id, location_id)
                         DO UPDATE SET quantity = inventory.quantity + $3, source = $4, last_updated = CURRENT_TIMESTAMP`,
-          [item.product_id, locationId, item.quantity, item.source]);
+          [item.product_id, locationId, item.quantity, itemSource]);
       }
 
       const updated = await tx.query(`UPDATE inventory_batches SET status = 'edited', notes = COALESCE($1, notes) WHERE id = $2 RETURNING *`, [notes || null, req.params.id]);

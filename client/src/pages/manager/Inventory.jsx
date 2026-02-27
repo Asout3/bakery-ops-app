@@ -39,8 +39,12 @@ export default function Inventory() {
       const [productsRes, inventoryRes] = await Promise.all([api.get('/products'), api.get('/inventory')]);
       const availableIds = new Set((inventoryRes.data || []).map((it) => Number(it.product_id)));
       const availableProducts = (productsRes.data || []).filter((product) => availableIds.has(Number(product.id)));
-      setProducts(availableProducts);
-      localStorage.setItem(`manager_products_cache_${selectedLocationId || 'default'}`, JSON.stringify(availableProducts));
+      const normalizedProducts = availableProducts.map((product) => ({
+        ...product,
+        source: product.source || 'baked',
+      }));
+      setProducts(normalizedProducts);
+      localStorage.setItem(`manager_products_cache_${selectedLocationId || 'default'}`, JSON.stringify(normalizedProducts));
     } catch (err) {
       console.error('Failed to fetch products:', err);
       const cached = localStorage.getItem(`manager_products_cache_${selectedLocationId || 'default'}`);
@@ -96,7 +100,8 @@ export default function Inventory() {
     return pendingBatches.reduce((acc, op) => applyBatchItemsToInventory(acc, op.data?.items || []), baseInventory);
   };
 
-  const addToCart = (product, source) => {
+  const addToCart = (product) => {
+    const source = product.source || 'baked';
     const existing = cart.find(
       (item) => item.product_id === product.id && item.source === source
     );
@@ -207,8 +212,8 @@ export default function Inventory() {
                     <tr>
                       <th>Product</th>
                       <th>Current Stock</th>
-                      <th>Add Baked</th>
-                      <th>Add Purchased</th>
+                      <th>Add to Batch</th>
+                      <th>Source</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -232,20 +237,18 @@ export default function Inventory() {
                           <td>
                             <button
                               className="btn btn-sm btn-success"
-                              onClick={() => addToCart(product, 'baked')}
+                              onClick={() => addToCart(product)}
                             >
                               <Plus size={16} />
-                              Baked
+                              Add
                             </button>
                           </td>
                           <td>
-                            <button
-                              className="btn btn-sm btn-secondary"
-                              onClick={() => addToCart(product, 'purchased')}
+                            <span
+                              className={`badge ${product.source === 'baked' ? 'badge-success' : 'badge-secondary'}`}
                             >
-                              <Plus size={16} />
-                              Purchased
-                            </button>
+                              {product.source}
+                            </span>
                           </td>
                         </tr>
                       );
