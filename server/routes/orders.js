@@ -9,6 +9,12 @@ const router = express.Router();
 
 const ORDER_STATUSES = ['pending', 'confirmed', 'in_production', 'ready', 'delivered', 'cancelled', 'overdue'];
 
+function clampLimit(value, fallback = 500, max = 1000) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(Math.trunc(parsed), max);
+}
+
 function isPastPickupDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return true;
@@ -101,6 +107,7 @@ router.get('/', authenticateToken, authorizeRoles('cashier', 'admin', 'manager')
     await ensureFeatureSchema({ orders: true });
     const locationId = await getTargetLocationId(req, query);
     const includeClosed = req.query.include_closed === 'true';
+    const limit = clampLimit(req.query.limit, 500, 1000);
 
     const result = await query(
       `SELECT o.*, u.username AS cashier_name, gm.username AS baked_done_by_name
@@ -109,8 +116,9 @@ router.get('/', authenticateToken, authorizeRoles('cashier', 'admin', 'manager')
        LEFT JOIN users gm ON gm.id = o.baked_done_by
        WHERE o.location_id = $1
          ${includeClosed ? '' : "AND o.status NOT IN ('delivered', 'cancelled')"}
-       ORDER BY o.pickup_at ASC, o.created_at DESC`,
-      [locationId]
+       ORDER BY o.pickup_at ASC, o.created_at DESC
+       LIMIT $2`,
+      [locationId, limit]
     );
 
     res.json(result.rows.map((row) => ({ ...row, balance_due: Number(row.total_amount) - Number(row.paid_amount) })));

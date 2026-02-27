@@ -10,6 +10,17 @@ const INVENTORY_BATCH_ALLOWED_STATUSES = ['pending', 'sent', 'received', 'edited
 let inventoryBatchConstraintReady = null;
 let inventoryBatchColumnsCache = null;
 
+
+function clampLimit(value, fallback = 50, max = 200) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(Math.trunc(parsed), max);
+}
+
+function isValidDateFilter(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+}
+
 async function ensureInventoryBatchStatusConstraint(db) {
   if (!inventoryBatchConstraintReady) {
     inventoryBatchConstraintReady = (async () => {
@@ -323,15 +334,23 @@ router.post(
         );
 
         const createdBatch = batchResult.rows[0];
+        const uniqueProductIds = [...new Set(items.map((item) => Number(item.product_id)))];
+        const productSources = await tx.query(
+          'SELECT id, source FROM products WHERE id = ANY($1::int[])',
+          [uniqueProductIds]
+        );
+        const sourceByProductId = new Map(productSources.rows.map((row) => [Number(row.id), row.source || 'baked']));
 
-        for (const item of items) {
-          const productSourceRes = await tx.query('SELECT source FROM products WHERE id = $1', [item.product_id]);
-          if (!productSourceRes.rows.length) {
-            const sourceErr = new Error(`Product ${item.product_id} not found`);
+        for (const productId of uniqueProductIds) {
+          if (!sourceByProductId.has(productId)) {
+            const sourceErr = new Error(`Product ${productId} not found`);
             sourceErr.status = 404;
             throw sourceErr;
           }
-          const itemSource = productSourceRes.rows[0].source || 'baked';
+        }
+
+        for (const item of items) {
+          const itemSource = sourceByProductId.get(Number(item.product_id));
           if (item.source && item.source !== itemSource) {
             const sourceErr = new Error(`Product ${item.product_id} must be batched as ${itemSource}`);
             sourceErr.status = 400;
@@ -427,10 +446,18 @@ router.post(
 router.get('/batches', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
-    const limit = parseInt(req.query.limit, 10) || 50;
+    const limit = clampLimit(req.query.limit, 50, 200);
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
     const includeSummary = req.query.include_summary === 'true';
+
+    if ((startDate && !isValidDateFilter(startDate)) || (endDate && !isValidDateFilter(endDate))) {
+      return res.status(400).json({
+        error: 'Invalid date filter format. Use YYYY-MM-DD.',
+        code: 'VALIDATION_ERROR',
+        requestId: req.requestId,
+      });
+    }
     const batchColumns = await getInventoryBatchColumns({ query });
 
     const displayCreatorExpr = batchColumns.hasOriginalActorName
@@ -599,14 +626,23 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
 
       await tx.query('DELETE FROM batch_items WHERE batch_id = $1', [req.params.id]);
 
-      for (const item of items) {
-        const productSourceRes = await tx.query('SELECT source FROM products WHERE id = $1', [item.product_id]);
-        if (!productSourceRes.rows.length) {
-          const err = new Error(`Product ${item.product_id} not found`);
+      const uniqueProductIds = [...new Set(items.map((item) => Number(item.product_id)))];
+      const productSources = await tx.query(
+        'SELECT id, source FROM products WHERE id = ANY($1::int[])',
+        [uniqueProductIds]
+      );
+      const sourceByProductId = new Map(productSources.rows.map((row) => [Number(row.id), row.source || 'baked']));
+
+      for (const productId of uniqueProductIds) {
+        if (!sourceByProductId.has(productId)) {
+          const err = new Error(`Product ${productId} not found`);
           err.status = 404;
           throw err;
         }
-        const itemSource = productSourceRes.rows[0].source || 'baked';
+      }
+
+      for (const item of items) {
+        const itemSource = sourceByProductId.get(Number(item.product_id));
         if (item.source && item.source !== itemSource) {
           const err = new Error(`Product ${item.product_id} must be batched as ${itemSource}`);
           err.status = 400;
