@@ -11,6 +11,23 @@ dotenv.config();
 
 const dbIpFamily = Number(process.env.DB_IP_FAMILY || 4);
 
+const isProduction = process.env.NODE_ENV === 'production';
+const shouldRejectUnauthorized = process.env.SSL_REJECT_UNAUTHORIZED !== 'false';
+
+async function ensureDefaultAdminSeed(client) {
+  const allowDevSeed = process.env.ALLOW_DEV_SEED !== 'false';
+  if (isProduction || !allowDevSeed) {
+    return;
+  }
+
+  await client.query(
+    `INSERT INTO users (username, email, password_hash, role)
+     VALUES ('admin', 'admin@bakery.com', $1, 'admin')
+     ON CONFLICT (username) DO NOTHING`,
+    ['$2a$10$dn8KZ/YdUSxWjAWlAnK2We/oAbn6LIhLGDsQYurAhjDWkzpLYvmL2']
+  );
+}
+
 async function getMigrationFiles() {
   const migrationsDir = path.join(__dirname, '../database/migrations');
   const files = fs.readdirSync(migrationsDir)
@@ -60,7 +77,8 @@ async function setupDatabase() {
     connectionString: process.env.DATABASE_URL,
     ssl: process.env.DATABASE_URL
       ? {
-          rejectUnauthorized: false,
+          rejectUnauthorized: shouldRejectUnauthorized,
+          ...(shouldRejectUnauthorized && process.env.SSL_CA_CERT ? { ca: process.env.SSL_CA_CERT } : {}),
         }
       : false,
     family: dbIpFamily,
@@ -84,6 +102,7 @@ async function setupDatabase() {
       console.log('✅ Base schema applied!');
       
       await recordMigration(client, 'schema.sql');
+      await ensureDefaultAdminSeed(client);
     } else {
       console.log('📋 Database tables already exist. Checking for new migrations...');
     }
@@ -106,14 +125,16 @@ async function setupDatabase() {
       );
       
       try {
+        await client.query('BEGIN');
         await client.query(migrationSql);
         await recordMigration(client, file);
+        await client.query('COMMIT');
         migrationsRun++;
         console.log(`  ✅ ${file} complete!`);
       } catch (migrationError) {
-        console.error(`  ⚠️  Warning in ${file}: ${migrationError.message}`);
-        console.log(`  ⏭️  Recording as complete anyway to prevent re-running...`);
-        await recordMigration(client, file);
+        await client.query('ROLLBACK');
+        console.error(`  ❌ Migration failed in ${file}: ${migrationError.message}`);
+        throw migrationError;
       }
     }
     
@@ -126,10 +147,12 @@ async function setupDatabase() {
     console.log('');
     console.log('✅ Database setup complete!');
     console.log('');
-    console.log('Default login credentials:');
-    console.log('  Username: admin');
-    console.log('  Password: admin123');
-    console.log('');
+    if (!isProduction && process.env.ALLOW_DEV_SEED !== 'false') {
+      console.log('Default login credentials:');
+      console.log('  Username: admin');
+      console.log('  Password: admin123');
+      console.log('');
+    }
     
   } catch (error) {
     console.error('❌ Error setting up database:', error);
