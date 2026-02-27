@@ -335,15 +335,14 @@ export default function ManagerBatches() {
                           >
                             <Eye size={14} />
                           </button>
-                          {isBatchEditable(batch) && (
-                            <button 
-                              className="btn btn-sm btn-outline-danger" 
-                              onClick={() => handleVoidBatch(batch.id)}
-                              title="Void Batch (within 20 min)"
-                            >
-                              <Ban size={14} />
-                            </button>
-                          )}
+                          <button 
+                            className="btn btn-sm btn-outline-danger" 
+                            onClick={() => handleVoidBatch(batch.id)}
+                            title={isBatchEditable(batch) ? 'Void Batch (within 20 min)' : 'Batch locked after 20 minutes'}
+                            disabled={!isBatchEditable(batch)}
+                          >
+                            <Ban size={14} />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -402,6 +401,12 @@ export default function ManagerBatches() {
                     <div className="stat-box-value">ETB {Number(selectedBatch.total_cost || 0).toFixed(2)}</div>
                   </div>
                 </div>
+              </div>
+
+              <div className={`alert ${isBatchEditable(selectedBatch) ? 'alert-warning' : 'alert-secondary'} mb-4`}>
+                {isBatchEditable(selectedBatch)
+                  ? `Edit/Void available for ${getMinutesRemaining(selectedBatch)} more minute(s).`
+                  : 'This batch is locked after 20 minutes and can no longer be edited or voided.'}
               </div>
 
               {selectedBatch.was_synced && selectedBatch.synced_by_name && (
@@ -463,14 +468,12 @@ export default function ManagerBatches() {
                 </table>
               </div>
             </div>
-            {isBatchEditable(selectedBatch) && (
-              <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setSelectedBatch(null)}>Close</button>
-                <button className="btn btn-primary" onClick={handleSaveEdit}>
-                  <Edit size={14} className="me-1" /> Save Changes
-                </button>
-              </div>
-            )}
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setSelectedBatch(null)}>Close</button>
+              <button className="btn btn-primary" onClick={handleSaveEdit} disabled={!isBatchEditable(selectedBatch)}>
+                <Edit size={14} className="me-1" /> Save Changes
+              </button>
+            </div>
           </div>
         </div>
       )}

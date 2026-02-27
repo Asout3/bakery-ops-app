@@ -413,6 +413,8 @@ router.get('/batches', authenticateToken, async (req, res) => {
       whereClause += ` AND DATE(b.created_at) <= $${whereParams.length}`;
     }
 
+    const editWindowParamIndex = whereParams.length + 1;
+
     let queryText = `SELECT b.*, u.username as created_by_name,
               ${displayCreatorExpr} as display_creator_name,
               ${syncedByNameExpr} as synced_by_name,
@@ -423,7 +425,7 @@ router.get('/batches', authenticateToken, async (req, res) => {
                         FROM batch_items bi
                         JOIN products p ON p.id = bi.product_id
                         WHERE bi.batch_id = b.id), 0) as total_cost,
-              (CURRENT_TIMESTAMP < (b.created_at + make_interval(mins => $2::int))) as can_edit,
+              (CURRENT_TIMESTAMP < (b.created_at + make_interval(mins => $${editWindowParamIndex}::int))) as can_edit,
               EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60 as age_minutes
        FROM inventory_batches b
        JOIN users u ON b.created_by = u.id
