@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Package, Clock, User, Eye, Edit, Ban, RefreshCw, Wifi, WifiOff, CheckCircle, XCircle } from 'lucide-react';
@@ -19,6 +19,7 @@ export default function ManagerBatches() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDay, setSelectedDay] = useState('');
   const [tick, setTick] = useState(Date.now());
+  const lastOfflineToastAtRef = useRef(0);
   const toast = useToast();
   const { confirm } = useConfirm();
 
@@ -44,6 +45,31 @@ export default function ManagerBatches() {
       return null;
     }
   }, [getCacheKey]);
+
+  const readBestCachedBatches = useCallback(() => {
+    const direct = readCachedBatches();
+    if (direct?.batches?.length) return direct;
+
+    try {
+      const locationPart = selectedLocationId || 'all';
+      const prefix = `${BATCH_CACHE_KEY_PREFIX}:${locationPart}:`;
+      const matching = Object.keys(localStorage).filter((key) => key.startsWith(prefix));
+      for (const key of matching) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length) {
+          return { batches: parsed, summary: null };
+        }
+        if (Array.isArray(parsed?.batches) && parsed.batches.length) {
+          return { batches: parsed.batches, summary: parsed.summary || null };
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }, [readCachedBatches, selectedLocationId]);
 
   const writeCachedBatches = useCallback((payload) => {
     try {
@@ -92,10 +118,21 @@ export default function ManagerBatches() {
   }, []);
 
   const fetchBatches = useCallback(async (isRefresh = false) => {
+    if (isRefresh && !navigator.onLine) {
+      const cached = readBestCachedBatches();
+      if (cached) {
+        setBatches(cached.batches.map((batch) => normalizeBatch(batch)));
+      }
+      setRefreshing(false);
+      return;
+    }
+
     if (isRefresh) {
       setRefreshing(true);
     } else {
-      setLoading(true);
+      if (batches.length === 0) {
+        setLoading(true);
+      }
     }
     try {
       const response = await api.get('/inventory/batches', {
@@ -120,11 +157,15 @@ export default function ManagerBatches() {
       setBatches(normalized);
       writeCachedBatches({ batches: normalized, summary: null });
     } catch (err) {
-      const cached = readCachedBatches();
+      const cached = readBestCachedBatches();
       if (cached && (!navigator.onLine || !err?.response)) {
         const hydrated = cached.batches.map((batch) => normalizeBatch(batch));
         setBatches(hydrated);
-        toast.info('Offline: loaded cached batch history.');
+        const now = Date.now();
+        if (now - lastOfflineToastAtRef.current > 120000) {
+          toast.info('Offline: loaded cached batch history.');
+          lastOfflineToastAtRef.current = now;
+        }
       } else {
         toast.error(getErrorMessage(err, 'Failed to fetch batches.'));
       }
@@ -132,7 +173,7 @@ export default function ManagerBatches() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedDay, normalizeBatch, readCachedBatches, writeCachedBatches]);
+  }, [selectedDay, normalizeBatch, readBestCachedBatches, writeCachedBatches, batches.length]);
 
   useEffect(() => {
     fetchBatches();
