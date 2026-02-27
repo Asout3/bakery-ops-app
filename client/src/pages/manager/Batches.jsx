@@ -2,7 +2,10 @@ import { useEffect, useState, useCallback } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Package, Clock, User, Eye, Edit, Ban, RefreshCw, Wifi, WifiOff, CheckCircle, XCircle } from 'lucide-react';
+import { formatAddisDateTime } from '../../utils/time';
 import './Batches.css';
+
+const BATCH_EDIT_WINDOW_MINUTES = 20;
 
 export default function ManagerBatches() {
   const { selectedLocationId } = useBranch();
@@ -13,6 +16,20 @@ export default function ManagerBatches() {
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState(null);
   const [selectedDay, setSelectedDay] = useState('');
+  const [tick, setTick] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setTick(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getMinutesRemaining = useCallback((batch) => {
+    const createdAtValue = batch?.created_at || batch?.batch_date;
+    const createdAt = createdAtValue ? new Date(createdAtValue) : null;
+    if (!createdAt || Number.isNaN(createdAt.getTime())) return 0;
+    const elapsedMinutes = (tick - createdAt.getTime()) / 60000;
+    return Math.max(0, Math.ceil(BATCH_EDIT_WINDOW_MINUTES - elapsedMinutes));
+  }, [tick]);
 
   const fetchBatches = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
@@ -209,7 +226,7 @@ export default function ManagerBatches() {
                       <td><strong>#{batch.id}</strong></td>
                       <td>
                         <div>{new Date(batch.created_at).toLocaleDateString()}</div>
-                        <small className="text-muted">{new Date(batch.created_at).toLocaleTimeString()}</small>
+                        <small className="text-muted">{formatAddisDateTime(batch.created_at || batch.batch_date)}</small>
                       </td>
                       <td>{getStatusBadge(batch.status)}</td>
                       <td><span className="badge bg-secondary">{batch.items_count || 0} items</span></td>
@@ -240,6 +257,11 @@ export default function ManagerBatches() {
                       </td>
                       <td>
                         <div className="d-flex gap-1">
+                          {batch.status !== 'voided' && (
+                            <span className={`badge ${batch.can_edit ? 'bg-warning text-dark' : 'bg-secondary'}`}>
+                              {batch.can_edit ? `Locks in ${getMinutesRemaining(batch)}m` : 'Locked'}
+                            </span>
+                          )}
                           <button 
                             className="btn btn-sm btn-outline-primary" 
                             onClick={() => fetchBatchDetails(batch.id)}
@@ -288,7 +310,7 @@ export default function ManagerBatches() {
                   <div className="detail-item">
                     <Clock size={14} className="me-2 text-muted" />
                     <span className="text-muted">Created:</span>
-                    <strong>{new Date(selectedBatch.created_at).toLocaleString()}</strong>
+                    <strong>{formatAddisDateTime(selectedBatch.created_at || selectedBatch.batch_date)}</strong>
                   </div>
                 </div>
                 <div className="col-md-6">

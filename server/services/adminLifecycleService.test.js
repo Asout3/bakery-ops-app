@@ -63,13 +63,20 @@ test('archiveStaffAccount returns already_inactive for inactive user', async () 
   assert.deepEqual(result, { archived: true, already_inactive: true });
 });
 
-test('archiveStaffProfile rejects when linked user exists', async () => {
+test('archiveStaffProfile archives linked account before archiving profile', async () => {
+  const calls = { archiveUser: 0, unlink: 0, deleteLocations: 0, archiveStaff: 0 };
   const repository = {
     getStaffById: async () => ({ id: 3, linked_user_id: 7 }),
+    archiveUser: async () => { calls.archiveUser += 1; },
+    unlinkStaffFromUser: async () => { calls.unlink += 1; },
+    deleteUserLocations: async () => { calls.deleteLocations += 1; },
+    archiveStaff: async () => { calls.archiveStaff += 1; },
   };
 
-  await assert.rejects(
-    () => archiveStaffProfile(3, repository),
-    (err) => err.status === 400 && err.code === 'STAFF_HAS_ACTIVE_ACCOUNT'
-  );
+  const result = await archiveStaffProfile(3, repository);
+  assert.deepEqual(result, { archived: true });
+  assert.equal(calls.archiveUser, 1);
+  assert.equal(calls.unlink, 1);
+  assert.equal(calls.deleteLocations, 1);
+  assert.equal(calls.archiveStaff, 1);
 });

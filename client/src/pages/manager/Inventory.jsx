@@ -149,6 +149,23 @@ export default function Inventory() {
     );
   };
 
+
+  const setCartQuantity = (productId, source, nextQuantity) => {
+    const quantity = Number(nextQuantity || 0);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      removeFromCart(productId, source);
+      return;
+    }
+
+    setCart(
+      cart.map((item) => (
+        item.product_id === productId && item.source === source
+          ? { ...item, quantity }
+          : item
+      ))
+    );
+  };
+
   const handleSendBatch = async () => {
     if (cart.length === 0) {
       setMessage({ type: 'warning', text: 'Cart is empty' });
@@ -301,7 +318,14 @@ export default function Inventory() {
                         >
                           <Minus size={14} />
                         </button>
-                        <span className="cart-item-qty">{item.quantity}</span>
+                        <input
+                          type="number"
+                          min="1"
+                          className="form-control form-control-sm"
+                          style={{ width: '72px', textAlign: 'center' }}
+                          value={item.quantity}
+                          onChange={(e) => setCartQuantity(item.product_id, item.source, Number(e.target.value))}
+                        />
                         <button
                           className="btn btn-sm btn-secondary"
                           onClick={() =>
