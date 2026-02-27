@@ -23,7 +23,7 @@
     "test:coverage": "NODE_ENV=test node --test --experimental-test-coverage server/**/*.test.js",
     "lint": "eslint server/",
     "lint:fix": "eslint server/ --fix",
-    "validate:env": "node -e \"require('./server/middleware/security.js').validateEnvironment()\"",
+    "validate:env": "node -e \"import('./server/middleware/security.js').then(m=>m.validateEnvironment())\"",
     "healthcheck": "node -e \"fetch('http://localhost:5000/api/health').then(r=>r.json()).then(console.log).catch(console.error)\"",
     "clean": "rm -rf node_modules client/node_modules client/dist",
     "docker:build": "docker build -t bakery-ops-app .",

@@ -61,6 +61,15 @@ async function recordMigration(client, filename) {
   );
 }
 
+
+async function acquireSetupLock(client) {
+  await client.query('SELECT pg_advisory_lock($1)', [90421001]);
+}
+
+async function releaseSetupLock(client) {
+  await client.query('SELECT pg_advisory_unlock($1)', [90421001]);
+}
+
 async function checkTablesExist(client) {
   const result = await client.query(`
     SELECT EXISTS (
@@ -89,6 +98,7 @@ async function setupDatabase() {
     await client.connect();
     console.log('✅ Connected to database!');
 
+    await acquireSetupLock(client);
     await ensureMigrationsTable(client);
 
     const tablesExist = await checkTablesExist(client);
@@ -98,11 +108,12 @@ async function setupDatabase() {
       const schema = fs.readFileSync(path.join(__dirname, '../database/schema.sql'), 'utf8');
       
       console.log('🚀 Creating base tables and initial data...');
+      await client.query('BEGIN');
       await client.query(schema);
-      console.log('✅ Base schema applied!');
-      
       await recordMigration(client, 'schema.sql');
       await ensureDefaultAdminSeed(client);
+      await client.query('COMMIT');
+      console.log('✅ Base schema applied!');
     } else {
       console.log('📋 Database tables already exist. Checking for new migrations...');
     }
@@ -158,6 +169,11 @@ async function setupDatabase() {
     console.error('❌ Error setting up database:', error);
     process.exit(1);
   } finally {
+    try {
+      await releaseSetupLock(client);
+    } catch (lockErr) {
+      console.error('⚠️ Failed to release setup lock:', lockErr.message);
+    }
     await client.end();
   }
 }
