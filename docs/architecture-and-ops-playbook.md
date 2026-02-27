@@ -60,6 +60,12 @@ Use `docs/offline-contract.md` as canonical behavior semantics.
 - Tune `DB_MAX_POOL_SIZE` per instance against Supabase connection limits.
 - Keep `DB_STATEMENT_TIMEOUT_MS` and `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` set to sane values.
 
+
+## Time Zone Standard
+
+- Frontend display timezone is standardized to `Africa/Addis_Ababa` for all `Date#toLocaleString`, `toLocaleDateString`, and `toLocaleTimeString` rendering paths.
+- Backend stores UTC timestamps and APIs return raw timestamps; frontend is responsible for Addis Ababa presentation.
+
 ## Developer Workflow
 
 - Run `npm test` before commit.
