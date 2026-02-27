@@ -8,6 +8,7 @@ import { useToast } from '../../context/ToastContext';
 import { useConfirm } from '../../context/ConfirmContext';
 
 const BATCH_EDIT_WINDOW_MINUTES = 20;
+const BATCH_CACHE_KEY_PREFIX = 'manager_batches_cache';
 
 export default function ManagerBatches() {
   const { selectedLocationId } = useBranch();
@@ -20,6 +21,23 @@ export default function ManagerBatches() {
   const [tick, setTick] = useState(Date.now());
   const toast = useToast();
   const { confirm } = useConfirm();
+
+  const getCacheKey = useCallback(() => {
+    const locationPart = selectedLocationId || 'all';
+    const dayPart = selectedDay || 'all';
+    return `${BATCH_CACHE_KEY_PREFIX}:${locationPart}:${dayPart}`;
+  }, [selectedLocationId, selectedDay]);
+
+  const readCachedBatches = useCallback(() => {
+    try {
+      const cached = localStorage.getItem(getCacheKey());
+      if (!cached) return null;
+      const parsed = JSON.parse(cached);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }, [getCacheKey]);
 
   useEffect(() => {
     const timer = setInterval(() => setTick(Date.now()), 30000);
@@ -42,7 +60,10 @@ export default function ManagerBatches() {
 
   const isBatchEditable = useCallback((batch) => {
     if (!batch || batch.status === 'voided') return false;
-    return getMinutesRemaining(batch) > 0 || Boolean(batch.can_edit);
+    if (Number.isFinite(Number(batch.age_minutes))) {
+      return getMinutesRemaining(batch) > 0;
+    }
+    return Boolean(batch.can_edit);
   }, [getMinutesRemaining]);
 
   const fetchBatches = useCallback(async (isRefresh = false) => {
@@ -72,13 +93,24 @@ export default function ManagerBatches() {
           return Number(b.id || 0) - Number(a.id || 0);
         });
       setBatches(normalized);
+      localStorage.setItem(getCacheKey(), JSON.stringify(normalized));
     } catch (err) {
-      toast.error(getErrorMessage(err, 'Failed to fetch batches.'));
+      const cached = readCachedBatches();
+      if (cached && (!navigator.onLine || !err?.response)) {
+        const hydrated = cached.map((batch) => ({
+          ...batch,
+          fetched_at_ms: Date.now(),
+        }));
+        setBatches(hydrated);
+        toast.info('Offline: loaded cached batch history.');
+      } else {
+        toast.error(getErrorMessage(err, 'Failed to fetch batches.'));
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedDay]);
+  }, [selectedDay, getCacheKey, readCachedBatches]);
 
   useEffect(() => {
     fetchBatches();
@@ -89,7 +121,7 @@ export default function ManagerBatches() {
   const fetchBatchDetails = async (batchId) => {
     try {
       const response = await api.get(`/inventory/batches/${batchId}`);
-      setSelectedBatch({ ...response.data, is_offline: Boolean(response.data?.is_offline || response.data?.was_synced) });
+      setSelectedBatch({ ...response.data, is_offline: Boolean(response.data?.is_offline || response.data?.was_synced), fetched_at_ms: Date.now() });
       setEditingItems(response.data.items?.map((item) => ({ ...item })) || []);
     } catch (err) {
       toast.error(getErrorMessage(err, 'Failed to fetch batch details.'));
