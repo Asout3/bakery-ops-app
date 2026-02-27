@@ -37,6 +37,43 @@ async function createArchiveNotification(tx, locationId, title, message, type = 
 async function moveRowsToArchive(tx, config) {
   const counts = {};
 
+  const batches = await tx.query(
+    `WITH moved AS (
+      INSERT INTO inventory_batches_archive
+      SELECT * FROM inventory_batches
+      WHERE location_id = $1 AND created_at < $2
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id
+    )
+    SELECT COUNT(*)::int AS count FROM moved`,
+    [config.locationId, config.cutoffAt]
+  );
+  counts.inventory_batches = batches.rows[0].count;
+
+  if (counts.inventory_batches > 0) {
+    await tx.query(
+      `INSERT INTO batch_items_archive
+       SELECT bi.* FROM batch_items bi
+       JOIN inventory_batches_archive iba ON iba.id = bi.batch_id
+       LEFT JOIN batch_items_archive bia ON bia.id = bi.id
+       WHERE iba.location_id = $1 AND bia.id IS NULL`,
+      [config.locationId]
+    );
+
+    await tx.query(
+      `DELETE FROM batch_items
+       WHERE batch_id IN (
+         SELECT id FROM inventory_batches_archive WHERE location_id = $1 AND created_at < $2
+       )`,
+      [config.locationId, config.cutoffAt]
+    );
+
+    await tx.query(
+      'DELETE FROM inventory_batches WHERE location_id = $1 AND created_at < $2',
+      [config.locationId, config.cutoffAt]
+    );
+  }
+
   const sales = await tx.query(
     `WITH moved_sales AS (
       INSERT INTO sales_archive
@@ -176,7 +213,7 @@ export async function runArchiveForLocation({ locationId, userId = null, runType
         tx,
         locationId,
         'Archive run completed',
-        `History archiving finished. Sales: ${counts.sales}, Inventory logs: ${counts.inventory_movements}, Activity logs: ${counts.activity_log}, Expenses: ${counts.expenses}, Staff payments: ${counts.staff_payments}.`,
+        `History archiving finished. Batches: ${counts.inventory_batches}, Sales: ${counts.sales}, Inventory logs: ${counts.inventory_movements}, Activity logs: ${counts.activity_log}, Expenses: ${counts.expenses}, Staff payments: ${counts.staff_payments}.`,
         'archive_completed'
       );
 
@@ -249,6 +286,8 @@ export async function getArchiveDashboard(locationId) {
   );
   const archiveCounts = await query(
     `SELECT
+      (SELECT COUNT(*)::int FROM inventory_batches_archive WHERE location_id = $1) AS inventory_batches,
+      (SELECT COUNT(*)::int FROM batch_items_archive bia JOIN inventory_batches_archive iba ON iba.id = bia.batch_id WHERE iba.location_id = $1) AS batch_items,
       (SELECT COUNT(*)::int FROM sales_archive WHERE location_id = $1) AS sales,
       (SELECT COUNT(*)::int FROM inventory_movements_archive WHERE location_id = $1) AS inventory_movements,
       (SELECT COUNT(*)::int FROM activity_log_archive WHERE location_id = $1) AS activity_log,

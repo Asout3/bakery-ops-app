@@ -10,7 +10,7 @@ import { errorHandler } from './utils/errors.js';
 
 import authRoutes from './routes/auth.js';
 import productsRoutes from './routes/products.js';
-import inventoryRoutes from './routes/inventory.js';
+import inventoryRoutes, { warmInventoryRouteCaches } from './routes/inventory.js';
 import salesRoutes from './routes/sales.js';
 import expensesRoutes from './routes/expenses.js';
 import paymentsRoutes from './routes/payments.js';
@@ -161,6 +161,10 @@ setInterval(() => {
 }, oneDayMs);
 
 startArchiveScheduler();
+
+warmInventoryRouteCaches().catch((err) => {
+  console.error('[WARN] Failed to warm inventory route caches:', err.message);
+});
 
 let isShuttingDown = false;
 
