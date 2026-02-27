@@ -54,3 +54,9 @@ The following write endpoints are expected to honor idempotent offline replay se
 - `POST /api/payments`
 - `POST /api/inventory/batches`
 
+
+## Client Runtime Guarantees
+
+- Queue flush execution is single-flight: only one `flushQueue` may execute at a time; overlapping calls return `skipped: true`.
+- Retry timing uses exponential backoff with jitter and honors `nextRetry` scheduling.
+- In development mode, service workers are intentionally unregistered; offline refresh validation must be performed against production build/preview flows.

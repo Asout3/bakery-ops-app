@@ -153,10 +153,12 @@ sequenceDiagram
 - Replay status model (`synced`, `failed`, `conflict`, `needs_review`, `ignored`, `resolved`).
 - API error envelope consistency (`error`, `code`, `requestId`) for client classification.
 - Cache fallback in key manager/cashier pages for continuity.
+- Single-flight offline queue flush locking to prevent overlapping replay runs.
+- Service-worker shell caching that discovers and caches current hashed build assets from `index.html`.
 
 ### Important Development Note
 
-In development mode, service workers may be unregistered/cleared, which can make offline refresh behavior differ from production. Production behavior depends on the shipped service worker and cache strategy.
+In development mode, service workers are intentionally unregistered to prevent stale production workers from interfering with Vite dev behavior. Validate offline refresh using production build/preview behavior (`npm run build` + `npm run preview` in `client/`).
 
 ---
 
@@ -223,6 +225,7 @@ erDiagram
 - Transactional migration execution.
 - Advisory lock during setup/migrations to avoid concurrent runners.
 - Optional dev-only seed path, gated by environment variables.
+- Startup auth schema guard ensures lockout columns and refresh-token table exist in partially migrated environments.
 
 ---
 
