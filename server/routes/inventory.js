@@ -540,11 +540,6 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
       }
 
       const batch = batchRes.rows[0];
-      if (!batch.can_edit) {
-        const err = new Error('Batch edit window has expired');
-        err.status = 400;
-        throw err;
-      }
       if (batch.status === 'voided') {
         const err = new Error('Voided batches cannot be edited');
         err.status = 400;
@@ -611,11 +606,6 @@ router.post('/batches/:id/void', authenticateToken, authorizeRoles('admin', 'man
         throw err;
       }
       const batch = batchRes.rows[0];
-      if (!batch.can_edit) {
-        const err = new Error('Batch void window has expired');
-        err.status = 400;
-        throw err;
-      }
       if (batch.status === 'voided') {
         return batch;
       }

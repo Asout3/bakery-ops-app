@@ -80,12 +80,9 @@ export default function ManagerBatches() {
   }, []);
 
   const isBatchEditable = useCallback((batch) => {
-    if (!batch || batch.status === 'voided') return false;
-    if (Number.isFinite(Number(batch.age_minutes))) {
-      return getMinutesRemaining(batch) > 0;
-    }
-    return Boolean(batch.can_edit);
-  }, [getMinutesRemaining]);
+    if (!batch) return false;
+    return batch.status !== 'voided';
+  }, []);
 
   const fetchBatches = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
@@ -330,11 +327,9 @@ export default function ManagerBatches() {
                       </td>
                       <td>
                         <div className="d-flex gap-1">
-                          {batch.status !== 'voided' && (
-                            <span className={`badge ${isBatchEditable(batch) ? 'bg-warning text-dark' : 'bg-secondary'}`}>
-                              {isBatchEditable(batch) ? `Locks in ${getMinutesRemaining(batch)}m` : 'Locked'}
-                            </span>
-                          )}
+                          <span className={`badge ${isBatchEditable(batch) ? 'bg-success' : 'bg-secondary'}`}>
+                            {isBatchEditable(batch) ? 'Editable' : 'Locked'}
+                          </span>
                           <button 
                             className="btn btn-sm btn-outline-primary" 
                             onClick={() => fetchBatchDetails(batch.id)}
@@ -346,13 +341,14 @@ export default function ManagerBatches() {
                             className="btn btn-sm btn-outline-secondary"
                             onClick={() => fetchBatchDetails(batch.id)}
                             title={isBatchEditable(batch) ? 'Edit Batch' : 'View locked batch'}
+                            disabled={!isBatchEditable(batch)}
                           >
                             <Edit size={14} />
                           </button>
                           <button 
                             className="btn btn-sm btn-outline-danger" 
                             onClick={() => handleVoidBatch(batch.id)}
-                            title={isBatchEditable(batch) ? 'Void Batch (within 20 min)' : 'Batch locked after 20 minutes'}
+                            title={isBatchEditable(batch) ? 'Void Batch' : 'Batch is already voided'}
                             disabled={!isBatchEditable(batch)}
                           >
                             <Ban size={14} />
@@ -417,10 +413,10 @@ export default function ManagerBatches() {
                 </div>
               </div>
 
-              <div className={`alert ${isBatchEditable(selectedBatch) ? 'alert-warning' : 'alert-secondary'} mb-4`}>
+              <div className={`alert ${isBatchEditable(selectedBatch) ? 'alert-success' : 'alert-secondary'} mb-4`}>
                 {isBatchEditable(selectedBatch)
-                  ? `Edit/Void available for ${getMinutesRemaining(selectedBatch)} more minute(s).`
-                  : 'This batch is locked after 20 minutes and can no longer be edited or voided.'}
+                  ? 'This batch is editable and can be voided from this page.'
+                  : 'This batch is locked because it is already voided.'}
               </div>
 
               {selectedBatch.was_synced && selectedBatch.synced_by_name && (
