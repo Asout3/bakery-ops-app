@@ -45,6 +45,14 @@ export default function ManagerBatches() {
     }
   }, [getCacheKey]);
 
+  const writeCachedBatches = useCallback((payload) => {
+    try {
+      localStorage.setItem(getCacheKey(), JSON.stringify(payload));
+    } catch {
+      console.error('Failed to persist batch cache');
+    }
+  }, [getCacheKey]);
+
   useEffect(() => {
     const timer = setInterval(() => setTick(Date.now()), 30000);
     return () => clearInterval(timer);
@@ -100,6 +108,7 @@ export default function ManagerBatches() {
       const payload = response.data;
       const sourceRows = Array.isArray(payload) ? payload : (payload?.batches || []);
       const normalized = sourceRows
+        .filter((batch) => batch && typeof batch === 'object')
         .map((batch) => normalizeBatch(batch))
         .sort((a, b) => {
           const aTime = new Date(a.created_at || a.batch_date || 0).getTime() || 0;
@@ -109,7 +118,7 @@ export default function ManagerBatches() {
           return Number(b.id || 0) - Number(a.id || 0);
         });
       setBatches(normalized);
-      localStorage.setItem(getCacheKey(), JSON.stringify({ batches: normalized, summary: null }));
+      writeCachedBatches({ batches: normalized, summary: null });
     } catch (err) {
       const cached = readCachedBatches();
       if (cached && (!navigator.onLine || !err?.response)) {
@@ -123,7 +132,7 @@ export default function ManagerBatches() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedDay, getCacheKey, normalizeBatch, readCachedBatches]);
+  }, [selectedDay, normalizeBatch, readCachedBatches, writeCachedBatches]);
 
   useEffect(() => {
     fetchBatches();
