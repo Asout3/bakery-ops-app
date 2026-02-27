@@ -1,5 +1,6 @@
 import { query, withTransaction } from '../db.js';
 import { ensureFeatureSchema } from './featureSchemaService.js';
+import { JOB_LOCK_KEYS, withAdvisoryJobLock } from './jobLockService.js';
 
 const DEFAULT_CONFIRMATION_PHRASE = 'I CONFIRM TO ARCHIVE THE LAST 6 MONTH HISTORY';
 
@@ -232,29 +233,35 @@ export async function runArchiveForLocation({ locationId, userId = null, runType
 }
 
 export async function runScheduledArchive() {
-  await ensureFeatureSchema({ archive: true });
-  const locations = await getLocationsToProcess();
-  for (const location of locations) {
-    try {
-      const settings = await ensureArchiveSettings(location.id);
-      const lastReminderAgo = settings.last_reminder_at ? Date.now() - new Date(settings.last_reminder_at).getTime() : Number.MAX_SAFE_INTEGER;
-      const sixMonthsMs = 1000 * 60 * 60 * 24 * 30 * 6;
-      if (lastReminderAgo >= sixMonthsMs) {
-        await withTransaction(async (tx) => {
-          await createArchiveNotification(
-            tx,
-            location.id,
-            'Archive reminder',
-            'Your branch history can be archived to keep active data clean. Review Admin > History Lifecycle settings.',
-            'archive_reminder'
-          );
-          await tx.query('UPDATE archive_settings SET last_reminder_at = CURRENT_TIMESTAMP WHERE location_id = $1', [location.id]);
-        });
+  const lockResult = await withAdvisoryJobLock(JOB_LOCK_KEYS.ARCHIVE_SCHEDULER, async () => {
+    await ensureFeatureSchema({ archive: true });
+    const locations = await getLocationsToProcess();
+    for (const location of locations) {
+      try {
+        const settings = await ensureArchiveSettings(location.id);
+        const lastReminderAgo = settings.last_reminder_at ? Date.now() - new Date(settings.last_reminder_at).getTime() : Number.MAX_SAFE_INTEGER;
+        const sixMonthsMs = 1000 * 60 * 60 * 24 * 30 * 6;
+        if (lastReminderAgo >= sixMonthsMs) {
+          await withTransaction(async (tx) => {
+            await createArchiveNotification(
+              tx,
+              location.id,
+              'Archive reminder',
+              'Your branch history can be archived to keep active data clean. Review Admin > History Lifecycle settings.',
+              'archive_reminder'
+            );
+            await tx.query('UPDATE archive_settings SET last_reminder_at = CURRENT_TIMESTAMP WHERE location_id = $1', [location.id]);
+          });
+        }
+        await runArchiveForLocation({ locationId: location.id, runType: 'scheduled' });
+      } catch (err) {
+        console.error(`[ARCHIVE] Failed scheduled run for location ${location.id}:`, err.message);
       }
-      await runArchiveForLocation({ locationId: location.id, runType: 'scheduled' });
-    } catch (err) {
-      console.error(`[ARCHIVE] Failed scheduled run for location ${location.id}:`, err.message);
     }
+  });
+
+  if (lockResult.skipped) {
+    console.log('[ARCHIVE] Skipping scheduled run: lock not acquired');
   }
 }
 

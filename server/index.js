@@ -23,6 +23,7 @@ import syncRoutes from './routes/sync.js';
 import ordersRoutes, { processOrderDueNotifications } from './routes/orders.js';
 import archiveRoutes from './routes/archive.js';
 import { startArchiveScheduler } from './services/archiveService.js';
+import { JOB_LOCK_KEYS, withAdvisoryJobLock } from './services/jobLockService.js';
 
 dotenv.config();
 
@@ -157,7 +158,13 @@ const server = app.listen(PORT, () => {
 
 const oneDayMs = 1000 * 60 * 60 * 24;
 setInterval(() => {
-  processOrderDueNotifications().catch((err) => console.error('[ORDER] Notification check failed:', err.message));
+  withAdvisoryJobLock(JOB_LOCK_KEYS.ORDER_DUE_NOTIFICATIONS, () => processOrderDueNotifications())
+    .then((lockResult) => {
+      if (lockResult.skipped) {
+        console.log('[ORDER] Skipping notification run: lock not acquired');
+      }
+    })
+    .catch((err) => console.error('[ORDER] Notification check failed:', err.message));
 }, oneDayMs);
 
 startArchiveScheduler();
