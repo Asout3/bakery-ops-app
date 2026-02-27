@@ -15,8 +15,8 @@ router.get('/', authenticateToken, async (req, res) => {
     const result = role === 'admin'
       ? await query(
           `SELECT p.*, c.name as category_name,
-                  CASE WHEN p.is_active = false THEN 'inactive'
-                       WHEN EXISTS (SELECT 1 FROM inventory i WHERE i.product_id = p.id AND i.quantity > 0) THEN 'active'
+                  CASE WHEN EXISTS (SELECT 1 FROM inventory i WHERE i.product_id = p.id AND i.quantity > 0) THEN 'active'
+                       WHEN p.is_active = false THEN 'inactive'
                        ELSE 'out_of_stock'
                   END AS availability_status
            FROM products p
@@ -25,8 +25,8 @@ router.get('/', authenticateToken, async (req, res) => {
         )
       : await query(
           `SELECT DISTINCT p.*, c.name as category_name,
-                  CASE WHEN p.is_active = false THEN 'inactive'
-                       WHEN EXISTS (SELECT 1 FROM inventory i2 WHERE i2.product_id = p.id AND i2.location_id = $1 AND i2.quantity > 0) THEN 'active'
+                  CASE WHEN EXISTS (SELECT 1 FROM inventory i2 WHERE i2.product_id = p.id AND i2.location_id = $1 AND i2.quantity > 0) THEN 'active'
+                       WHEN p.is_active = false THEN 'inactive'
                        ELSE 'out_of_stock'
                   END AS availability_status
            FROM products p
@@ -167,29 +167,35 @@ router.put('/:id',
   }
 );
 
-// Delete product (soft delete)
+// Delete product
 router.delete('/:id',
   authenticateToken,
   authorizeRoles('admin', 'manager'),
   async (req, res) => {
     try {
-      const result = await query(
-        'UPDATE products SET is_active = false WHERE id = $1 RETURNING *',
-        [req.params.id]
-      );
-
-      if (result.rows.length === 0) {
+      const existing = await query('SELECT id, name FROM products WHERE id = $1 LIMIT 1', [req.params.id]);
+      if (existing.rows.length === 0) {
         return res.status(404).json({ error: 'Product not found' });
       }
+
+      await query('DELETE FROM inventory WHERE product_id = $1', [req.params.id]);
+
+      const deleted = await query('DELETE FROM products WHERE id = $1 RETURNING id, name', [req.params.id]);
 
       await query(
         `INSERT INTO activity_log (user_id, location_id, activity_type, description) 
          VALUES ($1, $2, $3, $4)`,
-        [req.user.id, req.user.location_id, 'product_deleted', `Deleted product ID: ${req.params.id}`]
+        [req.user.id, req.user.location_id, 'product_deleted', `Deleted product: ${deleted.rows[0]?.name || req.params.id}`]
       );
 
       res.json({ message: 'Product deleted successfully' });
     } catch (err) {
+      if (err.code === '23503') {
+        return res.status(409).json({
+          error: 'This product has linked sales or order history and cannot be deleted. Deactivate it instead.',
+          code: 'PRODUCT_DELETE_BLOCKED'
+        });
+      }
       console.error('Delete product error:', err);
       res.status(500).json({ error: 'Internal server error' });
     }
