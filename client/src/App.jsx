@@ -1,5 +1,4 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { lazy, Suspense } from 'react';
 import { AuthProvider } from './context/AuthContext';
 import { BranchProvider } from './context/BranchContext';
 import { LanguageProvider } from './context/LanguageContext';
@@ -10,38 +9,33 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import AppErrorBoundary from './components/AppErrorBoundary';
 
-const Login = lazy(() => import('./pages/Login'));
-const NotFound = lazy(() => import('./pages/NotFound'));
-const AdminDashboard = lazy(() => import('./pages/admin/Dashboard'));
-const ProductsPage = lazy(() => import('./pages/admin/Products'));
-const AdminInventory = lazy(() => import('./pages/admin/Inventory'));
-const SalesPage = lazy(() => import('./pages/admin/Sales'));
-const ExpensesPage = lazy(() => import('./pages/admin/Expenses'));
-const StaffPaymentsPage = lazy(() => import('./pages/admin/StaffPayments'));
-const ReportsPage = lazy(() => import('./pages/admin/Reports'));
-const NotificationsPage = lazy(() => import('./pages/admin/Notifications'));
-const SyncQueuePage = lazy(() => import('./pages/admin/SyncQueue'));
-const BranchesAndStaffPage = lazy(() => import('./pages/admin/BranchesAndStaff'));
-const StaffManagementPage = lazy(() => import('./pages/admin/StaffManagement'));
-const HistoryLifecyclePage = lazy(() => import('./pages/admin/HistoryLifecycle'));
-const ManagerInventory = lazy(() => import('./pages/manager/Inventory'));
-const ManagerBatches = lazy(() => import('./pages/manager/Batches'));
-const ManagerOrders = lazy(() => import('./pages/manager/Orders'));
-const ManagerProducts = lazy(() => import('./pages/admin/Products'));
-const ManagerNotifications = lazy(() => import('./pages/admin/Notifications'));
-const CashierSales = lazy(() => import('./pages/cashier/Sales'));
-const CashierHistory = lazy(() => import('./pages/cashier/History'));
-const CashierOrders = lazy(() => import('./pages/cashier/Orders'));
-
-function PageFallback() {
-  return <div className="loading-container"><div className="spinner"></div></div>;
-}
+import Login from './pages/Login';
+import NotFound from './pages/NotFound';
+import AdminDashboard from './pages/admin/Dashboard';
+import ProductsPage from './pages/admin/Products';
+import AdminInventory from './pages/admin/Inventory';
+import SalesPage from './pages/admin/Sales';
+import ExpensesPage from './pages/admin/Expenses';
+import StaffPaymentsPage from './pages/admin/StaffPayments';
+import ReportsPage from './pages/admin/Reports';
+import NotificationsPage from './pages/admin/Notifications';
+import SyncQueuePage from './pages/admin/SyncQueue';
+import BranchesAndStaffPage from './pages/admin/BranchesAndStaff';
+import StaffManagementPage from './pages/admin/StaffManagement';
+import HistoryLifecyclePage from './pages/admin/HistoryLifecycle';
+import ManagerInventory from './pages/manager/Inventory';
+import ManagerBatches from './pages/manager/Batches';
+import ManagerOrders from './pages/manager/Orders';
+import ManagerProducts from './pages/admin/Products';
+import ManagerNotifications from './pages/admin/Notifications';
+import CashierSales from './pages/cashier/Sales';
+import CashierHistory from './pages/cashier/History';
+import CashierOrders from './pages/cashier/Orders';
 
 function AppInner() {
   return (
     <BrowserRouter>
-      <Suspense fallback={<PageFallback />}>
-        <Routes>
+      <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/admin" element={<ProtectedRoute roles={['admin']}><Layout /></ProtectedRoute>}>
             <Route path="dashboard" element={<AdminDashboard />} />
@@ -72,8 +66,7 @@ function AppInner() {
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/unauthorized" element={<div style={{ padding: '2rem', textAlign: 'center' }}><h1>Unauthorized</h1><p>You don't have permission to access this page.</p></div>} />
           <Route path="*" element={<NotFound />} />
-        </Routes>
-      </Suspense>
+      </Routes>
     </BrowserRouter>
   );
 }

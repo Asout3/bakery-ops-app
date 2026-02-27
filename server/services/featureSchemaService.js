@@ -72,12 +72,15 @@ async function ensureArchiveSchema() {
 
   await query('CREATE TABLE IF NOT EXISTS sales_archive (LIKE sales INCLUDING ALL)');
   await query('CREATE TABLE IF NOT EXISTS sale_items_archive (LIKE sale_items INCLUDING ALL)');
+  await query('CREATE TABLE IF NOT EXISTS inventory_batches_archive (LIKE inventory_batches INCLUDING ALL)');
+  await query('CREATE TABLE IF NOT EXISTS batch_items_archive (LIKE batch_items INCLUDING ALL)');
   await query('CREATE TABLE IF NOT EXISTS inventory_movements_archive (LIKE inventory_movements INCLUDING ALL)');
   await query('CREATE TABLE IF NOT EXISTS activity_log_archive (LIKE activity_log INCLUDING ALL)');
   await query('CREATE TABLE IF NOT EXISTS expenses_archive (LIKE expenses INCLUDING ALL)');
   await query('CREATE TABLE IF NOT EXISTS staff_payments_archive (LIKE staff_payments INCLUDING ALL)');
 
   await query('CREATE INDEX IF NOT EXISTS idx_sales_archive_sale_date ON sales_archive(sale_date)');
+  await query('CREATE INDEX IF NOT EXISTS idx_inventory_batches_archive_created_at ON inventory_batches_archive(created_at)');
   await query('CREATE INDEX IF NOT EXISTS idx_inventory_movements_archive_created_at ON inventory_movements_archive(created_at)');
   await query('CREATE INDEX IF NOT EXISTS idx_activity_log_archive_created_at ON activity_log_archive(created_at)');
   await query('CREATE INDEX IF NOT EXISTS idx_expenses_archive_expense_date ON expenses_archive(expense_date)');

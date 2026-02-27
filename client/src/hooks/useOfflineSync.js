@@ -19,8 +19,12 @@ export function useOfflineSync() {
   const [syncProgress, setSyncProgress] = useState({ total: 0, done: 0, active: false, finished: false });
   const [syncInProgress, setSyncInProgress] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState(() => {
-    const cached = localStorage.getItem('offline_sync_last_result');
-    return cached ? JSON.parse(cached) : null;
+    try {
+      const cached = localStorage.getItem('offline_sync_last_result');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
   });
   const [appInitialized, setAppInitialized] = useState(false);
   const initializedRef = useRef(false);
@@ -65,7 +69,11 @@ export function useOfflineSync() {
         online: true,
       };
       setLastSyncResult(syncResult);
-      localStorage.setItem('offline_sync_last_result', JSON.stringify(syncResult));
+      try {
+        localStorage.setItem('offline_sync_last_result', JSON.stringify(syncResult));
+      } catch {
+        console.error('Failed to cache offline sync result');
+      }
     } catch (err) {
       const finishedDone = Math.min(pendingBefore, Number(result.synced || 0) + Number(result.failed || 0));
       if (pendingBefore > 0) {
@@ -80,7 +88,11 @@ export function useOfflineSync() {
         online: navigator.onLine,
       };
       setLastSyncResult(syncResult);
-      localStorage.setItem('offline_sync_last_result', JSON.stringify(syncResult));
+      try {
+        localStorage.setItem('offline_sync_last_result', JSON.stringify(syncResult));
+      } catch {
+        console.error('Failed to cache offline sync result');
+      }
     } finally {
       setSyncInProgress(false);
     }
