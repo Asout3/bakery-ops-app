@@ -53,6 +53,16 @@ function validateRequest(req) {
   }
 }
 
+async function writeOrderStatusEvent(tx, { orderId, locationId, fromStatus, toStatus, actorUserId, actorRole, source, metadata }) {
+  if (!fromStatus || !toStatus || fromStatus === toStatus) return;
+  await tx.query(
+    `INSERT INTO order_status_events
+      (order_id, location_id, from_status, to_status, actor_user_id, actor_role, source, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+    [orderId, locationId, fromStatus, toStatus, actorUserId || null, actorRole || null, source || 'api', JSON.stringify(metadata || {})]
+  );
+}
+
 router.post(
   '/',
   authenticateToken,
@@ -118,6 +128,17 @@ router.post(
         );
       }
 
+      await writeOrderStatusEvent(tx, {
+        orderId: order.id,
+        locationId,
+        fromStatus: 'created',
+        toStatus: order.status,
+        actorUserId: req.user.id,
+        actorRole: req.user.role,
+        source: idempotencyKey ? 'offline_replay' : 'api',
+        metadata: { payment_method: order.payment_method }
+      });
+
       return order;
     });
 
@@ -143,6 +164,31 @@ router.get('/', authenticateToken, authorizeRoles('cashier', 'admin', 'manager')
   );
 
   res.json(result.rows.map((row) => ({ ...row, balance_due: Number(row.total_amount) - Number(row.paid_amount) })));
+}));
+
+router.get('/:id/timeline', authenticateToken, authorizeRoles('cashier', 'admin', 'manager'), asyncHandler(async (req, res) => {
+  const locationId = await getTargetLocationId(req, query);
+  const orderId = Number(req.params.id);
+  if (!Number.isInteger(orderId)) {
+    throw new AppError('Invalid order id', 400, 'INVALID_ORDER_ID');
+  }
+
+  const orderCheck = await query('SELECT id FROM customer_orders WHERE id = $1 AND location_id = $2', [orderId, locationId]);
+  if (!orderCheck.rows.length) {
+    throw new AppError('Order not found', 404, 'ORDER_NOT_FOUND');
+  }
+
+  const events = await query(
+    `SELECT e.id, e.order_id, e.from_status, e.to_status, e.actor_user_id, e.actor_role, e.source, e.metadata, e.created_at,
+            u.username AS actor_username
+     FROM order_status_events e
+     LEFT JOIN users u ON u.id = e.actor_user_id
+     WHERE e.order_id = $1 AND e.location_id = $2
+     ORDER BY e.created_at DESC, e.id DESC`,
+    [orderId, locationId]
+  );
+
+  res.json(events.rows);
 }));
 
 router.put('/:id', authenticateToken, authorizeRoles('cashier', 'admin', 'manager'), asyncHandler(async (req, res) => {
@@ -191,56 +237,92 @@ router.put('/:id', authenticateToken, authorizeRoles('cashier', 'admin', 'manage
     throw new AppError('Pickup time cannot be in the past', 400, 'INVALID_PICKUP_TIME');
   }
 
-  const result = await query(
-    `UPDATE customer_orders
-     SET customer_name = COALESCE($1, customer_name),
-         customer_phone = COALESCE($2, customer_phone),
-         order_details = COALESCE($3, order_details),
-         pickup_at = COALESCE($4, pickup_at),
-         total_amount = COALESCE($5, total_amount),
-         paid_amount = COALESCE($6, paid_amount),
-         payment_method = COALESCE($7, payment_method),
-         status = COALESCE($8, status),
-         delivered_at = CASE WHEN COALESCE($8, status) = 'delivered' THEN CURRENT_TIMESTAMP ELSE delivered_at END,
-         cancelled_at = CASE WHEN COALESCE($8, status) = 'cancelled' THEN CURRENT_TIMESTAMP ELSE cancelled_at END,
-         cancelled_by = CASE WHEN COALESCE($8, status) = 'cancelled' THEN $9 ELSE cancelled_by END,
-         updated_at = CURRENT_TIMESTAMP
-     WHERE id = $10 AND location_id = $11
-     RETURNING *`,
-    [customer_name, customer_phone, order_details, pickup_at, total_amount, paid_amount, payment_method, status, req.user.id, orderId, locationId]
-  );
+  const updatedOrder = await withTransaction(async (tx) => {
+    const result = await tx.query(
+      `UPDATE customer_orders
+       SET customer_name = COALESCE($1, customer_name),
+           customer_phone = COALESCE($2, customer_phone),
+           order_details = COALESCE($3, order_details),
+           pickup_at = COALESCE($4, pickup_at),
+           total_amount = COALESCE($5, total_amount),
+           paid_amount = COALESCE($6, paid_amount),
+           payment_method = COALESCE($7, payment_method),
+           status = COALESCE($8, status),
+           delivered_at = CASE WHEN COALESCE($8, status) = 'delivered' THEN CURRENT_TIMESTAMP ELSE delivered_at END,
+           cancelled_at = CASE WHEN COALESCE($8, status) = 'cancelled' THEN CURRENT_TIMESTAMP ELSE cancelled_at END,
+           cancelled_by = CASE WHEN COALESCE($8, status) = 'cancelled' THEN $9 ELSE cancelled_by END,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $10 AND location_id = $11
+       RETURNING *`,
+      [customer_name, customer_phone, order_details, pickup_at, total_amount, paid_amount, payment_method, status, req.user.id, orderId, locationId]
+    );
 
-  res.json({ ...result.rows[0], balance_due: Number(result.rows[0].total_amount) - Number(result.rows[0].paid_amount) });
+    const order = result.rows[0];
+
+    await writeOrderStatusEvent(tx, {
+      orderId: order.id,
+      locationId,
+      fromStatus: currentStatus,
+      toStatus: order.status,
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+      source: req.headers['x-idempotency-key'] ? 'offline_replay' : 'api',
+      metadata: { endpoint: 'PUT /api/orders/:id' }
+    });
+
+    return order;
+  });
+
+  res.json({ ...updatedOrder, balance_due: Number(updatedOrder.total_amount) - Number(updatedOrder.paid_amount) });
 }));
 
 router.put('/:id/baked', authenticateToken, authorizeRoles('manager', 'admin'), asyncHandler(async (req, res) => {
   const locationId = await getTargetLocationId(req, query);
   const orderId = Number(req.params.id);
 
-  const result = await query(
-    `UPDATE customer_orders
-     SET baked_done = true,
-         baked_done_by = $1,
-         baked_done_at = CURRENT_TIMESTAMP,
-         status = CASE WHEN status IN ('pending', 'confirmed', 'in_production', 'overdue') THEN 'ready' ELSE status END,
-         updated_at = CURRENT_TIMESTAMP
-     WHERE id = $2 AND location_id = $3
-     RETURNING *`,
-    [req.user.id, orderId, locationId]
-  );
+  const updatedOrder = await withTransaction(async (tx) => {
+    const beforeResult = await tx.query('SELECT status FROM customer_orders WHERE id = $1 AND location_id = $2', [orderId, locationId]);
+    if (!beforeResult.rows.length) {
+      throw new AppError('Order not found', 404, 'ORDER_NOT_FOUND');
+    }
 
-  if (!result.rows.length) {
-    throw new AppError('Order not found', 404, 'ORDER_NOT_FOUND');
-  }
+    const previousStatus = beforeResult.rows[0].status;
 
-  const order = result.rows[0];
-  await query(
-    `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-     VALUES ($1, $2, 'Order baked', $3, 'order_baked')`,
-    [order.cashier_id, locationId, `Order #${order.id} for ${order.customer_name} is now ready.`]
-  );
+    const result = await tx.query(
+      `UPDATE customer_orders
+       SET baked_done = true,
+           baked_done_by = $1,
+           baked_done_at = CURRENT_TIMESTAMP,
+           status = CASE WHEN status IN ('pending', 'confirmed', 'in_production', 'overdue') THEN 'ready' ELSE status END,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND location_id = $3
+       RETURNING *`,
+      [req.user.id, orderId, locationId]
+    );
 
-  res.json({ ...order, balance_due: Number(order.total_amount) - Number(order.paid_amount) });
+    const order = result.rows[0];
+
+    await tx.query(
+      `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+       VALUES ($1, $2, 'Order baked', $3, 'order_baked')`,
+      [order.cashier_id, locationId, `Order #${order.id} for ${order.customer_name} is now ready.`]
+    );
+
+    await writeOrderStatusEvent(tx, {
+      orderId: order.id,
+      locationId,
+      fromStatus: previousStatus,
+      toStatus: order.status,
+      actorUserId: req.user.id,
+      actorRole: req.user.role,
+      source: req.headers['x-idempotency-key'] ? 'offline_replay' : 'api',
+      metadata: { endpoint: 'PUT /api/orders/:id/baked' }
+    });
+
+    return order;
+  });
+
+  res.json({ ...updatedOrder, balance_due: Number(updatedOrder.total_amount) - Number(updatedOrder.paid_amount) });
 }));
 
 export async function processOrderDueNotifications() {
@@ -267,7 +349,20 @@ export async function processOrderDueNotifications() {
     }
 
     if (daysLeft < 0 && order.status !== 'overdue') {
-      await query('UPDATE customer_orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', ['overdue', order.id]);
+      await withTransaction(async (tx) => {
+        const statusBefore = order.status;
+        await tx.query('UPDATE customer_orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', ['overdue', order.id]);
+        await writeOrderStatusEvent(tx, {
+          orderId: order.id,
+          locationId: order.location_id,
+          fromStatus: statusBefore,
+          toStatus: 'overdue',
+          actorUserId: null,
+          actorRole: 'system',
+          source: 'scheduler',
+          metadata: { reason: 'pickup_date_passed' }
+        });
+      });
       const recipientIds = [...new Set([...(order.manager_ids || []), order.cashier_id].filter(Boolean))];
       for (const userId of recipientIds) {
         await query(

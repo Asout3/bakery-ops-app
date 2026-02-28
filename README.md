@@ -157,6 +157,7 @@ sequenceDiagram
 - Service-worker shell caching that discovers and caches current hashed build assets from `index.html`.
 - Role-aware order status transition guards (cashier/manager/admin) to prevent invalid production-to-delivered jumps.
 - Stronger order input validation for phone numbers and custom order detail lengths.
+- Order status timeline persistence (`order_status_events`) for auditable lifecycle tracing across API, offline replay, and scheduler transitions.
 
 ### Important Development Note
 
@@ -228,6 +229,7 @@ erDiagram
 - Advisory lock during setup/migrations to avoid concurrent runners.
 - Optional dev-only seed path, gated by environment variables.
 - Startup auth schema guard ensures lockout columns and refresh-token table exist in partially migrated environments.
+- Startup order-events schema guard ensures timeline table/indexes exist before order routes execute write paths.
 
 ---
 
@@ -257,7 +259,7 @@ X-Retry-Count: <retry-number>
 ### High-Value API Domains
 
 - `/api/auth` for authentication and account operations.
-- `/api/orders` for customer order lifecycle.
+- `/api/orders` for customer order lifecycle (including `GET /api/orders/:id/timeline` for status-event transparency).
 - `/api/sales` for checkout and revenue records.
 - `/api/inventory` for stock and batch operations.
 - `/api/archive` for retention policy and archive execution.
