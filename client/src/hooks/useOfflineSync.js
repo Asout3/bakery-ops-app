@@ -28,6 +28,7 @@ export function useOfflineSync() {
   });
   const [appInitialized, setAppInitialized] = useState(false);
   const initializedRef = useRef(false);
+  const finishResetTimeoutRef = useRef(null);
 
   const runSync = useCallback(async (force = false) => {
     if (!isAuthenticated) return;
@@ -61,7 +62,8 @@ export function useOfflineSync() {
       const finishedDone = Math.min(pendingBefore, Number(result.synced || 0) + Number(result.failed || 0));
       if (pendingBefore > 0) {
         setSyncProgress({ total: pendingBefore, done: finishedDone, active: false, finished: true });
-        setTimeout(() => setSyncProgress((prev) => ({ ...prev, finished: false })), 3500);
+        if (finishResetTimeoutRef.current) clearTimeout(finishResetTimeoutRef.current);
+        finishResetTimeoutRef.current = setTimeout(() => setSyncProgress((prev) => ({ ...prev, finished: false })), 3500);
       }
       const syncResult = {
         ...result,
@@ -78,7 +80,8 @@ export function useOfflineSync() {
       const finishedDone = Math.min(pendingBefore, Number(result.synced || 0) + Number(result.failed || 0));
       if (pendingBefore > 0) {
         setSyncProgress({ total: pendingBefore, done: finishedDone, active: false, finished: true });
-        setTimeout(() => setSyncProgress((prev) => ({ ...prev, finished: false })), 3500);
+        if (finishResetTimeoutRef.current) clearTimeout(finishResetTimeoutRef.current);
+        finishResetTimeoutRef.current = setTimeout(() => setSyncProgress((prev) => ({ ...prev, finished: false })), 3500);
       }
       const syncResult = {
         synced: 0,
@@ -174,6 +177,10 @@ export function useOfflineSync() {
 
     return () => {
       clearInterval(interval);
+      if (finishResetTimeoutRef.current) {
+        clearTimeout(finishResetTimeoutRef.current);
+        finishResetTimeoutRef.current = null;
+      }
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       document.removeEventListener('visibilitychange', handleVisibilityChange);

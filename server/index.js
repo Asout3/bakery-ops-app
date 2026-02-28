@@ -3,7 +3,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
-import pool, { isTransientDbError } from './db.js';
+import pool, { ensureAuthSecuritySchema, isTransientDbError } from './db.js';
 import { apiLimiter, validateEnvironment, getCorsOptions } from './middleware/security.js';
 import { attachRequestContext } from './middleware/requestContext.js';
 import { errorHandler } from './utils/errors.js';
@@ -28,6 +28,7 @@ import { JOB_LOCK_KEYS, withAdvisoryJobLock } from './services/jobLockService.js
 dotenv.config();
 
 validateEnvironment();
+await ensureAuthSecuritySchema();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
