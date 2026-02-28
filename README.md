@@ -155,6 +155,8 @@ sequenceDiagram
 - Cache fallback in key manager/cashier pages for continuity.
 - Single-flight offline queue flush locking to prevent overlapping replay runs.
 - Service-worker shell caching that discovers and caches current hashed build assets from `index.html`.
+- Role-aware order status transition guards (cashier/manager/admin) to prevent invalid production-to-delivered jumps.
+- Stronger order input validation for phone numbers and custom order detail lengths.
 
 ### Important Development Note
 

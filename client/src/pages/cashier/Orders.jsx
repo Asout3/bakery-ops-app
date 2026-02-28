@@ -3,6 +3,9 @@ import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { enqueueOperation } from '../../utils/offlineQueue';
 import './Orders.css';
+import { formatCurrencyETB } from '../../utils/currency';
+
+const PHONE_REGEX = /^\+?[0-9\s-]{9,20}$/;
 
 const initialForm = {
   customer_name: '',
@@ -123,6 +126,16 @@ export default function CashierOrders() {
       const pickupTs = new Date(form.pickup_at).getTime();
       if (Number.isNaN(pickupTs) || pickupTs < Date.now()) {
         setMessage({ type: 'danger', text: 'Pickup time cannot be in the past.' });
+        return;
+      }
+
+      if (!PHONE_REGEX.test(String(form.customer_phone || '').trim())) {
+        setMessage({ type: 'danger', text: 'Enter a valid phone number.' });
+        return;
+      }
+
+      if (String(form.order_details || '').trim().length < 5) {
+        setMessage({ type: 'danger', text: 'Order details must be at least 5 characters.' });
         return;
       }
 
@@ -267,14 +280,14 @@ export default function CashierOrders() {
                   <small>{order.customer_phone}</small>
                 </td>
                 <td>{new Date(order.pickup_at).toLocaleString()}</td>
-                <td>${Number(order.total_amount).toFixed(2)}</td>
-                <td>${Number(order.paid_amount).toFixed(2)}</td>
-                <td>${Number(order.balance_due || 0).toFixed(2)}</td>
+                <td>{formatCurrencyETB(order.total_amount)}</td>
+                <td>{formatCurrencyETB(order.paid_amount)}</td>
+                <td>{formatCurrencyETB(order.balance_due || 0)}</td>
                 <td><span className={`badge badge-${order.status === 'overdue' ? 'danger' : order.status === 'ready' ? 'success' : 'primary'}`}>{order.status}</span></td>
                 <td>
                   <div className="row-actions">
                     <button className="btn btn-sm btn-secondary" onClick={() => onEdit(order)}>Edit</button>
-                    <button className="btn btn-sm btn-success" onClick={() => setStatus(order.id, 'delivered')}>Delivered</button>
+                    <button className="btn btn-sm btn-success" onClick={() => setStatus(order.id, 'delivered')} disabled={order.status !== 'ready'}>Delivered</button>
                     <button className="btn btn-sm btn-danger" onClick={() => setStatus(order.id, 'cancelled')}>Cancel</button>
                   </div>
                 </td>
