@@ -152,8 +152,8 @@ export default function ManagerOrders() {
                 <td>{order.status}</td>
                 <td>
                   <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                    <button className="btn btn-sm btn-success" onClick={() => markBaked(order.id)} disabled={order.baked_done}>Mark Baked</button>
-                    <button className="btn btn-sm btn-secondary" onClick={() => updateStatus(order.id, 'in_production')}>In Production</button>
+                    <button className="btn btn-sm btn-success" onClick={() => markBaked(order.id)} disabled={order.baked_done || order.status === 'delivered' || order.status === 'cancelled'}>Mark Baked</button>
+                    <button className="btn btn-sm btn-secondary" onClick={() => updateStatus(order.id, 'in_production')} disabled={!['pending', 'confirmed', 'overdue'].includes(order.status)}>In Production</button>
                   </div>
                 </td>
               </tr>

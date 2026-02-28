@@ -7,7 +7,7 @@ import './OfflineIndicator.css';
 
 export default function OfflineIndicator() {
   const { user, isAuthenticated } = useAuth();
-  const { isOnline, queueStats, syncInProgress, runSync, appInitialized, syncProgress } = useOfflineSync();
+  const { isOnline, queueStats, syncInProgress, runSync, appInitialized, syncProgress, syncOutcome } = useOfflineSync();
   const [expanded, setExpanded] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [conflictOps, setConflictOps] = useState([]);
@@ -74,17 +74,17 @@ export default function OfflineIndicator() {
                 </>
               ) : (
                 <>
-                  <div className="sync-center-title"><CheckCircle size={16} /> Sync Complete</div>
+                  <div className="sync-center-title"><CheckCircle size={16} /> {syncOutcome === 'failed' ? 'Sync Failed' : syncOutcome === 'partial' ? 'Sync Partially Complete' : 'Sync Complete'}</div>
                   <p>{doneText}</p>
                 </>
               )}
             </div>
           </div>
         )}
-        <button className="offline-chip" type="button" onClick={() => { setCollapsed(false); setExpanded(true); }}>
+        {!showCenterModal && <button className="offline-chip" type="button" onClick={() => { setCollapsed(false); setExpanded(true); }}>
           <Maximize2 size={14} />
           {queueStats.pending > 0 ? `${queueStats.pending} pending` : (shouldShowDone ? doneText : 'Sync')}
-        </button>
+        </button>}
       </>
     );
   }
@@ -102,7 +102,7 @@ export default function OfflineIndicator() {
               </>
             ) : (
               <>
-                <div className="sync-center-title"><CheckCircle size={16} /> Sync Complete</div>
+                <div className="sync-center-title"><CheckCircle size={16} /> {syncOutcome === 'failed' ? 'Sync Failed' : syncOutcome === 'partial' ? 'Sync Partially Complete' : 'Sync Complete'}</div>
                 <p>{doneText}</p>
               </>
             )}
@@ -110,7 +110,7 @@ export default function OfflineIndicator() {
         </div>
       )}
 
-      <div className={`offline-indicator ${!isOnline ? 'offline' : ''} ${issueCount > 0 ? 'has-conflicts' : ''}`}>
+      {!showCenterModal && <div className={`offline-indicator ${!isOnline ? 'offline' : ''} ${issueCount > 0 ? 'has-conflicts' : ''}`}>
         <div className="indicator-bar" onClick={() => setExpanded((prev) => !prev)}>
           {!isOnline ? (
             <>
@@ -181,7 +181,7 @@ export default function OfflineIndicator() {
             )}
           </div>
         )}
-      </div>
+      </div>}
     </>
   );
 }

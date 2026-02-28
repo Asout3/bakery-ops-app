@@ -217,7 +217,7 @@ export async function flushQueue(api) {
 
     const now = Date.now();
     const readyToSync = queue
-      .filter((op) => op.nextRetry <= now && op.status !== 'conflict' && op.status !== 'needs_review')
+      .filter((op) => op.nextRetry <= now && op.status === 'pending')
       .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
       .slice(0, MAX_BATCH_PER_FLUSH);
 

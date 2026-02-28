@@ -9,6 +9,31 @@ const router = express.Router();
 
 const ORDER_STATUSES = ['pending', 'confirmed', 'in_production', 'ready', 'delivered', 'cancelled', 'overdue'];
 
+const PHONE_REGEX = /^\+?[0-9\s-]{9,20}$/;
+
+const ORDER_TRANSITIONS = {
+  pending: ['confirmed', 'in_production', 'cancelled'],
+  confirmed: ['in_production', 'cancelled'],
+  in_production: ['ready', 'cancelled'],
+  ready: ['delivered', 'cancelled'],
+  overdue: ['ready', 'delivered', 'cancelled'],
+  delivered: [],
+  cancelled: [],
+};
+
+function canTransitionOrder(currentStatus, nextStatus) {
+  if (!nextStatus || nextStatus === currentStatus) return true;
+  return (ORDER_TRANSITIONS[currentStatus] || []).includes(nextStatus);
+}
+
+function canRoleSetStatus(role, nextStatus) {
+  if (!nextStatus) return true;
+  if (role === 'admin') return true;
+  if (role === 'manager') return ['confirmed', 'in_production', 'ready', 'cancelled'].includes(nextStatus);
+  if (role === 'cashier') return ['delivered'].includes(nextStatus);
+  return false;
+}
+
 function clampLimit(value, fallback = 500, max = 1000) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -33,8 +58,8 @@ router.post(
   authenticateToken,
   authorizeRoles('cashier', 'admin', 'manager'),
   body('customer_name').trim().notEmpty(),
-  body('customer_phone').trim().notEmpty(),
-  body('order_details').trim().notEmpty(),
+  body('customer_phone').trim().matches(PHONE_REGEX).withMessage('Valid phone number is required'),
+  body('order_details').trim().isLength({ min: 5, max: 500 }).withMessage('Order details must be between 5 and 500 characters'),
   body('pickup_at').isISO8601(),
   body('total_amount').isFloat({ min: 0.01 }),
   body('paid_amount').isFloat({ min: 0 }),
@@ -112,7 +137,7 @@ router.get('/', authenticateToken, authorizeRoles('cashier', 'admin', 'manager')
      LEFT JOIN users gm ON gm.id = o.baked_done_by
      WHERE o.location_id = $1
        ${includeClosed ? '' : "AND o.status NOT IN ('delivered', 'cancelled')"}
-     ORDER BY o.pickup_at ASC, o.created_at DESC
+     ORDER BY o.created_at DESC, o.id DESC
      LIMIT $2`,
     [locationId, limit]
   );
@@ -129,9 +154,30 @@ router.put('/:id', authenticateToken, authorizeRoles('cashier', 'admin', 'manage
     throw new AppError('Invalid status', 400, 'INVALID_ORDER_STATUS');
   }
 
-  const existingOrder = await query('SELECT total_amount, paid_amount, pickup_at FROM customer_orders WHERE id = $1 AND location_id = $2', [orderId, locationId]);
+  if (customer_phone !== undefined && !PHONE_REGEX.test(String(customer_phone).trim())) {
+    throw new AppError('Valid phone number is required', 400, 'INVALID_PHONE_NUMBER');
+  }
+
+  if (order_details !== undefined) {
+    const detailsLength = String(order_details || '').trim().length;
+    if (detailsLength < 5 || detailsLength > 500) {
+      throw new AppError('Order details must be between 5 and 500 characters', 400, 'INVALID_ORDER_DETAILS');
+    }
+  }
+
+  const existingOrder = await query('SELECT total_amount, paid_amount, pickup_at, status FROM customer_orders WHERE id = $1 AND location_id = $2', [orderId, locationId]);
   if (!existingOrder.rows.length) {
     throw new AppError('Order not found', 404, 'ORDER_NOT_FOUND');
+  }
+
+  const currentStatus = existingOrder.rows[0].status;
+
+  if (status && !canRoleSetStatus(req.user.role, status)) {
+    throw new AppError('You are not allowed to set this order status', 403, 'ORDER_STATUS_FORBIDDEN');
+  }
+
+  if (status && !canTransitionOrder(currentStatus, status)) {
+    throw new AppError('Invalid order status transition', 409, 'ORDER_INVALID_TRANSITION', { current_status: currentStatus, requested_status: status });
   }
 
   const effectiveTotal = total_amount !== undefined ? Number(total_amount) : Number(existingOrder.rows[0].total_amount);
@@ -176,7 +222,7 @@ router.put('/:id/baked', authenticateToken, authorizeRoles('manager', 'admin'), 
      SET baked_done = true,
          baked_done_by = $1,
          baked_done_at = CURRENT_TIMESTAMP,
-         status = CASE WHEN status IN ('pending', 'confirmed') THEN 'ready' ELSE status END,
+         status = CASE WHEN status IN ('pending', 'confirmed', 'in_production', 'overdue') THEN 'ready' ELSE status END,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = $2 AND location_id = $3
      RETURNING *`,

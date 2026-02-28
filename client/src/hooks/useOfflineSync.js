@@ -18,6 +18,7 @@ export function useOfflineSync() {
   const [queueStats, setQueueStats] = useState({ total: 0, pending: 0, conflict: 0, needsReview: 0, failed: 0 });
   const [syncProgress, setSyncProgress] = useState({ total: 0, done: 0, active: false, finished: false });
   const [syncInProgress, setSyncInProgress] = useState(false);
+  const [syncOutcome, setSyncOutcome] = useState('idle');
   const [lastSyncResult, setLastSyncResult] = useState(() => {
     try {
       const cached = localStorage.getItem('offline_sync_last_result');
@@ -41,6 +42,7 @@ export function useOfflineSync() {
     }
 
     setSyncInProgress(true);
+    setSyncOutcome('in_progress');
     let pendingBefore = 0;
     let result = null;
     try {
@@ -59,11 +61,21 @@ export function useOfflineSync() {
       }
       const stats = await getSyncStats();
       setQueueStats(stats);
-      const finishedDone = Math.min(pendingBefore, Number(result.synced || 0) + Number(result.failed || 0));
+      const syncedCount = Number(result?.synced || 0);
+      const failedCount = Number(result?.failed || 0);
+      const finishedDone = Math.min(pendingBefore, syncedCount + failedCount);
+      const hasPendingAfter = Number(stats.pending || 0) > 0;
+      const successfulSync = syncedCount > 0 && !hasPendingAfter;
+      const partialSync = syncedCount > 0 && hasPendingAfter;
+      const failedSync = syncedCount === 0 && (failedCount > 0 || hasPendingAfter);
+      setSyncOutcome(successfulSync ? 'success' : partialSync ? 'partial' : failedSync ? 'failed' : 'idle');
       if (pendingBefore > 0) {
-        setSyncProgress({ total: pendingBefore, done: finishedDone, active: false, finished: true });
+        setSyncProgress({ total: pendingBefore, done: finishedDone, active: false, finished: successfulSync || partialSync || failedSync });
         if (finishResetTimeoutRef.current) clearTimeout(finishResetTimeoutRef.current);
-        finishResetTimeoutRef.current = setTimeout(() => setSyncProgress((prev) => ({ ...prev, finished: false })), 3500);
+        finishResetTimeoutRef.current = setTimeout(() => {
+          setSyncProgress((prev) => ({ ...prev, finished: false }));
+          setSyncOutcome('idle');
+        }, 3500);
       }
       const syncResult = {
         ...result,
@@ -77,11 +89,15 @@ export function useOfflineSync() {
         console.error('Failed to cache offline sync result');
       }
     } catch (err) {
-      const finishedDone = Math.min(pendingBefore, Number(result.synced || 0) + Number(result.failed || 0));
+      const finishedDone = Math.min(pendingBefore, Number(result?.synced || 0) + Number(result?.failed || 0));
+      setSyncOutcome('failed');
       if (pendingBefore > 0) {
         setSyncProgress({ total: pendingBefore, done: finishedDone, active: false, finished: true });
         if (finishResetTimeoutRef.current) clearTimeout(finishResetTimeoutRef.current);
-        finishResetTimeoutRef.current = setTimeout(() => setSyncProgress((prev) => ({ ...prev, finished: false })), 3500);
+        finishResetTimeoutRef.current = setTimeout(() => {
+          setSyncProgress((prev) => ({ ...prev, finished: false }));
+          setSyncOutcome('idle');
+        }, 3500);
       }
       const syncResult = {
         synced: 0,
@@ -198,6 +214,7 @@ export function useOfflineSync() {
     syncInterval,
     appInitialized,
     syncProgress,
+    syncOutcome,
   };
 }
 
