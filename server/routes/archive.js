@@ -51,7 +51,13 @@ router.post('/run', authenticateToken, authorizeRoles('admin'), asyncHandler(asy
     throw new AppError('Confirmation phrase mismatch', 400, 'ARCHIVE_CONFIRMATION_MISMATCH');
   }
 
-  const result = await runArchiveForLocation({ locationId, userId: req.user.id, runType: 'manual' });
+  const result = await runArchiveForLocation({
+    locationId,
+    userId: req.user.id,
+    runType: 'manual',
+    forceRun: true,
+    forceCutoffNow: true,
+  });
   res.json(result);
 }));
 

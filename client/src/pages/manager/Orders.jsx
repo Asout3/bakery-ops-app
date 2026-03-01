@@ -74,7 +74,13 @@ export default function ManagerOrders() {
     const onOffline = () => setIsOnline(false);
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
+    const refreshTimer = setInterval(() => {
+      if (navigator.onLine) {
+        fetchOrders();
+      }
+    }, 15000);
     return () => {
+      clearInterval(refreshTimer);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
     };

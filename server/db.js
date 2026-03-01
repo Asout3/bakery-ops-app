@@ -221,7 +221,6 @@ export const getPoolStats = () => ({
 });
 
 let authSecuritySchemaPromise = null;
-let orderEventsSchemaPromise = null;
 
 export async function ensureAuthSecuritySchema() {
   if (authSecuritySchemaPromise) {
@@ -259,35 +258,6 @@ export async function ensureAuthSecuritySchema() {
   return authSecuritySchemaPromise;
 }
 
-export async function ensureOrderEventsSchema() {
-  if (orderEventsSchemaPromise) {
-    return orderEventsSchemaPromise;
-  }
 
-  orderEventsSchemaPromise = (async () => {
-    await query(
-      `CREATE TABLE IF NOT EXISTS order_status_events (
-         id BIGSERIAL PRIMARY KEY,
-         order_id INTEGER NOT NULL REFERENCES customer_orders(id) ON DELETE CASCADE,
-         location_id INTEGER NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
-         from_status TEXT NOT NULL,
-         to_status TEXT NOT NULL,
-         actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-         actor_role TEXT,
-         source TEXT NOT NULL DEFAULT 'api',
-         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-       )`
-    );
-
-    await query('CREATE INDEX IF NOT EXISTS idx_order_status_events_order_created ON order_status_events(order_id, created_at DESC)');
-    await query('CREATE INDEX IF NOT EXISTS idx_order_status_events_location_created ON order_status_events(location_id, created_at DESC)');
-  })().catch((error) => {
-    orderEventsSchemaPromise = null;
-    throw error;
-  });
-
-  return orderEventsSchemaPromise;
-}
 
 export default pool;

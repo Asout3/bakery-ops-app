@@ -33,7 +33,14 @@ export default function HistoryLifecycle() {
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
     fetchData();
+    const refreshTimer = setInterval(() => {
+      if (navigator.onLine) {
+        fetchData();
+      }
+    }, 15000);
+
     return () => {
+      clearInterval(refreshTimer);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
     };
@@ -71,7 +78,7 @@ export default function HistoryLifecycle() {
       if (movedTotal === 0) {
         setMessage({
           type: 'warning',
-          text: `Archive run completed but no rows were eligible before cutoff (${new Date(response.data?.cutoffAt || Date.now()).toLocaleDateString()}).`,
+          text: `Archive run completed but no rows were available to move as of (${new Date(response.data?.cutoffAt || Date.now()).toLocaleDateString()}).`,
         });
       } else {
         setMessage({
@@ -138,7 +145,7 @@ export default function HistoryLifecycle() {
           <code>{expectedPhrase}</code>
           <input className="input" style={{ marginTop: '0.75rem' }} value={confirmationPhrase} onChange={(e) => setConfirmationPhrase(e.target.value)} placeholder="Type confirmation phrase" />
           <button className="btn btn-danger" style={{ marginTop: '0.75rem' }} disabled={confirmationPhrase !== expectedPhrase || loading || !isOnline} onClick={runArchive}>
-            Confirm and archive last 6 month history
+            Confirm and archive available history now
           </button>
         </div>
       </div>
