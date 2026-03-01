@@ -3,7 +3,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
-import pool, { ensureAuthSecuritySchema, ensureOrderEventsSchema, isTransientDbError } from './db.js';
+import pool, { ensureAuthSecuritySchema, isTransientDbError } from './db.js';
 import { apiLimiter, validateEnvironment, getCorsOptions } from './middleware/security.js';
 import { attachRequestContext } from './middleware/requestContext.js';
 import { errorHandler } from './utils/errors.js';
@@ -20,16 +20,13 @@ import activityRoutes from './routes/activity.js';
 import locationsRoutes from './routes/locations.js';
 import adminRoutes from './routes/admin.js';
 import syncRoutes from './routes/sync.js';
-import ordersRoutes, { processOrderDueNotifications } from './routes/orders.js';
 import archiveRoutes from './routes/archive.js';
 import { startArchiveScheduler } from './services/archiveService.js';
-import { JOB_LOCK_KEYS, withAdvisoryJobLock } from './services/jobLockService.js';
 
 dotenv.config();
 
 validateEnvironment();
 await ensureAuthSecuritySchema();
-await ensureOrderEventsSchema();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -138,7 +135,6 @@ app.use('/api/activity', activityRoutes);
 app.use('/api/locations', locationsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/sync', syncRoutes);
-app.use('/api/orders', ordersRoutes);
 app.use('/api/archive', archiveRoutes);
 
 app.use(errorHandler);
@@ -161,17 +157,6 @@ const server = app.listen(PORT, () => {
 const shouldRunSchedulersInApi = process.env.RUN_SCHEDULERS_IN_API !== 'false';
 
 if (shouldRunSchedulersInApi) {
-  const oneDayMs = 1000 * 60 * 60 * 24;
-  setInterval(() => {
-    withAdvisoryJobLock(JOB_LOCK_KEYS.ORDER_DUE_NOTIFICATIONS, () => processOrderDueNotifications())
-      .then((lockResult) => {
-        if (lockResult.skipped) {
-          console.log('[ORDER] Skipping notification run: lock not acquired');
-        }
-      })
-      .catch((err) => console.error('[ORDER] Notification check failed:', err.message));
-  }, oneDayMs);
-
   startArchiveScheduler();
 } else {
   console.log('[INFO] API scheduler loops disabled (RUN_SCHEDULERS_IN_API=false)');

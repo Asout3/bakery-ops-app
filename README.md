@@ -35,7 +35,7 @@ The Bakery Operations Platform combines:
 - **Inventory and batch lifecycle tracking** including archive workflows.
 - **Auditable operational history** through logs, sync audit records, and traceable error contracts.
 
-The system is intentionally engineered so day-to-day branch activity can continue through temporary internet or backend instability without corrupting sales/order data.
+The system is intentionally engineered so day-to-day branch activity can continue through temporary internet or backend instability without corrupting sales data.
 
 ---
 
@@ -64,9 +64,9 @@ mindmap
 
 ### Core Business Capabilities
 
-- Sales, orders, expenses, payments, and inventory management.
+- Sales, expenses, payments, and inventory management.
 - Branch-aware access via role and location constraints.
-- Scheduled archive and due-order notification jobs.
+- Scheduled archive jobs.
 - Addis Ababa timezone-consistent UI presentation.
 
 ---
@@ -155,9 +155,6 @@ sequenceDiagram
 - Cache fallback in key manager/cashier pages for continuity.
 - Single-flight offline queue flush locking to prevent overlapping replay runs.
 - Service-worker shell caching that discovers and caches current hashed build assets from `index.html`.
-- Role-aware order status transition guards (cashier/manager/admin) to prevent invalid production-to-delivered jumps.
-- Stronger order input validation for phone numbers and custom order detail lengths.
-- Order status timeline persistence (`order_status_events`) for auditable lifecycle tracing across API, offline replay, and scheduler transitions.
 
 ### Important Development Note
 
@@ -229,7 +226,6 @@ erDiagram
 - Advisory lock during setup/migrations to avoid concurrent runners.
 - Optional dev-only seed path, gated by environment variables.
 - Startup auth schema guard ensures lockout columns and refresh-token table exist in partially migrated environments.
-- Startup order-events schema guard ensures timeline table/indexes exist before order routes execute write paths.
 
 ---
 
@@ -259,10 +255,10 @@ X-Retry-Count: <retry-number>
 ### High-Value API Domains
 
 - `/api/auth` for authentication and account operations.
-- `/api/orders` for customer order lifecycle (including `GET /api/orders/:id/timeline` for status-event transparency).
 - `/api/sales` for checkout and revenue records.
 - `/api/inventory` for stock and batch operations.
 - `/api/archive` for retention policy and archive execution.
+- Manual Danger-Zone archive runs now force a `cutoffAt=now` execution for the selected branch, so admins can archive currently available history immediately (while keeping scheduled retention behavior unchanged).
 - `/api/sync` for offline audit status and reconciliation metadata.
 
 ---
@@ -336,7 +332,7 @@ Main docs/                 primary onboarding and operational guides
 
 Recommended expansion:
 
-- Add route-level integration tests for auth/orders/inventory/archive.
+- Add route-level integration tests for auth/inventory/archive.
 - Add API contract snapshot tests for error and pagination behavior.
 - Add scheduled-job simulation tests for multi-instance scenarios.
 
