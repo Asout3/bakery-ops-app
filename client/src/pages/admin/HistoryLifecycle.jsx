@@ -95,6 +95,29 @@ export default function HistoryLifecycle() {
     }
   };
 
+  const downloadArchiveExport = async () => {
+    if (!navigator.onLine) {
+      setMessage({ type: 'warning', text: 'Archive export requires online server connection.' });
+      return;
+    }
+    try {
+      const response = await api.get('/archive/export', { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const datePart = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `archive-export-${datePart}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setMessage({ type: 'success', text: 'Archive export downloaded successfully.' });
+    } catch (err) {
+      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to download archive export') });
+    }
+  };
+
   const expectedPhrase = useMemo(() => data?.confirmation_phrase || 'I CONFIRM TO ARCHIVE THE LAST 6 MONTH HISTORY', [data]);
 
   return (
@@ -124,7 +147,7 @@ export default function HistoryLifecycle() {
       </div>
 
       <div className="card mb-4">
-        <div className="card-header"><h4>Archived Data Counts</h4></div>
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}><h4>Archived Data Counts</h4><button className="btn btn-secondary btn-sm" onClick={downloadArchiveExport} disabled={loading || !isOnline}>Download Archive CSV (Excel-ready)</button></div>
         <div className="card-body" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <span className="badge badge-primary">Batches: {data?.archive_counts?.inventory_batches || 0}</span>
           <span className="badge badge-primary">Batch Items: {data?.archive_counts?.batch_items || 0}</span>

@@ -61,6 +61,56 @@ router.post('/run', authenticateToken, authorizeRoles('admin'), asyncHandler(asy
   res.json(result);
 }));
 
+
+router.get('/export', authenticateToken, authorizeRoles('admin'), asyncHandler(async (req, res) => {
+  const locationId = await getTargetLocationId(req, query);
+
+  const [sales, expenses, inventoryMovements, activityLog, staffPayments, batches] = await Promise.all([
+    query('SELECT * FROM sales_archive WHERE location_id = $1 ORDER BY sale_date DESC, id DESC', [locationId]),
+    query('SELECT * FROM expenses_archive WHERE location_id = $1 ORDER BY expense_date DESC, id DESC', [locationId]),
+    query('SELECT * FROM inventory_movements_archive WHERE location_id = $1 ORDER BY created_at DESC, id DESC', [locationId]),
+    query('SELECT * FROM activity_log_archive WHERE location_id = $1 ORDER BY created_at DESC, id DESC', [locationId]),
+    query('SELECT * FROM staff_payments_archive WHERE location_id = $1 ORDER BY payment_date DESC, id DESC', [locationId]),
+    query('SELECT * FROM inventory_batches_archive WHERE location_id = $1 ORDER BY created_at DESC, id DESC', [locationId]),
+  ]);
+
+  const sections = [
+    ['sales_archive', sales.rows],
+    ['expenses_archive', expenses.rows],
+    ['inventory_movements_archive', inventoryMovements.rows],
+    ['activity_log_archive', activityLog.rows],
+    ['staff_payments_archive', staffPayments.rows],
+    ['inventory_batches_archive', batches.rows],
+  ];
+
+  const escapeCsv = (value) => {
+    if (value === null || value === undefined) return '';
+    const raw = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
+  };
+
+  const lines = [];
+  for (const [name, rows] of sections) {
+    lines.push(`# ${name}`);
+    if (!rows.length) {
+      lines.push('no_data');
+      lines.push('');
+      continue;
+    }
+    const headers = Object.keys(rows[0]);
+    lines.push(headers.join(','));
+    for (const row of rows) {
+      lines.push(headers.map((header) => escapeCsv(row[header])).join(','));
+    }
+    lines.push('');
+  }
+
+  const datePart = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="archive-export-location-${locationId}-${datePart}.csv"`);
+  res.status(200).send(lines.join('\n'));
+}));
+
 router.get('/archived/sales', authenticateToken, authorizeRoles('admin'), asyncHandler(async (req, res) => {
   const locationId = await getTargetLocationId(req, query);
   const result = await query('SELECT * FROM sales_archive WHERE location_id = $1 ORDER BY sale_date DESC LIMIT 200', [locationId]);
