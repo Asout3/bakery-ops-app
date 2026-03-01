@@ -35,7 +35,7 @@ The Bakery Operations Platform combines:
 - **Inventory and batch lifecycle tracking** including archive workflows.
 - **Auditable operational history** through logs, sync audit records, and traceable error contracts.
 
-The system is intentionally engineered so day-to-day branch activity can continue through temporary internet or backend instability without corrupting sales/order data.
+The system is intentionally engineered so day-to-day branch activity can continue through temporary internet or backend instability without corrupting sales data.
 
 ---
 
@@ -64,9 +64,9 @@ mindmap
 
 ### Core Business Capabilities
 
-- Sales, orders, expenses, payments, and inventory management.
+- Sales, expenses, payments, and inventory management.
 - Branch-aware access via role and location constraints.
-- Scheduled archive and due-order notification jobs.
+- Scheduled archive jobs.
 - Addis Ababa timezone-consistent UI presentation.
 
 ---
@@ -155,8 +155,6 @@ sequenceDiagram
 - Cache fallback in key manager/cashier pages for continuity.
 - Single-flight offline queue flush locking to prevent overlapping replay runs.
 - Service-worker shell caching that discovers and caches current hashed build assets from `index.html`.
-- Role-aware order status transition guards (cashier/manager/admin) to prevent invalid production-to-delivered jumps.
-- Stronger order input validation for phone numbers and custom order detail lengths.
 
 ### Important Development Note
 
@@ -257,7 +255,6 @@ X-Retry-Count: <retry-number>
 ### High-Value API Domains
 
 - `/api/auth` for authentication and account operations.
-- `/api/orders` for customer order lifecycle.
 - `/api/sales` for checkout and revenue records.
 - `/api/inventory` for stock and batch operations.
 - `/api/archive` for retention policy and archive execution.
@@ -335,7 +332,7 @@ Main docs/                 primary onboarding and operational guides
 
 Recommended expansion:
 
-- Add route-level integration tests for auth/orders/inventory/archive.
+- Add route-level integration tests for auth/inventory/archive.
 - Add API contract snapshot tests for error and pagination behavior.
 - Add scheduled-job simulation tests for multi-instance scenarios.
 

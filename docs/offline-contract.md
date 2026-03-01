@@ -49,7 +49,6 @@ All API errors must use:
 The following write endpoints are expected to honor idempotent offline replay semantics:
 
 - `POST /api/sales`
-- `POST /api/orders`
 - `POST /api/expenses`
 - `POST /api/payments`
 - `POST /api/inventory/batches`
