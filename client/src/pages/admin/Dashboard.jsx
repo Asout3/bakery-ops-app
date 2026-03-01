@@ -133,7 +133,6 @@ export default function Dashboard() {
 
   const topProducts = report?.top_products || [];
   const paymentMethods = report?.payment_methods || [];
-  const orderSummary = period === 'weekly' ? report?.summary?.orders : report?.orders;
   const expenseRows = report?.details?.expenses || [];
   const staffPaymentRows = report?.details?.staff_payments || [];
   const cashierRows = report?.details?.cashier_performance || [];
@@ -250,18 +249,6 @@ export default function Dashboard() {
         rows={expenseRows.map((r) => [formatShortDate(r.expense_date), r.category, formatMoney(r.amount), r.created_by_name || '-'])}
         empty="No expense records in this period."
       />
-
-      <DataTable
-        title="Order Revenue Transparency"
-        headers={['Metric', 'Value', 'Note']}
-        rows={[
-          ['Total Created Orders', Number(orderSummary?.total_created_orders || 0), 'All created orders in selected period'],
-          ['Order Paid Revenue', formatMoney(orderSummary?.order_paid_revenue), 'Sum of upfront payments'],
-          ['Order Outstanding', formatMoney(orderSummary?.order_outstanding), 'Open orders remaining balance'],
-          ['Delivered Order Revenue', formatMoney(orderSummary?.delivered_order_revenue), 'Realized from delivered orders'],
-        ]}
-      />
-
       <DataTable
         title="Cost Components"
         headers={['Component', 'Amount', 'Transparency Note']}

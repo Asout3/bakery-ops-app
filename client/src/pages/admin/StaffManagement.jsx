@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { UserPlus, Users } from 'lucide-react';
 import api from '../../api/axios';
+import { formatCurrencyETB } from '../../utils/currency';
 
 
 const ETHIOPIA_PHONE_REGEX = /^\+251(9|7)\d{8}$/;
@@ -163,9 +164,9 @@ export default function StaffManagement() {
         <div className="card mb-4"><div className="card-body">
           <h4>Staff Expense Summary (Monthly)</h4>
           <div className="row g-3">
-            <div className="col-md-4"><strong>Total:</strong> ${Number(expenseSummary.total_monthly_staff_expense || 0).toFixed(2)}</div>
-            <div className="col-md-4"><strong>Active Salaries:</strong> ${Number(expenseSummary.active_salary_total || 0).toFixed(2)}</div>
-            <div className="col-md-4"><strong>Prorated Exits:</strong> ${Number(expenseSummary.prorated_exit_total || 0).toFixed(2)}</div>
+            <div className="col-md-4"><strong>Total:</strong> {formatCurrencyETB(expenseSummary.total_monthly_staff_expense || 0)}</div>
+            <div className="col-md-4"><strong>Active Salaries:</strong> {formatCurrencyETB(expenseSummary.active_salary_total || 0)}</div>
+            <div className="col-md-4"><strong>Prorated Exits:</strong> {formatCurrencyETB(expenseSummary.prorated_exit_total || 0)}</div>
           </div>
         </div></div>
       )}
@@ -197,7 +198,7 @@ export default function StaffManagement() {
 
       <div className="card"><div className="card-header"><h4>Staff Directory</h4></div><div className="card-body table-container">
         <table className="table"><thead><tr><th>Name</th><th>Role</th><th>Branch</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {sortedStaff.map((row) => <tr key={row.id}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{row.location_name || row.location_id}</td><td>${Number(row.monthly_salary || 0).toFixed(2)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className={`badge ${row.is_active ? 'badge-success':'badge-warning'}`}>{row.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-secondary" onClick={()=>editStaff(row)}>Quick Save</button><button className={`btn btn-sm ${row.is_active ? 'btn-danger':'btn-success'}`} onClick={()=>toggleStatus(row)}>{row.is_active ? 'Disable':'Enable'}</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}
+          {sortedStaff.map((row) => <tr key={row.id}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{row.location_name || row.location_id}</td><td>{formatCurrencyETB(row.monthly_salary || 0)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className={`badge ${row.is_active ? 'badge-success':'badge-warning'}`}>{row.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-secondary" onClick={()=>editStaff(row)}>Quick Save</button><button className={`btn btn-sm ${row.is_active ? 'btn-danger':'btn-success'}`} onClick={()=>toggleStatus(row)}>{row.is_active ? 'Disable':'Enable'}</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}
         </tbody></table>
       </div></div>
 

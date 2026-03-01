@@ -19,6 +19,7 @@ import api from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { createPdfBlob, createXlsxBlob } from '../../utils/reportExportGenerators';
 import './Reports.css';
+import { formatCurrencyETB } from '../../utils/currency';
 
 const COLORS = ['#0ea5e9', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6'];
 
@@ -75,7 +76,7 @@ function percentChange(current, previous) {
 }
 
 function fmtMoney(value) {
-  return `$${Number(value || 0).toFixed(2)}`;
+  return formatCurrencyETB(value);
 }
 
 function fmtPct(value) {
@@ -120,7 +121,7 @@ const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function ReportsPage() {
   const { selectedLocationId } = useBranch();
-  const [period, setPeriod] = useState('six_month');
+  const [period, setPeriod] = useState('daily');
   const [customRange, setCustomRange] = useState(() => {
     const now = new Date();
     return {
@@ -147,7 +148,7 @@ export default function ReportsPage() {
         setPreviousData(prevRes.data || null);
       } catch (err) {
         console.error('Failed to load reports:', err);
-        setCurrentData({ summary: {}, sales_by_day: [], top_products: [], payment_methods: [], sales_by_category: [], details: { expenses: [], staff_payments: [], batches: { batch_list: [] }, cashier_performance: [] } });
+        setCurrentData({ summary: {}, sales_by_day: [], top_products: [], payment_methods: [], sales_by_category: [], details: { expenses: [], staff_payments: [], batches: { batch_list: [] }, cashier_performance: [] }, data_unavailable: true });
         setPreviousData({ summary: {}, sales_by_day: [] });
       } finally {
         setLoading(false);
@@ -573,7 +574,6 @@ export default function ReportsPage() {
           <div><span>Expense Ratio</span><strong>{fmtPct(current.expenseRatio)}</strong></div>
           <div><span>Growth</span><strong>{fmtPct(growth.sales)}</strong></div>
         </div>
-        <div className="badge badge-success mt-2"><Trophy size={13} /> Most Profitable Branch</div>
       </section>
 
       <section className="card report-section">

@@ -35,7 +35,7 @@ The Bakery Operations Platform combines:
 - **Inventory and batch lifecycle tracking** including archive workflows.
 - **Auditable operational history** through logs, sync audit records, and traceable error contracts.
 
-The system is intentionally engineered so day-to-day branch activity can continue through temporary internet or backend instability without corrupting sales/order data.
+The system is intentionally engineered so day-to-day branch activity can continue through temporary internet or backend instability without corrupting sales data.
 
 ---
 
@@ -64,9 +64,9 @@ mindmap
 
 ### Core Business Capabilities
 
-- Sales, orders, expenses, payments, and inventory management.
+- Sales, expenses, payments, and inventory management.
 - Branch-aware access via role and location constraints.
-- Scheduled archive and due-order notification jobs.
+- Scheduled archive jobs.
 - Addis Ababa timezone-consistent UI presentation.
 
 ---
@@ -153,10 +153,12 @@ sequenceDiagram
 - Replay status model (`synced`, `failed`, `conflict`, `needs_review`, `ignored`, `resolved`).
 - API error envelope consistency (`error`, `code`, `requestId`) for client classification.
 - Cache fallback in key manager/cashier pages for continuity.
+- Single-flight offline queue flush locking to prevent overlapping replay runs.
+- Service-worker shell caching that discovers and caches current hashed build assets from `index.html`.
 
 ### Important Development Note
 
-In development mode, service workers may be unregistered/cleared, which can make offline refresh behavior differ from production. Production behavior depends on the shipped service worker and cache strategy.
+In development mode, service workers are intentionally unregistered to prevent stale production workers from interfering with Vite dev behavior. Validate offline refresh using production build/preview behavior (`npm run build` + `npm run preview` in `client/`).
 
 ---
 
@@ -223,6 +225,7 @@ erDiagram
 - Transactional migration execution.
 - Advisory lock during setup/migrations to avoid concurrent runners.
 - Optional dev-only seed path, gated by environment variables.
+- Startup auth schema guard ensures lockout columns and refresh-token table exist in partially migrated environments.
 
 ---
 
@@ -252,10 +255,10 @@ X-Retry-Count: <retry-number>
 ### High-Value API Domains
 
 - `/api/auth` for authentication and account operations.
-- `/api/orders` for customer order lifecycle.
 - `/api/sales` for checkout and revenue records.
 - `/api/inventory` for stock and batch operations.
 - `/api/archive` for retention policy and archive execution.
+- Manual Danger-Zone archive runs now force a `cutoffAt=now` execution for the selected branch, so admins can archive currently available history immediately (while keeping scheduled retention behavior unchanged).
 - `/api/sync` for offline audit status and reconciliation metadata.
 
 ---
@@ -329,7 +332,7 @@ Main docs/                 primary onboarding and operational guides
 
 Recommended expansion:
 
-- Add route-level integration tests for auth/orders/inventory/archive.
+- Add route-level integration tests for auth/inventory/archive.
 - Add API contract snapshot tests for error and pagination behavior.
 - Add scheduled-job simulation tests for multi-instance scenarios.
 
