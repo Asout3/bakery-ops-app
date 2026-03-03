@@ -3,7 +3,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
-import pool, { ensureAuthSecuritySchema, isTransientDbError } from './db.js';
+import pool, { ensureAuthSecuritySchema, ensureProductCreatorSchema, isTransientDbError } from './db.js';
 import { apiLimiter, validateEnvironment, getCorsOptions } from './middleware/security.js';
 import { attachRequestContext } from './middleware/requestContext.js';
 import { errorHandler } from './utils/errors.js';
@@ -27,6 +27,7 @@ dotenv.config();
 
 validateEnvironment();
 await ensureAuthSecuritySchema();
+await ensureProductCreatorSchema();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
