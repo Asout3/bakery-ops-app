@@ -185,3 +185,16 @@
   font-weight: 700;
   margin-bottom: 6px;
 }
+
+.sync-dismiss-btn {
+  margin: 10px auto 0;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

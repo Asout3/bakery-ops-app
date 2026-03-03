@@ -613,6 +613,12 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
       }
 
       const batch = batchRes.rows[0];
+      if (!batch.can_edit) {
+        const err = new Error(`Batches can only be edited or voided within ${BATCH_EDIT_WINDOW_MINUTES} minutes. This batch is ${Math.floor(Number(batch.age_minutes || 0))} minutes old.`);
+        err.status = 403;
+        err.code = 'BATCH_EDIT_WINDOW_EXPIRED';
+        throw err;
+      }
       if (batch.status === 'voided') {
         const err = new Error('Voided batches cannot be edited');
         err.status = 400;
@@ -689,6 +695,12 @@ router.post('/batches/:id/void', authenticateToken, authorizeRoles('admin', 'man
         throw err;
       }
       const batch = batchRes.rows[0];
+      if (!batch.can_edit) {
+        const err = new Error(`Batches can only be edited or voided within ${BATCH_EDIT_WINDOW_MINUTES} minutes. This batch is ${Math.floor(Number(batch.age_minutes || 0))} minutes old.`);
+        err.status = 403;
+        err.code = 'BATCH_EDIT_WINDOW_EXPIRED';
+        throw err;
+      }
       if (batch.status === 'voided') {
         return batch;
       }

@@ -178,12 +178,13 @@ export default function ProductsPage() {
 
       {message && <div className={`alert alert-${message.type} mb-3`}>{message.text}</div>}
 
-      <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Source</th><th>Price</th><th>Cost</th><th>Unit</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+      <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Created By</th><th>Source</th><th>Price</th><th>Cost</th><th>Unit</th><th>Status</th><th>Actions</th></tr></thead><tbody>
         {filteredProducts.map((product) => (
           <tr key={product.id}>
             <td>{product.id}</td>
             <td>{product.name}</td>
             <td>{categories.find((cat) => cat.id === Number(product.category_id))?.name || product.category_id}</td>
+            <td>{product.created_by_name || product.created_by || '-'}</td>
             <td><span className={`badge ${product.source === 'purchased' ? 'badge-warning' : 'badge-info'}`}>{product.source || 'baked'}</span></td>
             <td>ETB {Number(product.price).toFixed(2)}</td>
             <td>ETB {Number(product.cost || 0).toFixed(2)}</td>

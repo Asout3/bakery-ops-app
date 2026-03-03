@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { Search, Clock, DollarSign, Receipt, AlertTriangle, X, RotateCcw } from 'lucide-react';
+import { Search, Clock, Receipt, AlertTriangle, X } from 'lucide-react';
+import { formatAddisDateTime } from '../../utils/time';
 
 const VOID_WINDOW_MINUTES = 20;
 
@@ -173,6 +174,7 @@ export default function CashierHistory() {
                   <th>Cashier</th>
                   <th>Payment</th>
                   <th>Status</th>
+                  <th>Void Details</th>
                   <th>Sync</th>
                   <th>Actions</th>
                 </tr>
@@ -180,7 +182,7 @@ export default function CashierHistory() {
               <tbody>
                 {filteredSales.length === 0 ? (
                   <tr>
-                    <td colSpan="7" className="text-center text-muted py-4">
+                    <td colSpan="8" className="text-center text-muted py-4">
                       No sales found
                     </td>
                   </tr>
@@ -196,7 +198,7 @@ export default function CashierHistory() {
                       <td>
                         <div>{new Date(sale.sale_date).toLocaleDateString()}</div>
                         <small className="text-muted">
-                          {new Date(sale.sale_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {formatAddisDateTime(sale.sale_date, { hour12: true })}
                         </small>
                       </td>
                       <td>
@@ -222,6 +224,16 @@ export default function CashierHistory() {
                         )}
                         {!canVoidSale(sale) && sale.status !== 'voided' && (
                           <span className="badge badge-success">Completed</span>
+                        )}
+                      </td>
+                      <td>
+                        {sale.status === 'voided' ? (
+                          <div>
+                            <small className="text-muted d-block">{formatAddisDateTime(sale.voided_at, { hour12: true })}</small>
+                            <small className="text-danger">{sale.void_reason || 'No reason provided'}</small>
+                          </div>
+                        ) : (
+                          <span className="text-muted">-</span>
                         )}
                       </td>
                       <td>
@@ -288,13 +300,13 @@ export default function CashierHistory() {
               <div className="row">
                 <div className="col-md-6">
                   <h5>Transaction Info</h5>
-                  <p><strong>Date & Time:</strong> {new Date(selectedSale.sale_date).toLocaleString()}</p>
+                  <p><strong>Date & Time:</strong> {formatAddisDateTime(selectedSale.sale_date, { hour12: true })}</p>
                   <p><strong>Amount:</strong> ETB {Number(selectedSale.total_amount).toFixed(2)}</p>
                   <p><strong>Cashier:</strong> {selectedSale.cashier_name || 'Unknown'}</p>
                   <p><strong>Payment Method:</strong> {selectedSale.payment_method}</p>
                   {selectedSale.status === 'voided' && (
                     <div className="alert alert-warning">
-                      <strong>Voided at:</strong> {new Date(selectedSale.voided_at).toLocaleString()}<br/>
+                      <strong>Voided at:</strong> {formatAddisDateTime(selectedSale.voided_at, { hour12: true })}<br/>
                       <strong>Reason:</strong> {selectedSale.void_reason}
                     </div>
                   )}
