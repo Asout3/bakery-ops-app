@@ -381,7 +381,6 @@ export default function BranchesAndStaff() {
                   ))}
                 </select>
               </div>
-              <div className="col-md-6 mb-3"><label className="form-label">Branch</label><input className="form-control" value={locations.find((l)=>Number(l.id)===Number(accountForm.location_id || user?.location_id))?.name || 'Main'} disabled /></div>
             </div>
             <button className="btn btn-success" disabled={savingAccount}><UserPlus size={16} className="me-1" /> {savingAccount ? 'Creating...' : 'Create Account'}</button>
           </form>
