@@ -16,6 +16,16 @@ function isValidDateFilter(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
 }
 
+async function notifyLocationAdmins(tx, locationId, title, message, notificationType = 'audit_event') {
+  await tx.query(
+    `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+     SELECT id, $1, $2, $3, $4
+     FROM users
+     WHERE role = 'admin' AND is_active = true AND location_id = $1`,
+    [locationId, title, message, notificationType]
+  );
+}
+
 router.post(
   '/',
   authenticateToken,
@@ -364,8 +374,21 @@ router.post('/:id/void', authenticateToken, authorizeRoles('admin', 'cashier', '
       }
       
       await tx.query(
-        `UPDATE sales SET status = 'voided' WHERE id = $1`,
-        [saleId]
+        `UPDATE sales
+         SET status = 'voided',
+             voided_at = CURRENT_TIMESTAMP,
+             voided_by = $2,
+             void_reason = $3
+         WHERE id = $1`,
+        [saleId, req.user.id, reason || 'No reason provided']
+      );
+
+      await notifyLocationAdmins(
+        tx,
+        locationId,
+        'Sale Voided',
+        `Sale ${sale.receipt_number} was voided by ${req.user.username || `user ${req.user.id}`}. Reason: ${reason || 'No reason provided'}.`,
+        'sale_voided'
       );
       
       await tx.query(
@@ -387,8 +410,8 @@ router.post('/:id/void', authenticateToken, authorizeRoles('admin', 'cashier', '
       
       const voidedSale = await getSaleWithItems(saleId, tx);
       voidedSale.voided = true;
-      voidedSale.void_reason = reason || 'No reason provided';
-      voidedSale.voided_at = now.toISOString();
+      voidedSale.void_reason = voidedSale.void_reason || reason || 'No reason provided';
+      voidedSale.voided_at = voidedSale.voided_at || now.toISOString();
       
       return voidedSale;
     });

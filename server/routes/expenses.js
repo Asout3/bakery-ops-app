@@ -5,6 +5,7 @@ import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
+const EXPENSE_EDIT_WINDOW_MINUTES = 20;
 
 // Get expenses
 router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
@@ -129,28 +130,63 @@ router.put('/:id',
   authenticateToken,
   authorizeRoles('admin'),
   async (req, res) => {
-    const { category, description, amount, expense_date } = req.body;
+    const { category, description, amount, expense_date, reason } = req.body;
 
     try {
-      const result = await query(
-        `UPDATE expenses
-         SET category = COALESCE($1, category),
-             description = COALESCE($2, description),
-             amount = COALESCE($3, amount),
-             expense_date = COALESCE($4, expense_date)
-         WHERE id = $5
-         RETURNING *`,
-        [category, description, amount, expense_date, req.params.id]
-      );
+      const updated = await withTransaction(async (tx) => {
+        const existing = await tx.query(
+          `SELECT *,
+                  (CURRENT_TIMESTAMP < (created_at + make_interval(mins => $2::int))) as can_edit,
+                  EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - created_at)) / 60 as age_minutes
+           FROM expenses
+           WHERE id = $1
+           FOR UPDATE`,
+          [req.params.id, EXPENSE_EDIT_WINDOW_MINUTES]
+        );
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Expense not found' });
-      }
+        if (!existing.rows.length) {
+          const err = new Error('Expense not found');
+          err.status = 404;
+          throw err;
+        }
 
-      res.json(result.rows[0]);
+        const expense = existing.rows[0];
+        if (!expense.can_edit) {
+          const err = new Error(`Expenses can only be edited within ${EXPENSE_EDIT_WINDOW_MINUTES} minutes. This expense is ${Math.floor(Number(expense.age_minutes || 0))} minutes old.`);
+          err.status = 403;
+          err.code = 'EXPENSE_EDIT_WINDOW_EXPIRED';
+          throw err;
+        }
+
+        const result = await tx.query(
+          `UPDATE expenses
+           SET category = COALESCE($1, category),
+               description = COALESCE($2, description),
+               amount = COALESCE($3, amount),
+               expense_date = COALESCE($4, expense_date)
+           WHERE id = $5
+           RETURNING *`,
+          [category, description, amount, expense_date, req.params.id]
+        );
+
+        await tx.query(
+          `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
+           VALUES ($1, $2, 'expense_updated', $3, $4)`,
+          [
+            req.user.id,
+            expense.location_id,
+            `Updated expense ${expense.id}`,
+            JSON.stringify({ expense_id: expense.id, reason: reason || 'No reason provided' })
+          ]
+        );
+
+        return result.rows[0];
+      });
+
+      res.json(updated);
     } catch (err) {
       console.error('Update expense error:', err);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: err.code || 'EXPENSE_UPDATE_ERROR', requestId: req.requestId });
     }
   }
 );
@@ -161,19 +197,44 @@ router.delete('/:id',
   authorizeRoles('admin'),
   async (req, res) => {
     try {
-      const result = await query(
-        'DELETE FROM expenses WHERE id = $1 RETURNING *',
-        [req.params.id]
-      );
+      await withTransaction(async (tx) => {
+        const existing = await tx.query(
+          `SELECT *,
+                  (CURRENT_TIMESTAMP < (created_at + make_interval(mins => $2::int))) as can_edit,
+                  EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - created_at)) / 60 as age_minutes
+           FROM expenses
+           WHERE id = $1
+           FOR UPDATE`,
+          [req.params.id, EXPENSE_EDIT_WINDOW_MINUTES]
+        );
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Expense not found' });
-      }
+        if (!existing.rows.length) {
+          const err = new Error('Expense not found');
+          err.status = 404;
+          throw err;
+        }
+
+        const expense = existing.rows[0];
+        if (!expense.can_edit) {
+          const err = new Error(`Expenses can only be deleted within ${EXPENSE_EDIT_WINDOW_MINUTES} minutes. This expense is ${Math.floor(Number(expense.age_minutes || 0))} minutes old.`);
+          err.status = 403;
+          err.code = 'EXPENSE_EDIT_WINDOW_EXPIRED';
+          throw err;
+        }
+
+        await tx.query('DELETE FROM expenses WHERE id = $1', [req.params.id]);
+
+        await tx.query(
+          `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
+           VALUES ($1, $2, 'expense_deleted', $3, $4)`,
+          [req.user.id, expense.location_id, `Deleted expense ${expense.id}`, JSON.stringify({ expense_id: expense.id })]
+        );
+      });
 
       res.json({ message: 'Expense deleted successfully' });
     } catch (err) {
       console.error('Delete expense error:', err);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: err.code || 'EXPENSE_DELETE_ERROR', requestId: req.requestId });
     }
   }
 );

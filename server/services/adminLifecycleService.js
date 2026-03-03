@@ -107,10 +107,8 @@ export async function archiveStaffAccount(userId, repository) {
     return { archived: true, already_inactive: true };
   }
 
-  await repository.archiveUser(userId);
-  await repository.unlinkStaffFromUser(userId);
-  await repository.deleteUserLocations(userId);
-  return { archived: true };
+  await repository.hardDeleteUser(userId);
+  return { deleted: true };
 }
 
 export async function archiveStaffProfile(staffId, repository) {
@@ -119,10 +117,8 @@ export async function archiveStaffProfile(staffId, repository) {
     throw toError('Staff member not found', 404, 'STAFF_NOT_FOUND');
   }
   if (staff.linked_user_id) {
-    await repository.archiveUser(staff.linked_user_id);
-    await repository.unlinkStaffFromUser(staff.linked_user_id);
-    await repository.deleteUserLocations(staff.linked_user_id);
+    await repository.hardDeleteUser(staff.linked_user_id);
   }
-  await repository.archiveStaff(staffId);
-  return { archived: true };
+  await repository.hardDeleteStaffProfile(staffId);
+  return { deleted: true };
 }

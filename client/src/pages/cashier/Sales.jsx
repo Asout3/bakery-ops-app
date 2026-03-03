@@ -15,6 +15,7 @@ export default function Sales() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [sourceFilter, setSourceFilter] = useState('all');
   const [orderStartedAt, setOrderStartedAt] = useState(Date.now());
   const [receiptData, setReceiptData] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -95,9 +96,11 @@ export default function Sales() {
     }
   };
 
-  const filteredProducts = products.filter((product) =>
-    product.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProducts = products.filter((product) => {
+    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSource = sourceFilter === 'all' || (product.source || 'baked') === sourceFilter;
+    return matchesSearch && matchesSource;
+  });
 
   const getCartQuantity = (productId) => cart.find((item) => item.product_id === productId)?.quantity || 0;
 
@@ -248,6 +251,14 @@ export default function Sales() {
 
       <div className="sales-layout">
         <div className="products-section">
+          <div className="d-flex gap-2 align-items-center mb-2">
+            <label className="form-label mb-0">Type</label>
+            <select className="form-select" style={{ maxWidth: '180px' }} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+              <option value="all">All</option>
+              <option value="baked">Baked</option>
+              <option value="purchased">Purchased</option>
+            </select>
+          </div>
           <div className="search-bar">
             <Search size={20} />
             <input

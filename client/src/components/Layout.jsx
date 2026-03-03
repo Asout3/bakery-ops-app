@@ -1,19 +1,21 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
-import { 
-  LayoutDashboard, 
-  Package, 
-  ShoppingCart, 
-  DollarSign, 
-  Users, 
-  BarChart3, 
-  Bell, 
+import {
+  LayoutDashboard,
+  Package,
+  ShoppingCart,
+  DollarSign,
+  Users,
+  BarChart3,
+  Bell,
   LogOut,
   Menu,
-  X
+  X,
+  Moon,
+  Sun,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
 import { useBranch } from '../context/BranchContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -31,6 +33,7 @@ export default function Layout() {
   const [locations, setLocations] = useState([]);
   const { selectedLocationId, setLocation } = useBranch();
   const { language, setLang, t } = useLanguage();
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
   const [showLogoutWarning, setShowLogoutWarning] = useState(false);
   const [pendingLogoutCount, setPendingLogoutCount] = useState(0);
 
@@ -49,6 +52,10 @@ export default function Layout() {
     doLogout();
   };
 
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     const fetchLocations = async () => {
@@ -58,8 +65,9 @@ export default function Layout() {
         const raw = response.data || [];
         const scoped = user?.role === 'admin' ? raw : raw.filter((loc) => Number(loc.id) === Number(user?.location_id));
         setLocations(scoped);
-        if (!selectedLocationId && scoped.length > 0) {
-          setLocation(scoped[0].id);
+        const singleLocation = user?.location_id || scoped[0]?.id;
+        if (singleLocation && Number(selectedLocationId || 0) !== Number(singleLocation)) {
+          setLocation(singleLocation);
         }
       } catch (err) {
         console.error('Failed to fetch locations:', err);
@@ -67,58 +75,54 @@ export default function Layout() {
     };
 
     fetchLocations();
-  }, [user?.role, selectedLocationId, setLocation]);
+  }, [user?.role, user?.location_id, selectedLocationId, setLocation]);
 
   useEffect(() => {
     refreshNotifications();
   }, [user?.id, user?.role, selectedLocationId, refreshNotifications]);
 
-  const getNavItems = () => {
+  const navItems = useMemo(() => {
     const role = user?.role;
-    
+
     if (role === 'admin') {
       return [
-        { to: '/admin/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-        { to: '/admin/products', icon: Package, label: 'Products' },
-        { to: '/admin/inventory', icon: Package, label: 'Inventory' },
-        { to: '/admin/sales', icon: ShoppingCart, label: 'Sales' },
-        { to: '/admin/expenses', icon: DollarSign, label: 'Expenses' },
-        { to: '/admin/staff-payments', icon: Users, label: 'Staff Payments' },
-        { to: '/admin/reports', icon: BarChart3, label: 'Reports' },
-        { to: '/admin/notifications', icon: Bell, label: 'Notifications', showBadge: true },
-        { to: '/admin/sync', icon: BarChart3, label: 'Sync Queue' },
-        { to: '/admin/team', icon: Users, label: 'Branch & Accounts' },
-        { to: '/admin/staff', icon: Users, label: 'Staff Management' },
-        { to: '/admin/history-lifecycle', icon: BarChart3, label: 'History Lifecycle' },
-      ];
-    } else if (role === 'manager') {
-      return [
-        { to: '/manager/inventory', icon: Package, label: 'Inventory' },
-        { to: '/manager/batches', icon: Package, label: 'Batches' },
-        { to: '/manager/products', icon: Package, label: 'Products' },
-        { to: '/manager/notifications', icon: Bell, label: 'Notifications', showBadge: true },
-      ];
-    } else if (role === 'cashier') {
-      return [
-        { to: '/cashier/sales', icon: ShoppingCart, label: 'New Sale' },
-        { to: '/cashier/history', icon: BarChart3, label: 'Sales History' },
+        { to: '/admin/dashboard', icon: LayoutDashboard, label: t('dashboard') },
+        { to: '/admin/products', icon: Package, label: t('products') },
+        { to: '/admin/inventory', icon: Package, label: t('inventory') },
+        { to: '/admin/sales', icon: ShoppingCart, label: t('sales') },
+        { to: '/admin/expenses', icon: DollarSign, label: t('expenses') },
+        { to: '/admin/staff-payments', icon: Users, label: t('staffPayments') },
+        { to: '/admin/reports', icon: BarChart3, label: t('reports') },
+        { to: '/admin/notifications', icon: Bell, label: t('notifications'), showBadge: true },
+        { to: '/admin/sync', icon: BarChart3, label: t('syncQueue') },
+        { to: '/admin/team', icon: Users, label: t('accountManagement') },
+        { to: '/admin/staff', icon: Users, label: t('staffManagement') },
+        { to: '/admin/history-lifecycle', icon: BarChart3, label: t('historyLifecycle') },
       ];
     }
-    
+    if (role === 'manager') {
+      return [
+        { to: '/manager/inventory', icon: Package, label: t('inventory') },
+        { to: '/manager/batches', icon: Package, label: t('batches') },
+        { to: '/manager/products', icon: Package, label: t('products') },
+        { to: '/manager/notifications', icon: Bell, label: t('notifications'), showBadge: true },
+      ];
+    }
+    if (role === 'cashier') {
+      return [
+        { to: '/cashier/sales', icon: ShoppingCart, label: t('newSale') },
+        { to: '/cashier/history', icon: BarChart3, label: t('salesHistory') },
+      ];
+    }
     return [];
-  };
-
-  const navItems = getNavItems();
+  }, [user?.role, t]);
 
   return (
     <div className="layout">
       <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
         <div className="sidebar-header">
-          <h2>Bakery Ops</h2>
-          <button 
-            className="sidebar-close"
-            onClick={() => setSidebarOpen(false)}
-          >
+          <h2>Sina Sweet</h2>
+          <button className="sidebar-close" onClick={() => setSidebarOpen(false)}>
             <X size={20} />
           </button>
         </div>
@@ -128,9 +132,7 @@ export default function Layout() {
             <NavLink
               key={item.to}
               to={item.to}
-              className={({ isActive }) => 
-                `nav-item ${isActive ? 'nav-item-active' : ''}`
-              }
+              className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
               onClick={() => setSidebarOpen(false)}
             >
               <item.icon size={20} />
@@ -146,49 +148,29 @@ export default function Layout() {
 
         <div className="sidebar-footer">
           <div className="user-info">
-            <div className="user-avatar">
-              {user?.username?.charAt(0).toUpperCase()}
-            </div>
+            <div className="user-avatar">{user?.username?.charAt(0).toUpperCase()}</div>
             <div className="user-details">
               <div className="user-name">{user?.username}</div>
               <div className="user-role">{user?.role}</div>
             </div>
           </div>
           <button className="btn btn-secondary btn-sm" onClick={handleLogout}>
-            <LogOut size={16} />
-            Logout
+            <LogOut size={16} /> {t('logout')}
           </button>
         </div>
       </aside>
 
       <div className="main-content">
         <header className="top-bar">
-          <button 
-            className="menu-toggle"
-            onClick={() => setSidebarOpen(true)}
-          >
+          <button className="menu-toggle" onClick={() => setSidebarOpen(true)}>
             <Menu size={24} />
           </button>
-          <div className="top-bar-content" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div className="top-bar-content" style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
             <h1 className="page-title">{t('appTitle')}</h1>
-            <select
-              className="form-select"
-              style={{ maxWidth: '220px' }}
-              value={selectedLocationId || ''}
-              onChange={(e) => setLocation(e.target.value)}
-            >
-              {locations.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  {t('branch')}: {loc.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className="form-select"
-              style={{ maxWidth: '140px' }}
-              value={language}
-              onChange={(e) => setLang(e.target.value)}
-            >
+            <button className="btn btn-sm btn-secondary" onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}>
+              {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />} {t(theme === 'light' ? 'dark' : 'light')}
+            </button>
+            <select className="form-select" style={{ maxWidth: '140px' }} value={language} onChange={(e) => setLang(e.target.value)}>
               <option value="en">English</option>
               <option value="am">አማርኛ</option>
             </select>
@@ -200,13 +182,7 @@ export default function Layout() {
         </main>
       </div>
 
-      {sidebarOpen && (
-        <div 
-          className="sidebar-overlay"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-      
+      {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
       <OfflineIndicator />
 
       {showLogoutWarning && (
@@ -224,17 +200,13 @@ export default function Layout() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowLogoutWarning(false)}>Cancel</button>
-              <button className="btn btn-danger" onClick={() => {
-                setShowLogoutWarning(false);
-                doLogout();
-              }}>
+              <button className="btn btn-danger" onClick={() => { setShowLogoutWarning(false); doLogout(); }}>
                 Logout Anyway
               </button>
             </div>
           </div>
         </div>
       )}
-
     </div>
   );
 }

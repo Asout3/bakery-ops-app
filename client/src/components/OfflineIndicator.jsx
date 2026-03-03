@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { WifiOff, RefreshCw, AlertTriangle, CheckCircle, Minimize2, Maximize2 } from 'lucide-react';
+import { WifiOff, RefreshCw, AlertTriangle, CheckCircle, Minimize2, Maximize2, X } from 'lucide-react';
 import { useOfflineSync } from '../hooks/useOfflineSync';
 import { retryOperation, cancelOperation, listQueuedOperations } from '../utils/offlineQueue';
 import { useAuth } from '../context/AuthContext';
@@ -11,8 +11,13 @@ export default function OfflineIndicator() {
   const [expanded, setExpanded] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [conflictOps, setConflictOps] = useState([]);
+  const [centerModalDismissed, setCenterModalDismissed] = useState(false);
 
   const isAdmin = user?.role === 'admin';
+  const issueCount = isAdmin ? (queueStats.conflict + queueStats.failed + (queueStats.needsReview || 0)) : 0;
+  const shouldShowDone = Boolean(syncProgress.finished && syncProgress.total > 0);
+  const doneText = shouldShowDone ? `Done ${syncProgress.done}/${syncProgress.total}` : '';
+  const showCenterModal = false;
 
   const loadConflicts = useCallback(async () => {
     if (!isAdmin || !isAuthenticated) {
@@ -32,10 +37,23 @@ export default function OfflineIndicator() {
 
   useEffect(() => {
     if (!appInitialized || !isAuthenticated) return;
-    if (isAdmin && (queueStats.conflict > 0 || queueStats.failed > 0 || queueStats.needsReview > 0)) {
+    if (isAdmin && issueCount > 0) {
       loadConflicts();
     }
-  }, [isAdmin, queueStats.conflict, queueStats.failed, queueStats.needsReview, loadConflicts, appInitialized, isAuthenticated]);
+  }, [isAdmin, issueCount, loadConflicts, appInitialized, isAuthenticated]);
+
+  useEffect(() => {
+    if (syncInProgress) {
+      setCenterModalDismissed(false);
+    }
+  }, [syncInProgress]);
+
+  useEffect(() => {
+    if (!syncInProgress && shouldShowDone) {
+      const timer = setTimeout(() => setCenterModalDismissed(true), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [syncInProgress, shouldShowDone]);
 
   if (!appInitialized || !isAuthenticated) {
     return null;
@@ -52,11 +70,6 @@ export default function OfflineIndicator() {
     await loadConflicts();
   };
 
-  const issueCount = isAdmin ? (queueStats.conflict + queueStats.failed + (queueStats.needsReview || 0)) : 0;
-  const shouldShowDone = Boolean(syncProgress.finished && syncProgress.total > 0);
-  const doneText = shouldShowDone ? `Done ${syncProgress.done}/${syncProgress.total}` : '';
-  const showCenterModal = (syncInProgress && syncProgress.total > 0) || shouldShowDone;
-
   if (isOnline && queueStats.total === 0 && issueCount === 0 && !shouldShowDone) {
     return null;
   }
@@ -65,17 +78,23 @@ export default function OfflineIndicator() {
     return (
       <>
         {showCenterModal && (
-          <div className="sync-center-overlay">
-            <div className="sync-center-modal card">
+          <div className="sync-center-overlay" onClick={() => setCenterModalDismissed(true)}>
+            <div className="sync-center-modal card" onClick={(e) => e.stopPropagation()}>
               {syncInProgress ? (
                 <>
                   <div className="sync-center-title"><RefreshCw size={16} className="spinning" /> Sync in Progress</div>
                   <p>{syncProgress.done}/{syncProgress.total} completed</p>
+                  <button type="button" className="sync-dismiss-btn" onClick={() => setCenterModalDismissed(true)}>
+                    <X size={14} /> Dismiss
+                  </button>
                 </>
               ) : (
                 <>
                   <div className="sync-center-title"><CheckCircle size={16} /> {syncOutcome === 'failed' ? 'Sync Failed' : syncOutcome === 'partial' ? 'Sync Partially Complete' : 'Sync Complete'}</div>
                   <p>{doneText}</p>
+                  <button type="button" className="sync-dismiss-btn" onClick={() => setCenterModalDismissed(true)}>
+                    <X size={14} /> Dismiss
+                  </button>
                 </>
               )}
             </div>
@@ -92,18 +111,24 @@ export default function OfflineIndicator() {
   return (
     <>
       {showCenterModal && (
-        <div className="sync-center-overlay">
-          <div className="sync-center-modal card">
+        <div className="sync-center-overlay" onClick={() => setCenterModalDismissed(true)}>
+          <div className="sync-center-modal card" onClick={(e) => e.stopPropagation()}>
             {syncInProgress ? (
               <>
                 <div className="sync-center-title"><RefreshCw size={16} className="spinning" /> Sync in Progress</div>
                 <p>{syncProgress.done}/{syncProgress.total} completed</p>
                 <small>Please wait while offline operations are finalized.</small>
+                <button type="button" className="sync-dismiss-btn" onClick={() => setCenterModalDismissed(true)}>
+                  <X size={14} /> Dismiss
+                </button>
               </>
             ) : (
               <>
                 <div className="sync-center-title"><CheckCircle size={16} /> {syncOutcome === 'failed' ? 'Sync Failed' : syncOutcome === 'partial' ? 'Sync Partially Complete' : 'Sync Complete'}</div>
                 <p>{doneText}</p>
+                <button type="button" className="sync-dismiss-btn" onClick={() => setCenterModalDismissed(true)}>
+                  <X size={14} /> Dismiss
+                </button>
               </>
             )}
           </div>

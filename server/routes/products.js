@@ -14,23 +14,25 @@ router.get('/', authenticateToken, async (req, res) => {
 
     const result = role === 'admin'
       ? await query(
-          `SELECT p.*, c.name as category_name,
+          `SELECT p.*, c.name as category_name, creator.username as created_by_name,
                   CASE WHEN EXISTS (SELECT 1 FROM inventory i WHERE i.product_id = p.id AND i.quantity > 0) THEN 'active'
                        WHEN p.is_active = false THEN 'inactive'
                        ELSE 'out_of_stock'
                   END AS availability_status
            FROM products p
            LEFT JOIN categories c ON p.category_id = c.id
+           LEFT JOIN users creator ON creator.id = p.created_by
            ORDER BY c.name, p.name`
         )
       : await query(
-          `SELECT DISTINCT p.*, c.name as category_name,
+          `SELECT DISTINCT p.*, c.name as category_name, creator.username as created_by_name,
                   CASE WHEN EXISTS (SELECT 1 FROM inventory i2 WHERE i2.product_id = p.id AND i2.location_id = $1 AND i2.quantity > 0) THEN 'active'
                        WHEN p.is_active = false THEN 'inactive'
                        ELSE 'out_of_stock'
                   END AS availability_status
            FROM products p
            LEFT JOIN categories c ON p.category_id = c.id
+           LEFT JOIN users creator ON creator.id = p.created_by
            LEFT JOIN inventory i ON i.product_id = p.id AND i.location_id = $1
            ORDER BY c.name, p.name`,
           [locationId]
@@ -47,9 +49,10 @@ router.get('/', authenticateToken, async (req, res) => {
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const result = await query(
-      `SELECT p.*, c.name as category_name 
+      `SELECT p.*, c.name as category_name, creator.username as created_by_name 
        FROM products p 
-       LEFT JOIN categories c ON p.category_id = c.id 
+       LEFT JOIN categories c ON p.category_id = c.id
+       LEFT JOIN users creator ON creator.id = p.created_by
        WHERE p.id = $1`,
       [req.params.id]
     );
@@ -87,10 +90,10 @@ router.post('/',
       }
 
       const result = await query(
-        `INSERT INTO products (name, category_id, price, cost, unit, source) 
-         VALUES ($1, $2, $3, $4, $5, $6) 
+        `INSERT INTO products (name, category_id, price, cost, unit, source, created_by) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7) 
          RETURNING *`,
-        [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked']
+        [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id]
       );
 
       // Log activity

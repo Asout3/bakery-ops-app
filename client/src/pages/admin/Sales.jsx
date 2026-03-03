@@ -8,6 +8,7 @@ const initialFilters = {
   startDate: '',
   endDate: '',
   paymentMethod: '',
+  status: '',
   searchTerm: ''
 };
 
@@ -40,6 +41,7 @@ export default function SalesPage() {
     if (filters.startDate && saleDate < new Date(filters.startDate)) return false;
     if (filters.endDate && saleDate > new Date(`${filters.endDate}T23:59:59`)) return false;
     if (filters.paymentMethod && sale.payment_method !== filters.paymentMethod) return false;
+    if (filters.status && sale.status !== filters.status) return false;
 
     if (filters.searchTerm) {
       const term = filters.searchTerm.toLowerCase();
@@ -109,6 +111,18 @@ export default function SalesPage() {
               </select>
             </div>
             <div className="col-md-3">
+              <label className="form-label">Status</label>
+              <select
+                className="form-select"
+                value={filters.status}
+                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+              >
+                <option value="">All Statuses</option>
+                <option value="completed">Completed</option>
+                <option value="voided">Voided</option>
+              </select>
+            </div>
+            <div className="col-md-3">
               <label className="form-label">Search</label>
               <div className="input-group">
                 <input
@@ -168,6 +182,7 @@ export default function SalesPage() {
                   <th>Amount</th>
                   <th>Payment Method</th>
                   <th>Status</th>
+                  <th>Void Details</th>
                   <th>Location</th>
                   <th>Cashier</th>
                   <th>Actions</th>
@@ -176,13 +191,13 @@ export default function SalesPage() {
               <tbody>
                 {filteredSales.length === 0 ? (
                   <tr>
-                    <td colSpan="8" className="text-center text-muted py-4">No sales found</td>
+                    <td colSpan="9" className="text-center text-muted py-4">No sales found</td>
                   </tr>
                 ) : (
                   filteredSales.map((sale) => (
                     <tr key={sale.id}>
                       <td>{sale.receipt_number}</td>
-                      <td>{formatAddisDateTime(sale.sale_date)}</td>
+                      <td>{formatAddisDateTime(sale.sale_date, { hour12: true })}</td>
                       <td>ETB {Number(sale.total_amount).toFixed(2)}</td>
                       <td>
                         <span className={`badge ${sale.payment_method === 'cash' ? 'badge-success' : sale.payment_method === 'card' ? 'badge-primary' : 'badge-info'}`}>
@@ -194,6 +209,16 @@ export default function SalesPage() {
                           <span className="badge badge-warning">Offline</span>
                         ) : (
                           <span className="badge badge-success">Online</span>
+                        )}
+                      </td>
+                      <td>
+                        {sale.status === 'voided' ? (
+                          <div>
+                            <small className="text-muted d-block">{formatAddisDateTime(sale.voided_at, { hour12: true })}</small>
+                            <small className="text-danger">{sale.void_reason || 'No reason provided'}</small>
+                          </div>
+                        ) : (
+                          <span className="text-muted">-</span>
                         )}
                       </td>
                       <td>{sale.location_name || sale.location_id}</td>
@@ -223,7 +248,7 @@ export default function SalesPage() {
               <div className="row">
                 <div className="col-md-6">
                   <h5>Transaction Info</h5>
-                  <p><strong>Date & Time:</strong> {formatAddisDateTime(selectedSale.sale_date)}</p>
+                  <p><strong>Date & Time:</strong> {formatAddisDateTime(selectedSale.sale_date, { hour12: true })}</p>
                   <p><strong>Amount:</strong> ETB {Number(selectedSale.total_amount).toFixed(2)}</p>
                   <p><strong>Payment Method:</strong> {selectedSale.payment_method}</p>
                 </div>
@@ -232,6 +257,7 @@ export default function SalesPage() {
                   <p><strong>Cashier:</strong> {selectedSale.cashier_name || selectedSale.cashier_id}</p>
                   <p><strong>Location:</strong> {selectedSale.location_name || selectedSale.location_id}</p>
                   <p><strong>Sync Status:</strong> {selectedSale.is_offline ? 'Offline' : 'Online'}</p>
+                  {selectedSale.status === 'voided' && <p><strong>Void:</strong> {formatAddisDateTime(selectedSale.voided_at, { hour12: true })} — {selectedSale.void_reason || 'No reason provided'}</p>}
                 </div>
               </div>
             </div>

@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
     termination_date DATE,
     location_id INTEGER,
     is_active BOOLEAN DEFAULT true,
+    created_by INTEGER REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -67,6 +68,7 @@ CREATE TABLE IF NOT EXISTS products (
     cost DECIMAL(10, 2),
     unit VARCHAR(20) DEFAULT 'piece',
     is_active BOOLEAN DEFAULT true,
+    created_by INTEGER REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

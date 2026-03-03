@@ -6,7 +6,6 @@ import { enqueueOperation } from '../../utils/offlineQueue';
 
 const initialForm = {
   staff_profile_id: '',
-  location_id: '',
   amount: '',
   payment_date: new Date().toISOString().split('T')[0],
   payment_type: 'salary',
@@ -16,7 +15,6 @@ const initialForm = {
 export default function StaffPaymentsPage() {
   const { selectedLocationId } = useBranch();
   const [payments, setPayments] = useState([]);
-  const [locations, setLocations] = useState([]);
   const [staffMembers, setStaffMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -31,14 +29,12 @@ export default function StaffPaymentsPage() {
 
   const fetchData = async () => {
     try {
-      const [paymentsRes, locationsRes, staffRes] = await Promise.all([
+      const [paymentsRes, staffRes] = await Promise.all([
         api.get('/payments'),
-        api.get('/locations'),
         api.get('/admin/staff-for-payments'),
       ]);
 
       setPayments(paymentsRes.data || []);
-      setLocations(locationsRes.data || []);
       setStaffMembers((staffRes.data || []).filter((staff) => staff.is_active));
     } catch (err) {
       console.error('Failed to fetch data:', err);
@@ -56,7 +52,6 @@ export default function StaffPaymentsPage() {
         staff_profile_id: staffId,
         user_id: selected.user_id ? String(selected.user_id) : prev.user_id,
         amount: selected.monthly_salary ? String(selected.monthly_salary) : prev.amount,
-        location_id: selected.location_id ? String(selected.location_id) : prev.location_id,
       }));
     }
   };
@@ -72,7 +67,6 @@ export default function StaffPaymentsPage() {
     setFormData({
       staff_profile_id: payment.staff_profile_id ? String(payment.staff_profile_id) : '',
       user_id: payment.user_id ? String(payment.user_id) : '',
-      location_id: payment.location_id ? String(payment.location_id) : '',
       amount: String(payment.amount),
       payment_date: payment.payment_date,
       payment_type: payment.payment_type,
@@ -87,7 +81,6 @@ export default function StaffPaymentsPage() {
     const payload = {
       staff_profile_id: formData.staff_profile_id ? Number(formData.staff_profile_id) : undefined,
       user_id: formData.user_id ? Number(formData.user_id) : undefined,
-      location_id: formData.location_id ? Number(formData.location_id) : undefined,
       amount: Number(formData.amount),
       payment_date: formData.payment_date,
       payment_type: formData.payment_type,
@@ -118,7 +111,6 @@ export default function StaffPaymentsPage() {
           user_id: payload.user_id,
           amount: payload.amount,
           payment_type: payload.payment_type,
-          location_id: payload.location_id || Number(selectedLocationId),
           is_pending_sync: true,
         }, ...current]);
         setFeedback({ type: 'warning', message: 'Offline: payment queued for sync.' });
@@ -234,7 +226,6 @@ export default function StaffPaymentsPage() {
                 <th>Staff Member</th>
                 <th>Amount</th>
                 <th>Type</th>
-                <th>Location</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -250,7 +241,6 @@ export default function StaffPaymentsPage() {
                   <td>
                     <span className="badge badge-primary">{paymentTypeLabel(payment.payment_type)}</span>{payment.is_pending_sync && <span className="badge badge-warning" style={{ marginLeft: '0.4rem' }}>Pending Sync</span>}
                   </td>
-                  <td>{locations.find((l) => l.id === payment.location_id)?.name || payment.location_id || '—'}</td>
                   <td style={{ display: 'flex', gap: '0.5rem' }}>
                     <button className="btn btn-sm btn-secondary" onClick={() => openEditModal(payment)}>
                       <Edit size={14} /> Edit
@@ -263,7 +253,7 @@ export default function StaffPaymentsPage() {
               ))}
               {!payments.length && (
                 <tr>
-                  <td colSpan={7} className="text-center" style={{ color: 'var(--text-secondary)' }}>
+                  <td colSpan={6} className="text-center" style={{ color: 'var(--text-secondary)' }}>
                     No payments found for the selected branch.
                   </td>
                 </tr>

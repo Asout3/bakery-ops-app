@@ -2,13 +2,11 @@ import express from 'express';
 import { body, validationResult } from 'express-validator';
 import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
-import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
 
 router.get('/', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const locationId = await getTargetLocationId(req, query);
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
 
@@ -23,10 +21,10 @@ router.get('/', authenticateToken, authorizeRoles('admin'), async (req, res) => 
       LEFT JOIN staff_profiles fp ON sp.staff_profile_id = fp.id
       LEFT JOIN users uc ON sp.created_by = uc.id
       LEFT JOIN locations l ON sp.location_id = l.id
-      WHERE sp.location_id = $1
+      WHERE 1=1
     `;
 
-    const params = [locationId];
+    const params = [];
 
     if (startDate) {
       params.push(startDate);
@@ -62,7 +60,7 @@ router.post('/',
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { staff_profile_id, user_id, amount, payment_date, payment_type, notes, location_id } = req.body;
+    const { staff_profile_id, user_id, amount, payment_date, payment_type, notes } = req.body;
     
     if (!staff_profile_id && !user_id) {
       return res.status(400).json({ error: 'Either staff_profile_id or user_id is required' });
@@ -71,21 +69,16 @@ router.post('/',
     const idempotencyKey = req.headers['x-idempotency-key'];
 
     try {
-      const targetLocationId = await getTargetLocationId({ headers: req.headers, query: { ...req.query, location_id }, user: req.user }, query);
-      
       const resolvedUserId = user_id ? Number(user_id) : null;
       const resolvedStaffProfileId = staff_profile_id ? Number(staff_profile_id) : null;
       
       let staffName = 'Unknown';
-      let staffLocationId = targetLocationId;
+      let staffLocationId = null;
       
       if (resolvedStaffProfileId) {
         const staffResult = await query('SELECT full_name, location_id FROM staff_profiles WHERE id = $1', [resolvedStaffProfileId]);
         if (staffResult.rows.length > 0) {
           staffName = staffResult.rows[0].full_name;
-          if (staffResult.rows[0].location_id) {
-            staffLocationId = staffResult.rows[0].location_id;
-          }
         }
       } else if (resolvedUserId) {
         const userResult = await query('SELECT username, location_id FROM users WHERE id = $1', [resolvedUserId]);
@@ -161,20 +154,19 @@ router.put('/:id',
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { amount, payment_date, payment_type, notes, location_id } = req.body;
+    const { amount, payment_date, payment_type, notes } = req.body;
 
     try {
-      const targetLocationId = await getTargetLocationId({ headers: req.headers, query: { ...req.query, location_id }, user: req.user }, query);
       const result = await query(
         `UPDATE staff_payments
          SET amount = COALESCE($1, amount),
              payment_date = COALESCE($2, payment_date),
              payment_type = COALESCE($3, payment_type),
              notes = COALESCE($4, notes),
-             location_id = COALESCE($5, location_id)
-         WHERE id = $6
+             location_id = NULL
+         WHERE id = $5
          RETURNING *`,
-        [amount || null, payment_date || null, payment_type || null, notes || null, targetLocationId || null, req.params.id]
+        [amount || null, payment_date || null, payment_type || null, notes || null, req.params.id]
       );
 
       if (result.rows.length === 0) {
@@ -209,7 +201,6 @@ router.delete('/:id', authenticateToken, authorizeRoles('admin'), async (req, re
 
 router.get('/summary', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const locationId = await getTargetLocationId(req, query);
 
     let queryText = `
       SELECT 
@@ -221,10 +212,10 @@ router.get('/summary', authenticateToken, authorizeRoles('admin'), async (req, r
       FROM staff_payments sp
       LEFT JOIN users u ON sp.user_id = u.id
       LEFT JOIN staff_profiles fp ON sp.staff_profile_id = fp.id
-      WHERE sp.location_id = $1
+      WHERE 1=1
     `;
 
-    const params = [locationId];
+    const params = [];
 
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;

@@ -260,4 +260,23 @@ export async function ensureAuthSecuritySchema() {
 
 
 
+
+let productCreatorSchemaPromise = null;
+
+export async function ensureProductCreatorSchema() {
+  if (productCreatorSchemaPromise) {
+    return productCreatorSchemaPromise;
+  }
+
+  productCreatorSchemaPromise = (async () => {
+    await query('ALTER TABLE products ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)');
+    await query('CREATE INDEX IF NOT EXISTS idx_products_created_by ON products(created_by)');
+  })().catch((error) => {
+    productCreatorSchemaPromise = null;
+    throw error;
+  });
+
+  return productCreatorSchemaPromise;
+}
+
 export default pool;

@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { Building2, UserPlus, Users, Eye, EyeOff } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '../../context/LanguageContext';
 
-const emptyBranch = { name: '', address: '', phone: '' };
 const emptyAccount = {
   staff_profile_id: '',
   username: '',
@@ -19,13 +19,12 @@ const ROLE_LABELS = {
 
 export default function BranchesAndStaff() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [locations, setLocations] = useState([]);
   const [staffProfiles, setStaffProfiles] = useState([]);
   const [accounts, setAccounts] = useState([]);
-  const [branchForm, setBranchForm] = useState(emptyBranch);
   const [accountForm, setAccountForm] = useState(emptyAccount);
-  const [savingBranch, setSavingBranch] = useState(false);
   const [savingAccount, setSavingAccount] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [editBranchModel, setEditBranchModel] = useState(null);
@@ -73,26 +72,11 @@ export default function BranchesAndStaff() {
     setTimeout(() => setFeedback(null), 5000);
   };
 
-  const createBranch = async (e) => {
-    e.preventDefault();
-    setSavingBranch(true);
-    try {
-      await api.post('/locations', branchForm);
-      setBranchForm(emptyBranch);
-      showFeedback('success', 'Branch created successfully.');
-      loadData();
-    } catch (err) {
-      showFeedback('danger', err.response?.data?.error || 'Could not create branch');
-    } finally {
-      setSavingBranch(false);
-    }
-  };
-
   const createAccount = async (e) => {
     e.preventDefault();
     setSavingAccount(true);
     try {
-      if (!accountForm.staff_profile_id || !accountForm.location_id || !accountForm.username || !accountForm.password) {
+      if (!accountForm.staff_profile_id || !accountForm.username || !accountForm.password) {
         showFeedback('danger', 'Please fill all required account fields.');
         setSavingAccount(false);
         return;
@@ -105,9 +89,10 @@ export default function BranchesAndStaff() {
         return;
       }
 
+      const defaultLocationId = Number(accountForm.location_id || user?.location_id || locations.find((l) => l.is_active)?.id || 0);
       const payload = {
         ...accountForm,
-        location_id: Number(accountForm.location_id),
+        location_id: defaultLocationId || undefined,
         staff_profile_id: Number(accountForm.staff_profile_id),
       };
 
@@ -205,7 +190,7 @@ export default function BranchesAndStaff() {
       const payload = {
         username: editAccountModel.username,
         role: editAccountModel.role,
-        location_id: Number(editAccountModel.location_id),
+        location_id: Number(editAccountModel.location_id || user?.location_id || locations.find((l) => l.is_active)?.id || 0),
       };
       
       if (editAccountModel.password) {
@@ -321,13 +306,13 @@ export default function BranchesAndStaff() {
     }
   };
 
-  const availableStaff = staffProfiles.filter((s) => s.is_active && !s.linked_user_id);
+  const availableStaff = staffProfiles.filter((s) => s.is_active && !s.linked_user_id && ['cashier', 'manager'].includes(s.role_preference));
 
   if (loading) return <div className="loading-container"><div className="spinner"></div></div>;
 
   return (
     <div>
-      <div className="page-header"><h2>Branch & Account Management</h2></div>
+      <div className="page-header"><h2>{t('accountManagement')}</h2></div>
       {feedback && <div className={`alert alert-${feedback.type} mb-4`}>{feedback.message}</div>}
 
       <div className="stats-grid mb-4">
@@ -364,14 +349,6 @@ export default function BranchesAndStaff() {
       </div></div>
 
       <div className="row g-4 mb-4">
-        <div className="col-lg-6"><div className="card h-100"><div className="card-header"><h4>Create Branch</h4></div><div className="card-body">
-          <form onSubmit={createBranch}>
-            <div className="mb-3"><label className="form-label">Branch Name *</label><input className="form-control" required value={branchForm.name} onChange={(e)=>setBranchForm((p)=>({...p,name:e.target.value}))} placeholder="Enter branch name" /></div>
-            <div className="mb-3"><label className="form-label">Address</label><input className="form-control" value={branchForm.address} onChange={(e)=>setBranchForm((p)=>({...p,address:e.target.value}))} placeholder="Enter address" /></div>
-            <div className="mb-3"><label className="form-label">Phone</label><input className="form-control" value={branchForm.phone} onChange={(e)=>setBranchForm((p)=>({...p,phone:e.target.value}))} placeholder="Enter phone number" /></div>
-            <button className="btn btn-primary" disabled={savingBranch}>{savingBranch ? 'Creating...' : 'Create Branch'}</button>
-          </form>
-        </div></div></div>
 
         <div className="col-lg-6"><div className="card h-100"><div className="card-header"><h4>Create Staff Account</h4></div><div className="card-body">
           {availableStaff.length === 0 ? (
@@ -404,7 +381,6 @@ export default function BranchesAndStaff() {
                   ))}
                 </select>
               </div>
-              <div className="col-md-6 mb-3"><label className="form-label">Branch *</label><select className="form-select" required value={accountForm.location_id} onChange={(e)=>setAccountForm((p)=>({...p,location_id:e.target.value}))}><option value="">Select branch</option>{locations.filter(l => l.is_active).map((l)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
             </div>
             <button className="btn btn-success" disabled={savingAccount}><UserPlus size={16} className="me-1" /> {savingAccount ? 'Creating...' : 'Create Account'}</button>
           </form>
@@ -412,22 +388,13 @@ export default function BranchesAndStaff() {
         </div></div></div>
       </div>
 
-      <div className="card mb-4"><div className="card-header"><h4>Branches</h4></div><div className="card-body table-container">
-        {locations.length === 0 ? (
-          <p className="text-muted">No branches created yet.</p>
-        ) : (
-        <table className="table"><thead><tr><th>Name</th><th>Address</th><th>Phone</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {locations.map((b) => <tr key={b.id}><td>{b.name}</td><td>{b.address || '—'}</td><td>{b.phone || '—'}</td><td><span className={`badge ${b.is_active ? 'badge-success':'badge-warning'}`}>{b.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editBranch(b)}>Edit</button><button className="btn btn-sm btn-danger" onClick={()=>deleteBranch(b)}>{b.is_active ? 'Disable' : 'Delete'}</button></td></tr>)}
-        </tbody></table>
-        )}
-      </div></div>
-
       <div className="card"><div className="card-header"><h4>Account Directory</h4></div><div className="card-body table-container">
         {accounts.length === 0 ? (
           <p className="text-muted">No accounts created yet.</p>
         ) : (
-        <table className="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Branch</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {accounts.map((user) => <tr key={user.id}>
+        <>
+        <h5 className="mb-2">Active Accounts</h5><table className="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Branch</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+          {accounts.filter((a)=>a.is_active).map((user) => <tr key={user.id}>
             <td>{user.full_name || user.username}</td>
             <td>{user.username}</td>
             <td><span className={`badge ${user.role === 'manager' ? 'badge-primary' : 'badge-info'}`}>{ROLE_LABELS[user.role] || user.role}</span></td>
@@ -439,7 +406,8 @@ export default function BranchesAndStaff() {
               <button className="btn btn-sm btn-danger" onClick={()=>deleteAccount(user)}>Delete</button>
             </td>
           </tr>)}
-        </tbody></table>
+        </tbody></table><h5 className="mt-4 mb-2">Inactive Accounts</h5><table className="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Branch</th><th>Status</th><th>Actions</th></tr></thead><tbody>{accounts.filter((a)=>!a.is_active).map((user) => <tr key={`inactive-${user.id}`}><td>{user.full_name || user.username}</td><td>{user.username}</td><td><span className={`badge ${user.role === 'manager' ? 'badge-primary' : 'badge-info'}`}>{ROLE_LABELS[user.role] || user.role}</span></td><td>{user.location_name || '—'}</td><td><span className="badge badge-warning">Inactive</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editAccount(user)}>Edit</button><button className="btn btn-sm btn-success" onClick={()=>toggleAccountStatus(user)}>Enable</button><button className="btn btn-sm btn-danger" onClick={()=>deleteAccount(user)}>Delete</button></td></tr>)}{!accounts.filter((a)=>!a.is_active).length && <tr><td colSpan={6} className="text-muted text-center">No inactive accounts.</td></tr>}</tbody></table>
+        </>
         )}
       </div></div>
 
@@ -460,19 +428,7 @@ export default function BranchesAndStaff() {
         </div>
       )}
 
-      {editBranchModel && (
-        <div className="modal-overlay" onClick={() => setEditBranchModel(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><h3>Edit Branch</h3><button className="close-btn" onClick={() => setEditBranchModel(null)}>×</button></div>
-            <div className="modal-body">
-              <div className="mb-3"><label className="form-label">Name *</label><input className="form-control" value={editBranchModel.name || ''} onChange={(e)=>setEditBranchModel((p)=>({...p,name:e.target.value}))} /></div>
-              <div className="mb-3"><label className="form-label">Address</label><input className="form-control" value={editBranchModel.address || ''} onChange={(e)=>setEditBranchModel((p)=>({...p,address:e.target.value}))} /></div>
-              <div className="mb-3"><label className="form-label">Phone</label><input className="form-control" value={editBranchModel.phone || ''} onChange={(e)=>setEditBranchModel((p)=>({...p,phone:e.target.value}))} /></div>
-              <div className="d-flex gap-2"><button className="btn btn-primary" onClick={saveBranchEdit}>Save</button><button className="btn btn-secondary" onClick={() => setEditBranchModel(null)}>Cancel</button></div>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {editAccountModel && (
         <div className="modal-overlay" onClick={() => setEditAccountModel(null)}>
@@ -487,7 +443,7 @@ export default function BranchesAndStaff() {
                   ))}
                 </select>
               </div>
-              <div className="mb-3"><label className="form-label">Branch</label><select className="form-select" value={editAccountModel.location_id || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,location_id:e.target.value}))}>{locations.filter(l => l.is_active).map((l)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
+
               <div className="mb-3"><label className="form-label">New Password (leave blank to keep current)</label><div className="input-group"><input type={showPasswords.editAccount ? "text" : "password"} className="form-control" value={editAccountModel.password || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters, include letter/number/special" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("editAccount")}>{showPasswords.editAccount ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></div>
               <div className="d-flex gap-2"><button className="btn btn-primary" onClick={saveAccountEdit}>Save</button><button className="btn btn-secondary" onClick={() => setEditAccountModel(null)}>Cancel</button></div>
             </div>

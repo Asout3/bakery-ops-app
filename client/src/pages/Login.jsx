@@ -85,8 +85,8 @@ export default function Login() {
     <div className="login-container">
       <div className="login-card card">
         <div className="login-header">
-          <h1>Bakery Operations</h1>
-          <p>Sign in to your account</p>
+          <h1>Sina Sweet</h1>
+          <p>Welcome back — sign in to continue.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
@@ -134,12 +134,7 @@ export default function Login() {
           </button>
         </form>
 
-        <div className="login-footer">
-          <p className="demo-info">{t('demo')}</p>
-          <div className="demo-creds">
-            <div>Admin: admin / admin123</div>
-          </div>
-        </div>
+
       </div>
 
       {showRecoveryModal && (
@@ -182,7 +177,7 @@ export default function Login() {
                 <button type="button" className="btn btn-secondary" onClick={() => setShowRecoveryModal(false)}>Close</button>
               </div>
               <div className="alert alert-warning mt-2 mb-0">
-                If you are not an admin, contact your branch administrator to reset your password.
+                If you are not an admin, contact your system administrator to reset your password.
                 If you are an admin and forgot your password, contact the technical team to request the secure recovery key.
               </div>
             </form>
