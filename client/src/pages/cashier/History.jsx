@@ -3,11 +3,13 @@ import api from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Search, Clock, Receipt, AlertTriangle, X } from 'lucide-react';
 import { formatAddisDateTime } from '../../utils/time';
+import { useLanguage } from '../../context/LanguageContext';
 
 const VOID_WINDOW_MINUTES = 20;
 
 export default function CashierHistory() {
   const { selectedLocationId } = useBranch();
+  const { t } = useLanguage();
   const [sales, setSales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedSale, setSelectedSale] = useState(null);
@@ -33,7 +35,7 @@ export default function CashierHistory() {
       setSales(response.data);
     } catch (err) {
       console.error('Failed to fetch sales:', err);
-      setMessage({ type: 'danger', text: 'Failed to load sales history' });
+      setMessage({ type: 'danger', text: t('processFailedLoadSalesHistory') });
     } finally {
       setLoading(false);
     }
@@ -57,21 +59,21 @@ export default function CashierHistory() {
   const handleVoidSale = async () => {
     if (!selectedSale) return;
     if (!voidReason.trim()) {
-      setMessage({ type: 'warning', text: 'Please provide a reason for voiding this sale' });
+      setMessage({ type: 'warning', text: t('provideVoidReason') });
       return;
     }
 
     setVoiding(true);
     try {
       await api.post(`/sales/${selectedSale.id}/void`, { reason: voidReason });
-      setMessage({ type: 'success', text: `Sale ${selectedSale.receipt_number} has been voided. Inventory restored.` });
+      setMessage({ type: 'success', text: `${t('sales')} ${selectedSale.receipt_number} ${t('saleVoidedMessage')}` });
       setSelectedSale(null);
       setVoidReason('');
       fetchSales();
     } catch (err) {
       setMessage({ 
         type: 'danger', 
-        text: err.response?.data?.error || 'Failed to void sale' 
+        text: err.response?.data?.error || t('failedVoidSale') 
       });
     } finally {
       setVoiding(false);
@@ -105,7 +107,7 @@ export default function CashierHistory() {
   return (
     <div className="sales-history-page">
       <div className="page-header">
-        <h2>Sales History</h2>
+        <h2>{t('salesHistory')}</h2>
       </div>
 
       {message && (
@@ -118,7 +120,7 @@ export default function CashierHistory() {
         <div className="card-body">
           <div className="row g-3">
             <div className="col-md-3">
-              <label className="form-label">Start Date</label>
+              <label className="form-label">{t('startDate')}</label>
               <input
                 type="date"
                 className="form-control"
@@ -127,7 +129,7 @@ export default function CashierHistory() {
               />
             </div>
             <div className="col-md-3">
-              <label className="form-label">End Date</label>
+              <label className="form-label">{t('endDate')}</label>
               <input
                 type="date"
                 className="form-control"
@@ -137,7 +139,7 @@ export default function CashierHistory() {
             </div>
 
             <div className="col-md-3">
-              <label className="form-label">Specific Day (exact)</label>
+              <label className="form-label">{t('specificDayExact')}</label>
               <input
                 type="date"
                 className="form-control"
@@ -146,12 +148,12 @@ export default function CashierHistory() {
               />
             </div>
             <div className="col-md-3">
-              <label className="form-label">Search</label>
+              <label className="form-label">{t('search')}</label>
               <div className="input-group">
                 <input
                   type="text"
                   className="form-control"
-                  placeholder="Receipt # or Amount"
+                  placeholder={t('receiptOrAmount')}
                   value={filters.searchTerm}
                   onChange={(e) => setFilters({...filters, searchTerm: e.target.value})}
                 />
@@ -168,22 +170,22 @@ export default function CashierHistory() {
             <table className="table table-hover">
               <thead>
                 <tr>
-                  <th>Receipt #</th>
-                  <th>Date & Time</th>
-                  <th>Amount</th>
-                  <th>Cashier</th>
-                  <th>Payment</th>
-                  <th>Status</th>
-                  <th>Void Details</th>
-                  <th>Sync</th>
-                  <th>Actions</th>
+                  <th>{t('receipt')}</th>
+                  <th>{t('dateTime')}</th>
+                  <th>{t('amount')}</th>
+                  <th>{t('cashier')}</th>
+                  <th>{t('payment')}</th>
+                  <th>{t('status')}</th>
+                  <th>{t('voidDetails')}</th>
+                  <th>{t('sync')}</th>
+                  <th>{t('actions')}</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredSales.length === 0 ? (
                   <tr>
                     <td colSpan="8" className="text-center text-muted py-4">
-                      No sales found
+                      {t('noSalesFound')}
                     </td>
                   </tr>
                 ) : (
@@ -192,7 +194,7 @@ export default function CashierHistory() {
                       <td>
                         {sale.receipt_number}
                         {sale.status === 'voided' && (
-                          <span className="badge badge-danger ms-2">VOIDED</span>
+                          <span className="badge badge-danger ms-2">{t('voided')}</span>
                         )}
                       </td>
                       <td>
@@ -206,7 +208,7 @@ export default function CashierHistory() {
                           ETB {Number(sale.total_amount).toFixed(2)}
                         </span>
                       </td>
-                      <td>{sale.cashier_name || 'Unknown'}</td>
+                      <td>{sale.cashier_name || t('unknown')}</td>
                       <td>
                         <span className={`badge ${sale.payment_method === 'cash' ? 'badge-success' : sale.payment_method === 'card' ? 'badge-primary' : 'badge-info'}`}>
                           {sale.payment_method}
@@ -216,21 +218,21 @@ export default function CashierHistory() {
                         {canVoidSale(sale) && (
                           <span className="badge badge-warning">
                             <Clock size={12} className="me-1" />
-                            {getMinutesRemaining(sale)}m to void
+                            {getMinutesRemaining(sale)}m {t('voidRemainingSuffix')}
                           </span>
                         )}
                         {sale.status === 'voided' && (
-                          <span className="badge badge-secondary">Cancelled</span>
+                          <span className="badge badge-secondary">{t('cancelled')}</span>
                         )}
                         {!canVoidSale(sale) && sale.status !== 'voided' && (
-                          <span className="badge badge-success">Completed</span>
+                          <span className="badge badge-success">{t('completed')}</span>
                         )}
                       </td>
                       <td>
                         {sale.status === 'voided' ? (
                           <div>
                             <small className="text-muted d-block">{formatAddisDateTime(sale.voided_at, { hour12: true })}</small>
-                            <small className="text-danger">{sale.void_reason || 'No reason provided'}</small>
+                            <small className="text-danger">{sale.void_reason || t('noReasonProvided')}</small>
                           </div>
                         ) : (
                           <span className="text-muted">-</span>
@@ -238,9 +240,9 @@ export default function CashierHistory() {
                       </td>
                       <td>
                         {sale.is_offline ? (
-                          <span className="badge badge-warning">Offline</span>
+                          <span className="badge badge-warning">{t('offline')}</span>
                         ) : (
-                          <span className="badge badge-success">Online</span>
+                          <span className="badge badge-success">{t('online')}</span>
                         )}
                       </td>
                       <td>
@@ -256,7 +258,7 @@ export default function CashierHistory() {
                               }
                             }}
                           >
-                            <Receipt size={14} /> View
+                            <Receipt size={14} /> {t('view')}
                           </button>
                           {canVoidSale(sale) && (
                             <button 
@@ -270,7 +272,7 @@ export default function CashierHistory() {
                                 }
                               }}
                             >
-                              <X size={14} /> Void
+                              <X size={14} /> {t('void')}
                             </button>
                           )}
                         </div>
@@ -291,7 +293,7 @@ export default function CashierHistory() {
               <h3>
                 {selectedSale.receipt_number}
                 {selectedSale.status === 'voided' && (
-                  <span className="badge badge-danger ms-2">VOIDED</span>
+                  <span className="badge badge-danger ms-2">{t('voided')}</span>
                 )}
               </h3>
               <button className="close-btn" onClick={() => { setSelectedSale(null); setVoidReason(''); }}>×</button>
@@ -299,20 +301,20 @@ export default function CashierHistory() {
             <div className="modal-body">
               <div className="row">
                 <div className="col-md-6">
-                  <h5>Transaction Info</h5>
-                  <p><strong>Date & Time:</strong> {formatAddisDateTime(selectedSale.sale_date, { hour12: true })}</p>
-                  <p><strong>Amount:</strong> ETB {Number(selectedSale.total_amount).toFixed(2)}</p>
-                  <p><strong>Cashier:</strong> {selectedSale.cashier_name || 'Unknown'}</p>
-                  <p><strong>Payment Method:</strong> {selectedSale.payment_method}</p>
+                  <h5>{t('transactionInfo')}</h5>
+                  <p><strong>{t('dateAndTimeLabel')}</strong> {formatAddisDateTime(selectedSale.sale_date, { hour12: true })}</p>
+                  <p><strong>{t('amountLabel')}</strong> ETB {Number(selectedSale.total_amount).toFixed(2)}</p>
+                  <p><strong>{t('cashierLabel')}</strong> {selectedSale.cashier_name || t('unknown')}</p>
+                  <p><strong>{t('paymentMethodLabel')}</strong> {selectedSale.payment_method}</p>
                   {selectedSale.status === 'voided' && (
                     <div className="alert alert-warning">
-                      <strong>Voided at:</strong> {formatAddisDateTime(selectedSale.voided_at, { hour12: true })}<br/>
-                      <strong>Reason:</strong> {selectedSale.void_reason}
+                      <strong>{t('voidedAt')}</strong> {formatAddisDateTime(selectedSale.voided_at, { hour12: true })}<br/>
+                      <strong>{t('reason')}</strong> {selectedSale.void_reason}
                     </div>
                   )}
                 </div>
                 <div className="col-md-6">
-                  <h5>Items ({selectedSale.items?.length || 0})</h5>
+                  <h5>{t('items')} ({selectedSale.items?.length || 0})</h5>
                 </div>
               </div>
               
@@ -321,10 +323,10 @@ export default function CashierHistory() {
                   <table className="table table-sm">
                     <thead>
                       <tr>
-                        <th>Product</th>
-                        <th>Qty</th>
-                        <th>Price</th>
-                        <th>Total</th>
+                        <th>{t('product')}</th>
+                        <th>{t('qty')}</th>
+                        <th>{t('price')}</th>
+                        <th>{t('total')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -339,7 +341,7 @@ export default function CashierHistory() {
                     </tbody>
                     <tfoot>
                       <tr>
-                        <th colSpan="3">Total:</th>
+                        <th colSpan="3">{t('total')}:</th>
                         <th>ETB {Number(selectedSale.total_amount).toFixed(2)}</th>
                       </tr>
                     </tfoot>
@@ -351,20 +353,20 @@ export default function CashierHistory() {
                 <div className="mt-4 p-3 bg-light rounded">
                   <h5 className="text-danger">
                     <AlertTriangle size={18} className="me-2" />
-                    Void This Sale?
+                    {t('voidThisSale')}
                   </h5>
                   <p className="text-muted small">
-                    You have <strong>{getMinutesRemaining(selectedSale)} minutes</strong> remaining to void this sale.
-                    Inventory will be restored automatically.
+                    {t('remainingToVoidPrefix')} <strong>{getMinutesRemaining(selectedSale)} {t('voidRemainingSuffix')}</strong> {t('remainingToVoidMiddle')}
+                    {t('inventoryRestoredMessage')}
                   </p>
                   <div className="mb-3">
-                    <label className="form-label">Reason for voiding *</label>
+                    <label className="form-label">{t('reasonForVoiding')}</label>
                     <textarea
                       className="form-control"
                       rows="2"
                       value={voidReason}
                       onChange={(e) => setVoidReason(e.target.value)}
-                      placeholder="e.g., Customer changed their mind, entered wrong amount..."
+                      placeholder={t('reasonPlaceholder')}
                     />
                   </div>
                   <button 
@@ -373,16 +375,16 @@ export default function CashierHistory() {
                     disabled={voiding || !voidReason.trim()}
                   >
                     {voiding ? (
-                      <>Processing...</>
+                      <>{t('processingShort')}</>
                     ) : (
-                      <><X size={16} className="me-1" /> Void Sale & Restore Inventory</>
+                      <><X size={16} className="me-1" /> {t('voidSaleRestoreInventory')}</>
                     )}
                   </button>
                 </div>
               )}
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => { setSelectedSale(null); setVoidReason(''); }}>Close</button>
+              <button className="btn btn-secondary" onClick={() => { setSelectedSale(null); setVoidReason(''); }}>{t('close')}</button>
             </div>
           </div>
         </div>
