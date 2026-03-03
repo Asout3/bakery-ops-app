@@ -3,7 +3,6 @@ import { Building2, UserPlus, Users, Eye, EyeOff } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 
-const emptyBranch = { name: '', address: '', phone: '' };
 const emptyAccount = {
   staff_profile_id: '',
   username: '',
@@ -23,9 +22,7 @@ export default function BranchesAndStaff() {
   const [locations, setLocations] = useState([]);
   const [staffProfiles, setStaffProfiles] = useState([]);
   const [accounts, setAccounts] = useState([]);
-  const [branchForm, setBranchForm] = useState(emptyBranch);
   const [accountForm, setAccountForm] = useState(emptyAccount);
-  const [savingBranch, setSavingBranch] = useState(false);
   const [savingAccount, setSavingAccount] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [editBranchModel, setEditBranchModel] = useState(null);
@@ -73,26 +70,11 @@ export default function BranchesAndStaff() {
     setTimeout(() => setFeedback(null), 5000);
   };
 
-  const createBranch = async (e) => {
-    e.preventDefault();
-    setSavingBranch(true);
-    try {
-      await api.post('/locations', branchForm);
-      setBranchForm(emptyBranch);
-      showFeedback('success', 'Branch created successfully.');
-      loadData();
-    } catch (err) {
-      showFeedback('danger', err.response?.data?.error || 'Could not create branch');
-    } finally {
-      setSavingBranch(false);
-    }
-  };
-
   const createAccount = async (e) => {
     e.preventDefault();
     setSavingAccount(true);
     try {
-      if (!accountForm.staff_profile_id || !accountForm.location_id || !accountForm.username || !accountForm.password) {
+      if (!accountForm.staff_profile_id || !accountForm.username || !accountForm.password) {
         showFeedback('danger', 'Please fill all required account fields.');
         setSavingAccount(false);
         return;
@@ -105,9 +87,10 @@ export default function BranchesAndStaff() {
         return;
       }
 
+      const defaultLocationId = Number(accountForm.location_id || user?.location_id || locations.find((l) => l.is_active)?.id || 0);
       const payload = {
         ...accountForm,
-        location_id: Number(accountForm.location_id),
+        location_id: defaultLocationId || undefined,
         staff_profile_id: Number(accountForm.staff_profile_id),
       };
 
@@ -205,7 +188,7 @@ export default function BranchesAndStaff() {
       const payload = {
         username: editAccountModel.username,
         role: editAccountModel.role,
-        location_id: Number(editAccountModel.location_id),
+        location_id: Number(editAccountModel.location_id || user?.location_id || locations.find((l) => l.is_active)?.id || 0),
       };
       
       if (editAccountModel.password) {
@@ -364,14 +347,6 @@ export default function BranchesAndStaff() {
       </div></div>
 
       <div className="row g-4 mb-4">
-        <div className="col-lg-6"><div className="card h-100"><div className="card-header"><h4>Create Branch</h4></div><div className="card-body">
-          <form onSubmit={createBranch}>
-            <div className="mb-3"><label className="form-label">Branch Name *</label><input className="form-control" required value={branchForm.name} onChange={(e)=>setBranchForm((p)=>({...p,name:e.target.value}))} placeholder="Enter branch name" /></div>
-            <div className="mb-3"><label className="form-label">Address</label><input className="form-control" value={branchForm.address} onChange={(e)=>setBranchForm((p)=>({...p,address:e.target.value}))} placeholder="Enter address" /></div>
-            <div className="mb-3"><label className="form-label">Phone</label><input className="form-control" value={branchForm.phone} onChange={(e)=>setBranchForm((p)=>({...p,phone:e.target.value}))} placeholder="Enter phone number" /></div>
-            <button className="btn btn-primary" disabled={savingBranch}>{savingBranch ? 'Creating...' : 'Create Branch'}</button>
-          </form>
-        </div></div></div>
 
         <div className="col-lg-6"><div className="card h-100"><div className="card-header"><h4>Create Staff Account</h4></div><div className="card-body">
           {availableStaff.length === 0 ? (
@@ -404,7 +379,7 @@ export default function BranchesAndStaff() {
                   ))}
                 </select>
               </div>
-              <div className="col-md-6 mb-3"><label className="form-label">Branch *</label><select className="form-select" required value={accountForm.location_id} onChange={(e)=>setAccountForm((p)=>({...p,location_id:e.target.value}))}><option value="">Select branch</option>{locations.filter(l => l.is_active).map((l)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
+              <div className="col-md-6 mb-3"><label className="form-label">Branch</label><input className="form-control" value={locations.find((l)=>Number(l.id)===Number(accountForm.location_id || user?.location_id))?.name || 'Main'} disabled /></div>
             </div>
             <button className="btn btn-success" disabled={savingAccount}><UserPlus size={16} className="me-1" /> {savingAccount ? 'Creating...' : 'Create Account'}</button>
           </form>
@@ -460,19 +435,7 @@ export default function BranchesAndStaff() {
         </div>
       )}
 
-      {editBranchModel && (
-        <div className="modal-overlay" onClick={() => setEditBranchModel(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><h3>Edit Branch</h3><button className="close-btn" onClick={() => setEditBranchModel(null)}>×</button></div>
-            <div className="modal-body">
-              <div className="mb-3"><label className="form-label">Name *</label><input className="form-control" value={editBranchModel.name || ''} onChange={(e)=>setEditBranchModel((p)=>({...p,name:e.target.value}))} /></div>
-              <div className="mb-3"><label className="form-label">Address</label><input className="form-control" value={editBranchModel.address || ''} onChange={(e)=>setEditBranchModel((p)=>({...p,address:e.target.value}))} /></div>
-              <div className="mb-3"><label className="form-label">Phone</label><input className="form-control" value={editBranchModel.phone || ''} onChange={(e)=>setEditBranchModel((p)=>({...p,phone:e.target.value}))} /></div>
-              <div className="d-flex gap-2"><button className="btn btn-primary" onClick={saveBranchEdit}>Save</button><button className="btn btn-secondary" onClick={() => setEditBranchModel(null)}>Cancel</button></div>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {editAccountModel && (
         <div className="modal-overlay" onClick={() => setEditAccountModel(null)}>
@@ -487,7 +450,7 @@ export default function BranchesAndStaff() {
                   ))}
                 </select>
               </div>
-              <div className="mb-3"><label className="form-label">Branch</label><select className="form-select" value={editAccountModel.location_id || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,location_id:e.target.value}))}>{locations.filter(l => l.is_active).map((l)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
+
               <div className="mb-3"><label className="form-label">New Password (leave blank to keep current)</label><div className="input-group"><input type={showPasswords.editAccount ? "text" : "password"} className="form-control" value={editAccountModel.password || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters, include letter/number/special" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("editAccount")}>{showPasswords.editAccount ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></div>
               <div className="d-flex gap-2"><button className="btn btn-primary" onClick={saveAccountEdit}>Save</button><button className="btn btn-secondary" onClick={() => setEditAccountModel(null)}>Cancel</button></div>
             </div>

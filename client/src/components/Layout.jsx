@@ -95,6 +95,7 @@ export default function Layout() {
         { to: '/admin/reports', icon: BarChart3, label: t('reports') },
         { to: '/admin/notifications', icon: Bell, label: t('notifications'), showBadge: true },
         { to: '/admin/sync', icon: BarChart3, label: t('syncQueue') },
+        { to: '/admin/team', icon: Users, label: 'Account Management' },
         { to: '/admin/staff', icon: Users, label: t('staffManagement') },
         { to: '/admin/history-lifecycle', icon: BarChart3, label: t('historyLifecycle') },
       ];
@@ -115,8 +116,6 @@ export default function Layout() {
     }
     return [];
   }, [user?.role, t]);
-
-  const activeLocationName = locations.find((loc) => Number(loc.id) === Number(selectedLocationId))?.name || locations[0]?.name || 'Main';
 
   return (
     <div className="layout">
@@ -168,7 +167,6 @@ export default function Layout() {
           </button>
           <div className="top-bar-content" style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
             <h1 className="page-title">{t('appTitle')}</h1>
-            <span className="badge badge-secondary">{activeLocationName}</span>
             <button className="btn btn-sm btn-secondary" onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}>
               {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />} {t(theme === 'light' ? 'dark' : 'light')}
             </button>

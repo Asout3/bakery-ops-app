@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { Plus, Edit, Trash2, TrendingDown, DollarSign, Calendar } from 'lucide-react';
+import { Plus, Edit, Trash2, TrendingDown, DollarSign, Calendar, Clock } from 'lucide-react';
 import { enqueueOperation } from '../../utils/offlineQueue';
+
+const EXPENSE_EDIT_WINDOW_MINUTES = 20;
 
 export default function ExpensesPage() {
   const { selectedLocationId } = useBranch();
@@ -17,7 +19,6 @@ export default function ExpensesPage() {
     description: '',
     amount: '',
     expense_date: new Date().toISOString().split('T')[0],
-    location_id: ''
   });
 
   useEffect(() => {
@@ -51,8 +52,7 @@ export default function ExpensesPage() {
         category: '',
         description: '',
         amount: '',
-        expense_date: new Date().toISOString().split('T')[0],
-        location_id: ''
+        expense_date: new Date().toISOString().split('T')[0]
       });
     } catch (err) {
       if (!editingExpense && !err.response) {
@@ -76,6 +76,16 @@ export default function ExpensesPage() {
       }
     }
   };
+
+
+  const getMinutesRemaining = (expense) => {
+    const createdAt = expense?.created_at ? new Date(expense.created_at) : null;
+    if (!createdAt || Number.isNaN(createdAt.getTime())) return 0;
+    const elapsed = (Date.now() - createdAt.getTime()) / 60000;
+    return Math.max(0, Math.ceil(EXPENSE_EDIT_WINDOW_MINUTES - elapsed));
+  };
+
+  const isEditable = (expense) => getMinutesRemaining(expense) > 0;
 
   const categories = [
     'Utilities', 'Rent', 'Supplies', 'Marketing', 
@@ -103,8 +113,7 @@ export default function ExpensesPage() {
               category: '',
               description: '',
               amount: '',
-              expense_date: new Date().toISOString().split('T')[0],
-              location_id: ''
+              expense_date: new Date().toISOString().split('T')[0]
             });
             setShowForm(true);
           }}
@@ -176,7 +185,7 @@ export default function ExpensesPage() {
                   <th>Category</th>
                   <th>Description</th>
                   <th>Amount</th>
-                  <th>Location</th>
+                  <th>Window</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -196,27 +205,29 @@ export default function ExpensesPage() {
                         ETB {Number(expense.amount).toFixed(2)}
                       </span>
                     </td>
-                    <td>{expense.location_id}</td>
+                    <td>{isEditable(expense) ? <span className="badge badge-warning"><Clock size={12} className="me-1" />{getMinutesRemaining(expense)}m left</span> : <span className="badge badge-secondary">Locked</span>}</td>
                     <td>
                       <button 
                         className="btn btn-sm btn-outline-primary me-2"
                         onClick={() => {
+                          if (!isEditable(expense)) return;
                           setEditingExpense(expense);
                           setFormData({
                             category: expense.category,
                             description: expense.description,
                             amount: expense.amount,
-                            expense_date: expense.expense_date,
-                            location_id: expense.location_id
+                            expense_date: expense.expense_date
                           });
                           setShowForm(true);
                         }}
+                      disabled={!isEditable(expense)}
                       >
                         <Edit size={14} />
                       </button>
                       <button 
                         className="btn btn-sm btn-outline-danger"
                         onClick={() => handleDelete(expense.id)}
+                        disabled={!isEditable(expense)}
                       >
                         <Trash2 size={14} />
                       </button>
@@ -284,15 +295,6 @@ export default function ExpensesPage() {
                     value={formData.expense_date}
                     onChange={(e) => setFormData({...formData, expense_date: e.target.value})}
                     required
-                  />
-                </div>
-                <div className="col-md-6 mb-3">
-                  <label className="form-label">Location ID</label>
-                  <input
-                    type="number"
-                    className="form-control"
-                    value={formData.location_id}
-                    onChange={(e) => setFormData({...formData, location_id: e.target.value})}
                   />
                 </div>
               </div>

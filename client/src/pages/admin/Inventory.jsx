@@ -8,7 +8,6 @@ export default function AdminInventory() {
   const { selectedLocationId } = useBranch();
   const [inventory, setInventory] = useState([]);
   const [products, setProducts] = useState([]);
-  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -17,7 +16,6 @@ export default function AdminInventory() {
   const [search, setSearch] = useState('');
   const [formData, setFormData] = useState({
     product_id: '',
-    location_id: '',
     quantity: ''
   });
 
@@ -71,24 +69,21 @@ export default function AdminInventory() {
 
   const fetchData = async () => {
     try {
-      const [inventoryRes, productsRes, locationsRes] = await Promise.all([
+      const [inventoryRes, productsRes] = await Promise.all([
         api.get('/inventory'),
-        api.get('/products'),
-        api.get('/locations')
+        api.get('/products')
       ]);
 
       const nextInventory = await applyPendingInventoryOps(inventoryRes.data || []);
       setInventory(nextInventory);
       setProducts(productsRes.data || []);
-      setLocations(locationsRes.data || []);
-      persistInventoryCache({ inventory: nextInventory, products: productsRes.data || [], locations: locationsRes.data || [] });
+      persistInventoryCache({ inventory: nextInventory, products: productsRes.data || [] });
     } catch (err) {
       const cached = localStorage.getItem(`admin_inventory_cache_${selectedLocationId || 'default'}`);
       if (cached) {
         const parsed = JSON.parse(cached);
         setInventory(parsed.inventory || []);
         setProducts(parsed.products || []);
-        setLocations(parsed.locations || []);
         setMessage({ type: 'warning', text: 'Offline mode: using cached inventory.' });
       } else {
         setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to fetch inventory data.') });
@@ -101,7 +96,7 @@ export default function AdminInventory() {
   const resetForm = () => {
     setShowForm(false);
     setEditingItem(null);
-    setFormData({ product_id: '', location_id: '', quantity: '', source: 'baked' });
+    setFormData({ product_id: '', quantity: '', source: 'baked' });
   };
 
   const handleSubmit = async (e) => {
@@ -111,7 +106,7 @@ export default function AdminInventory() {
     setSaving(true);
     const payload = {
       product_id: Number(formData.product_id),
-      location_id: Number(formData.location_id || selectedLocationId),
+      location_id: Number(selectedLocationId),
       quantity: Number(formData.quantity),
       source: formData.source,
     };
@@ -156,7 +151,7 @@ export default function AdminInventory() {
         await enqueueOperation({ url: `/inventory/${id}`, method: 'delete', data: {}, idempotencyKey });
         setInventory((current) => {
           const nextInventory = current.filter((item) => String(item.id) !== String(id));
-          persistInventoryCache({ inventory: nextInventory, products, locations });
+          persistInventoryCache({ inventory: nextInventory, products });
           return nextInventory;
         });
         setMessage({ type: 'warning', text: 'Offline: delete queued for sync.' });
@@ -186,7 +181,7 @@ export default function AdminInventory() {
           className="btn btn-primary"
           onClick={() => {
             setEditingItem(null);
-            setFormData({ product_id: '', location_id: '', quantity: '' });
+            setFormData({ product_id: '', quantity: '' });
             setShowForm(true);
           }}
         >
@@ -207,18 +202,17 @@ export default function AdminInventory() {
         <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><TrendingDown size={24} /></div><div className="stat-content"><h3>{inventory.filter((item) => Number(item.quantity || 0) <= 5).length}</h3><p>Low Stock</p></div></div>
       </div>
 
-      <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>ID</th><th>Product</th><th>Location</th><th>Quantity</th><th>Last Updated</th><th>Updated By</th><th>Source</th><th>Actions</th></tr></thead><tbody>
+      <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>ID</th><th>Product</th><th>Quantity</th><th>Last Updated</th><th>Updated By</th><th>Source</th><th>Actions</th></tr></thead><tbody>
         {inventory.filter((item) => (item.product_name || products.find((p) => p.id === item.product_id)?.name || '').toLowerCase().includes(search.toLowerCase())).map((item) => (
           <tr key={item.id}>
             <td>{item.id}</td>
             <td>{products.find((p) => p.id === item.product_id)?.name || item.product_id}</td>
-            <td>{locations.find((l) => l.id === item.location_id)?.name || item.location_id}</td>
             <td><span className={`badge ${Number(item.quantity) <= 5 ? 'badge-warning' : 'badge-success'}`}>{item.quantity}</span>{item.is_pending_sync && <span className="badge badge-info" style={{ marginLeft: '0.4rem' }}>Pending Sync</span>}</td>
             <td>{new Date(item.last_updated).toLocaleDateString()}</td>
             <td>{item.last_updated_by_name || 'System'}</td>
             <td><span className={`badge ${item.source === 'baked' ? 'badge-info' : 'badge-secondary'}`}>{item.source}</span></td>
             <td>
-              <button className="btn btn-sm btn-outline-primary me-2" onClick={() => { setEditingItem(item); setFormData({ product_id: item.product_id, location_id: item.location_id, quantity: item.quantity, source: item.source || 'baked' }); setShowForm(true); }}><Edit size={14} /></button>
+              <button className="btn btn-sm btn-outline-primary me-2" onClick={() => { setEditingItem(item); setFormData({ product_id: item.product_id, quantity: item.quantity, source: item.source || 'baked' }); setShowForm(true); }}><Edit size={14} /></button>
               <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(item.id)}><Trash2 size={14} /></button>
             </td>
           </tr>
@@ -231,7 +225,6 @@ export default function AdminInventory() {
             <div className="modal-header"><h3>{editingItem ? 'Edit Inventory Item' : 'Add New Inventory Item'}</h3><button className="close-btn" onClick={resetForm}>×</button></div>
             <form onSubmit={handleSubmit} className="modal-body">
               <div className="mb-3"><label className="form-label">Product *</label><select className="form-select" value={formData.product_id} onChange={(e) => setFormData({ ...formData, product_id: e.target.value })} required><option value="">Select Product</option>{availableProductsForCreate.map((product) => (<option key={product.id} value={product.id}>{product.name}</option>))}</select></div>
-              <div className="mb-3"><label className="form-label">Location *</label><select className="form-select" value={formData.location_id} onChange={(e) => setFormData({ ...formData, location_id: e.target.value })} required><option value="">Select Location</option>{locations.map((location) => (<option key={location.id} value={location.id}>{location.name}</option>))}</select></div>
               <div className="mb-3"><label className="form-label">Quantity *</label><input type="number" className="form-control" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} required /></div>
               <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForm}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : editingItem ? 'Update' : 'Add'} Item</button></div>
             </form>
