@@ -254,7 +254,7 @@ router.delete('/staff/:id', authenticateToken, authorizeRoles('admin'), async (r
     if (err.status) {
       return res.status(err.status).json({ error: err.message, code: err.code, requestId: req.requestId });
     }
-    res.status(500).json({ error: 'Internal server error', code: 'STAFF_ARCHIVE_ERROR', requestId: req.requestId });
+    res.status(500).json({ error: 'Internal server error', code: 'STAFF_DELETE_ERROR', requestId: req.requestId });
   }
 });
 
@@ -601,11 +601,11 @@ router.delete('/users/:id', authenticateToken, authorizeRoles('admin'), async (r
     const result = await archiveStaffAccount(id, adminLifecycleRepository);
     res.json(result);
   } catch (err) {
-    console.error('Archive account error:', err);
+    console.error('Delete account error:', err);
     if (err.status) {
       return res.status(err.status).json({ error: err.message, code: err.code, requestId: req.requestId });
     }
-    res.status(500).json({ error: 'Internal server error', code: 'ACCOUNT_ARCHIVE_ERROR', requestId: req.requestId });
+    res.status(500).json({ error: 'Internal server error', code: 'ACCOUNT_DELETE_ERROR', requestId: req.requestId });
   }
 });
 
