@@ -95,7 +95,7 @@ export default function Layout() {
         { to: '/admin/reports', icon: BarChart3, label: t('reports') },
         { to: '/admin/notifications', icon: Bell, label: t('notifications'), showBadge: true },
         { to: '/admin/sync', icon: BarChart3, label: t('syncQueue') },
-        { to: '/admin/team', icon: Users, label: 'Account Management' },
+        { to: '/admin/team', icon: Users, label: t('accountManagement') },
         { to: '/admin/staff', icon: Users, label: t('staffManagement') },
         { to: '/admin/history-lifecycle', icon: BarChart3, label: t('historyLifecycle') },
       ];
@@ -111,7 +111,7 @@ export default function Layout() {
     if (role === 'cashier') {
       return [
         { to: '/cashier/sales', icon: ShoppingCart, label: t('newSale') },
-        { to: '/cashier/history', icon: BarChart3, label: 'Sales History' },
+        { to: '/cashier/history', icon: BarChart3, label: t('salesHistory') },
       ];
     }
     return [];

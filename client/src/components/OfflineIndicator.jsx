@@ -17,7 +17,7 @@ export default function OfflineIndicator() {
   const issueCount = isAdmin ? (queueStats.conflict + queueStats.failed + (queueStats.needsReview || 0)) : 0;
   const shouldShowDone = Boolean(syncProgress.finished && syncProgress.total > 0);
   const doneText = shouldShowDone ? `Done ${syncProgress.done}/${syncProgress.total}` : '';
-  const showCenterModal = !centerModalDismissed && ((syncInProgress && syncProgress.total > 0) || shouldShowDone);
+  const showCenterModal = false;
 
   const loadConflicts = useCallback(async () => {
     if (!isAdmin || !isAuthenticated) {
