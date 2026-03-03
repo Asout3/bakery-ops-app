@@ -105,11 +105,13 @@ export default function ManagerBatches() {
   const normalizeBatch = useCallback((batch) => {
     const wasSynced = normalizeBoolean(batch?.was_synced) || Boolean(batch?.synced_by_name) || Boolean(batch?.synced_at);
     const isOffline = normalizeBoolean(batch?.is_offline) || wasSynced;
+    const rawCanEdit = batch?.can_edit;
+    const canEdit = rawCanEdit === undefined || rawCanEdit === null ? null : normalizeBoolean(rawCanEdit);
     return {
       ...batch,
       was_synced: wasSynced,
       is_offline: isOffline,
-      can_edit: normalizeBoolean(batch?.can_edit),
+      can_edit: canEdit,
       fetched_at_ms: Date.now(),
     };
   }, []);
@@ -117,6 +119,7 @@ export default function ManagerBatches() {
   const isBatchEditable = useCallback((batch) => {
     if (!batch) return false;
     if (batch.status === 'voided') return false;
+    if (batch.can_edit === true) return true;
     if (batch.can_edit === false) return false;
     return getMinutesRemaining(batch) > 0;
   }, [getMinutesRemaining]);
@@ -383,7 +386,7 @@ export default function ManagerBatches() {
                       <td>
                         <div className="d-flex gap-1">
                           <span className={`badge ${isBatchEditable(batch) ? 'bg-success' : 'bg-secondary'}`}>
-                            {isBatchEditable(batch) ? `${getMinutesRemaining(batch)}m left` : 'Locked'}
+                            {isBatchEditable(batch) ? `${Math.max(1, getMinutesRemaining(batch))}m left` : 'Locked'}
                           </span>
                           <button 
                             className="btn btn-sm btn-outline-primary" 
@@ -470,8 +473,8 @@ export default function ManagerBatches() {
 
               <div className={`alert ${isBatchEditable(selectedBatch) ? 'alert-success' : 'alert-secondary'} mb-4`}>
                 {isBatchEditable(selectedBatch)
-                  ? 'This batch is editable and can be voided from this page.'
-                  : 'This batch is locked because it is already voided.'}
+                  ? `This batch is editable for ${Math.max(1, getMinutesRemaining(selectedBatch))} more minute(s).`
+                  : 'This batch is locked because the 20-minute window expired or it was already voided.'}
               </div>
 
               {selectedBatch.was_synced && selectedBatch.synced_by_name && (
