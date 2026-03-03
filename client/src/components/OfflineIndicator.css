@@ -162,7 +162,7 @@
   align-items: center;
   justify-content: center;
   z-index: 1100;
-  pointer-events: none;
+  pointer-events: auto;
   background: radial-gradient(circle at center, rgba(15,23,42,0.12), transparent 55%);
 }
 

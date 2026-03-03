@@ -4,13 +4,16 @@
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #ede0d0;
 }
 
 .login-card {
   width: 100%;
-  max-width: 420px;
+  max-width: 440px;
   padding: 2.5rem;
+  background: #fffaf5;
+  border: 1px solid rgba(244, 162, 97, 0.12);
+  box-shadow: 0 16px 40px rgba(95, 58, 36, 0.12);
 }
 
 .login-header {
@@ -21,12 +24,12 @@
 .login-header h1 {
   font-size: 1.875rem;
   margin-bottom: 0.5rem;
-  color: var(--text-primary);
+  color: #2c2a29;
 }
 
 .login-header p {
-  color: var(--text-secondary);
-  font-size: 0.875rem;
+  color: #5f3a24;
+  font-size: 0.9rem;
 }
 
 .login-form {
@@ -38,6 +41,21 @@
 .form-group {
   display: flex;
   flex-direction: column;
+}
+
+.form-group .label {
+  color: #2c2a29;
+}
+
+.form-group .input {
+  background: #fefcf8;
+  border: 1px solid #b89c84;
+  color: #2c2a29;
+}
+
+.form-group .input:focus {
+  border-color: #e67e3d;
+  box-shadow: 0 0 0 3px rgba(230, 126, 61, 0.28);
 }
 
 .password-field {
@@ -56,7 +74,7 @@
   transform: translateY(-50%);
   border: 0;
   background: transparent;
-  color: var(--text-secondary);
+  color: #8d5a3b;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -66,28 +84,21 @@
   width: 100%;
 }
 
-.login-footer {
-  margin-top: 1.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--border);
-  text-align: center;
+.login-form .btn-primary {
+  border: 1px solid #f4a261;
+  background: linear-gradient(120deg, #f7b278 0%, #f4a261 50%, #e8854a 100%);
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(244, 162, 97, 0.38);
 }
 
-.demo-info {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  margin-bottom: 0.5rem;
-  font-weight: 500;
+.login-form .btn-primary:hover {
+  background: linear-gradient(120deg, #f9bc88 0%, #f4a261 50%, #e07840 100%);
 }
 
-.demo-creds {
-  font-size: 0.75rem;
-  color: var(--text-light);
-  font-family: monospace;
-}
-
-.demo-creds div {
-  margin: 0.25rem 0;
+.login-form .alert-danger {
+  background: #fff1ed;
+  border-color: #f0b8ac;
+  color: #8b2f1f;
 }
 
 @media (max-width: 640px) {

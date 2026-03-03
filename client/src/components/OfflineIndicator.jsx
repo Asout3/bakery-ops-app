@@ -44,6 +44,14 @@ export default function OfflineIndicator() {
     }
   }, [syncInProgress]);
 
+
+  useEffect(() => {
+    if (!syncInProgress && shouldShowDone) {
+      const timer = setTimeout(() => setCenterModalDismissed(true), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [syncInProgress, shouldShowDone]);
+
   if (!appInitialized || !isAuthenticated) {
     return null;
   }
@@ -59,10 +67,6 @@ export default function OfflineIndicator() {
     await loadConflicts();
   };
 
-  const issueCount = isAdmin ? (queueStats.conflict + queueStats.failed + (queueStats.needsReview || 0)) : 0;
-  const shouldShowDone = Boolean(syncProgress.finished && syncProgress.total > 0);
-  const doneText = shouldShowDone ? `Done ${syncProgress.done}/${syncProgress.total}` : '';
-  const showCenterModal = !centerModalDismissed && ((syncInProgress && syncProgress.total > 0) || shouldShowDone);
 
   if (isOnline && queueStats.total === 0 && issueCount === 0 && !shouldShowDone) {
     return null;
@@ -72,8 +76,8 @@ export default function OfflineIndicator() {
     return (
       <>
         {showCenterModal && (
-          <div className="sync-center-overlay">
-            <div className="sync-center-modal card">
+          <div className="sync-center-overlay" onClick={() => setCenterModalDismissed(true)}>
+            <div className="sync-center-modal card" onClick={(e) => e.stopPropagation()}>
               {syncInProgress ? (
                 <>
                   <div className="sync-center-title"><RefreshCw size={16} className="spinning" /> Sync in Progress</div>
@@ -105,8 +109,8 @@ export default function OfflineIndicator() {
   return (
     <>
       {showCenterModal && (
-        <div className="sync-center-overlay">
-          <div className="sync-center-modal card">
+        <div className="sync-center-overlay" onClick={() => setCenterModalDismissed(true)}>
+          <div className="sync-center-modal card" onClick={(e) => e.stopPropagation()}>
             {syncInProgress ? (
               <>
                 <div className="sync-center-title"><RefreshCw size={16} className="spinning" /> Sync in Progress</div>
