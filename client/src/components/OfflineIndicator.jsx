@@ -14,6 +14,10 @@ export default function OfflineIndicator() {
   const [centerModalDismissed, setCenterModalDismissed] = useState(false);
 
   const isAdmin = user?.role === 'admin';
+  const issueCount = isAdmin ? (queueStats.conflict + queueStats.failed + (queueStats.needsReview || 0)) : 0;
+  const shouldShowDone = Boolean(syncProgress.finished && syncProgress.total > 0);
+  const doneText = shouldShowDone ? `Done ${syncProgress.done}/${syncProgress.total}` : '';
+  const showCenterModal = !centerModalDismissed && ((syncInProgress && syncProgress.total > 0) || shouldShowDone);
 
   const loadConflicts = useCallback(async () => {
     if (!isAdmin || !isAuthenticated) {
@@ -33,17 +37,16 @@ export default function OfflineIndicator() {
 
   useEffect(() => {
     if (!appInitialized || !isAuthenticated) return;
-    if (isAdmin && (queueStats.conflict > 0 || queueStats.failed > 0 || queueStats.needsReview > 0)) {
+    if (isAdmin && issueCount > 0) {
       loadConflicts();
     }
-  }, [isAdmin, queueStats.conflict, queueStats.failed, queueStats.needsReview, loadConflicts, appInitialized, isAuthenticated]);
+  }, [isAdmin, issueCount, loadConflicts, appInitialized, isAuthenticated]);
 
   useEffect(() => {
     if (syncInProgress) {
       setCenterModalDismissed(false);
     }
   }, [syncInProgress]);
-
 
   useEffect(() => {
     if (!syncInProgress && shouldShowDone) {
@@ -66,7 +69,6 @@ export default function OfflineIndicator() {
     await cancelOperation(operationId);
     await loadConflicts();
   };
-
 
   if (isOnline && queueStats.total === 0 && issueCount === 0 && !shouldShowDone) {
     return null;

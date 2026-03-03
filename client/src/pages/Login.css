@@ -110,3 +110,38 @@
     font-size: 1.5rem;
   }
 }
+
+.login-container .modal-content {
+  background: #fffaf5;
+  border: 1px solid rgba(244, 162, 97, 0.12);
+}
+
+.login-container .modal-header h3,
+.login-container .modal-body .form-label {
+  color: #2c2a29;
+}
+
+.login-container .modal-body .form-control {
+  background: #fefcf8;
+  border: 1px solid #b89c84;
+}
+
+.login-container .modal-body .form-control:focus {
+  border-color: #e67e3d;
+  box-shadow: 0 0 0 3px rgba(230, 126, 61, 0.28);
+}
+
+.login-container .modal-body .btn-primary {
+  border: 1px solid #f4a261;
+  background: linear-gradient(120deg, #f7b278 0%, #f4a261 50%, #e8854a 100%);
+}
+
+.login-container .modal-body .btn-primary:hover {
+  background: linear-gradient(120deg, #f9bc88 0%, #f4a261 50%, #e07840 100%);
+}
+
+.login-container .modal-body .alert-warning {
+  background: #fff1ed;
+  border-color: #f0b8ac;
+  color: #8b2f1f;
+}
