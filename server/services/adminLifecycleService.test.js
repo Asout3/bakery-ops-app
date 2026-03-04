@@ -54,6 +54,21 @@ test('createStaffAccount rejects active duplicate account', async () => {
   );
 });
 
+
+test('createStaffAccount rejects mismatched role against staff preference', async () => {
+  const repository = {
+    withTransaction: async (handler) => handler({
+      getActiveStaffById: async () => ({ id: 10, linked_user_id: null, role_preference: 'cashier', phone_number: '555-1234' }),
+      getUserByUsernameOrEmail: async () => null,
+    }),
+  };
+
+  await assert.rejects(
+    () => createStaffAccount({ username: 'jane', password: 'Passw0rd!', role: 'manager', location_id: 1, staff_profile_id: 10 }, repository),
+    (err) => err.status === 400 && err.code === 'ROLE_MISMATCH'
+  );
+});
+
 test('archiveStaffAccount returns already_inactive for inactive user', async () => {
   const repository = {
     getUserById: async () => ({ id: 4, role: 'manager', is_active: false }),

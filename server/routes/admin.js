@@ -63,7 +63,7 @@ router.post(
   body('full_name').trim().isLength({ min: 3 }),
   body('phone_number').trim().custom(isEthiopianMobilePhone),
   body('role_preference').isIn(['cashier', 'manager', 'other']),
-  body('location_id').isInt({ min: 1 }),
+  body('location_id').optional().isInt({ min: 1 }),
   body('age').optional().isInt({ min: 17, max: 100 }),
   body('monthly_salary').optional().isFloat({ min: 0 }),
   body('payment_due_date').optional().isInt({ min: 1, max: 28 }),
@@ -111,7 +111,7 @@ router.post(
           monthly_salary || 0,
           role_preference,
           role_preference === 'other' ? (other_role_title || 'Other Staff') : role_preference,
-          location_id,
+          location_id || req.user.location_id || null,
           hire_date || new Date().toISOString().slice(0, 10),
           payment_due_date || 25,
         ]
@@ -490,7 +490,7 @@ router.post(
   body('username').trim().isLength({ min: 3 }).withMessage('Username must be at least 3 characters'),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
   body('role').isIn(['manager', 'cashier']).withMessage('Role must be manager or cashier'),
-  body('location_id').isInt({ min: 1 }).withMessage('Valid location is required'),
+  body('location_id').optional().isInt({ min: 1 }).withMessage('Valid location is required'),
   body('staff_profile_id').isInt({ min: 1 }).withMessage('Valid staff profile is required'),
   async (req, res) => {
     const errors = validationResult(req);

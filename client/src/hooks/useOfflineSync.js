@@ -3,7 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import { flushQueue, getSyncStats, isOnline, getConnectionQuality } from '../utils/offlineQueue';
 
-const BASE_SYNC_INTERVAL_MS = 10000;
+const BASE_SYNC_INTERVAL_MS = 12000;
+const MIN_RETRY_GAP_MS = 15000;
 
 function resolveSyncInterval(queueStats) {
   const quality = getConnectionQuality();
@@ -30,10 +31,15 @@ export function useOfflineSync() {
   const [appInitialized, setAppInitialized] = useState(false);
   const initializedRef = useRef(false);
   const finishResetTimeoutRef = useRef(null);
+  const lastSyncAttemptRef = useRef(0);
 
   const runSync = useCallback(async (force = false) => {
     if (!isAuthenticated) return;
     if (syncInProgress && !force) return;
+
+    const now = Date.now();
+    if (!force && now - lastSyncAttemptRef.current < MIN_RETRY_GAP_MS) return;
+    lastSyncAttemptRef.current = now;
 
     if (!navigator.onLine) {
       const stats = await getSyncStats();
@@ -75,7 +81,7 @@ export function useOfflineSync() {
         finishResetTimeoutRef.current = setTimeout(() => {
           setSyncProgress((prev) => ({ ...prev, finished: false }));
           setSyncOutcome('idle');
-        }, 3500);
+        }, 6000);
       }
       const syncResult = {
         ...result,
@@ -97,7 +103,7 @@ export function useOfflineSync() {
         finishResetTimeoutRef.current = setTimeout(() => {
           setSyncProgress((prev) => ({ ...prev, finished: false }));
           setSyncOutcome('idle');
-        }, 3500);
+        }, 6000);
       }
       const syncResult = {
         synced: 0,
@@ -176,7 +182,7 @@ export function useOfflineSync() {
       if (document.visibilityState === 'visible') {
         updateQueueStats();
         if (navigator.onLine && isAuthenticated) {
-          runSync(true);
+          runSync();
         }
       }
     };
@@ -186,7 +192,7 @@ export function useOfflineSync() {
     const handleConnectionChange = () => {
       updateQueueStats();
       if (navigator.onLine && isAuthenticated) {
-        runSync(true);
+        runSync();
       }
     };
     connection?.addEventListener?.('change', handleConnectionChange);
