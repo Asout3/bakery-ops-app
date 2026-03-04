@@ -50,6 +50,9 @@ export default function OfflineIndicator() {
 
   if (!appInitialized || !isAuthenticated) return null;
 
+  const shouldRender = !isOnline || syncInProgress || queueStats.total > 0 || issueCount > 0 || syncProgress.finished;
+  if (!shouldRender) return null;
+
   const handleRetry = async (operationId) => {
     await retryOperation(operationId);
     await loadConflicts();

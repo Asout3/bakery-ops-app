@@ -33,6 +33,8 @@ async function getInventoryBatchColumnCapabilities(db) {
     hasStatus: columns.has('status'),
     hasOfflineFlag: columns.has('is_offline'),
     hasOriginalActorName: columns.has('original_actor_name'),
+    hasSyncedById: columns.has('synced_by_id'),
+    hasSyncedAt: columns.has('synced_at'),
   };
 }
 
@@ -48,7 +50,13 @@ router.get('/daily', authenticateToken, async (req, res) => {
     const offlineSelectExpr = salesColumns.hasOfflineFlag ? 'COALESCE(s.is_offline, false)' : 'false';
     const batchColumns = await getInventoryBatchColumnCapabilities(query);
     const batchStatusExpr = batchColumns.hasStatus ? "COALESCE(b.status, 'completed')" : "'completed'";
-    const batchOfflineExpr = batchColumns.hasOfflineFlag ? 'COALESCE(b.is_offline, false)' : 'false';
+    const batchOfflineExpr = batchColumns.hasOfflineFlag
+      ? ((batchColumns.hasSyncedById || batchColumns.hasSyncedAt)
+        ? `(COALESCE(b.is_offline, false) OR ${batchColumns.hasSyncedById ? 'b.synced_by_id IS NOT NULL' : 'false'} OR ${batchColumns.hasSyncedAt ? 'b.synced_at IS NOT NULL' : 'false'})`
+        : 'COALESCE(b.is_offline, false)')
+      : ((batchColumns.hasSyncedById || batchColumns.hasSyncedAt)
+        ? `(${batchColumns.hasSyncedById ? 'b.synced_by_id IS NOT NULL' : 'false'} OR ${batchColumns.hasSyncedAt ? 'b.synced_at IS NOT NULL' : 'false'})`
+        : 'false');
     const batchCreatorExpr = batchColumns.hasOriginalActorName ? 'COALESCE(b.original_actor_name, u.username)' : 'u.username';
     const date = req.query.date || new Date().toISOString().split('T')[0];
 
@@ -267,7 +275,13 @@ router.get('/weekly', authenticateToken, async (req, res) => {
     const offlineSelectExpr = salesColumns.hasOfflineFlag ? 'COALESCE(s.is_offline, false)' : 'false';
     const batchColumns = await getInventoryBatchColumnCapabilities(query);
     const batchStatusExpr = batchColumns.hasStatus ? "COALESCE(b.status, 'completed')" : "'completed'";
-    const batchOfflineExpr = batchColumns.hasOfflineFlag ? 'COALESCE(b.is_offline, false)' : 'false';
+    const batchOfflineExpr = batchColumns.hasOfflineFlag
+      ? ((batchColumns.hasSyncedById || batchColumns.hasSyncedAt)
+        ? `(COALESCE(b.is_offline, false) OR ${batchColumns.hasSyncedById ? 'b.synced_by_id IS NOT NULL' : 'false'} OR ${batchColumns.hasSyncedAt ? 'b.synced_at IS NOT NULL' : 'false'})`
+        : 'COALESCE(b.is_offline, false)')
+      : ((batchColumns.hasSyncedById || batchColumns.hasSyncedAt)
+        ? `(${batchColumns.hasSyncedById ? 'b.synced_by_id IS NOT NULL' : 'false'} OR ${batchColumns.hasSyncedAt ? 'b.synced_at IS NOT NULL' : 'false'})`
+        : 'false');
     const batchCreatorExpr = batchColumns.hasOriginalActorName ? 'COALESCE(b.original_actor_name, u.username)' : 'u.username';
     const endDate = req.query.end_date || new Date().toISOString().split('T')[0];
 
@@ -543,7 +557,13 @@ router.get('/monthly', authenticateToken, async (req, res) => {
     const offlineSelectExpr = salesColumns.hasOfflineFlag ? 'COALESCE(s.is_offline, false)' : 'false';
     const batchColumns = await getInventoryBatchColumnCapabilities(query);
     const batchStatusExpr = batchColumns.hasStatus ? "COALESCE(b.status, 'completed')" : "'completed'";
-    const batchOfflineExpr = batchColumns.hasOfflineFlag ? 'COALESCE(b.is_offline, false)' : 'false';
+    const batchOfflineExpr = batchColumns.hasOfflineFlag
+      ? ((batchColumns.hasSyncedById || batchColumns.hasSyncedAt)
+        ? `(COALESCE(b.is_offline, false) OR ${batchColumns.hasSyncedById ? 'b.synced_by_id IS NOT NULL' : 'false'} OR ${batchColumns.hasSyncedAt ? 'b.synced_at IS NOT NULL' : 'false'})`
+        : 'COALESCE(b.is_offline, false)')
+      : ((batchColumns.hasSyncedById || batchColumns.hasSyncedAt)
+        ? `(${batchColumns.hasSyncedById ? 'b.synced_by_id IS NOT NULL' : 'false'} OR ${batchColumns.hasSyncedAt ? 'b.synced_at IS NOT NULL' : 'false'})`
+        : 'false');
     const batchCreatorExpr = batchColumns.hasOriginalActorName ? 'COALESCE(b.original_actor_name, u.username)' : 'u.username';
     const year = req.query.year || new Date().getFullYear();
     const month = req.query.month || (new Date().getMonth() + 1);
