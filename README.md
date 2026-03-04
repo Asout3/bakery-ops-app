@@ -42,24 +42,19 @@ The system is intentionally engineered so day-to-day branch activity can continu
 ## Platform Outcomes
 
 ```mermaid
-mindmap
-  root((Bakery Ops Outcomes))
-    Reliability
-      Offline queue replay
-      Idempotent writes
-      Conflict classification
-    Visibility
-      Reporting
-      Archive dashboards
-      Activity logs
-    Security
-      JWT + RBAC
-      Rate limiting
-      Helmet hardening
-    Scalability
-      DB pooling
-      Query indexes
-      Job-level advisory locks
+flowchart TB
+  A[Reliability] --> A1[Offline queue replay]
+  A --> A2[Idempotent writes]
+  A --> A3[Conflict classification]
+  B[Visibility] --> B1[Reporting]
+  B --> B2[Archive dashboards]
+  B --> B3[Activity logs]
+  C[Security] --> C1[JWT + RBAC]
+  C --> C2[Rate limiting]
+  C --> C3[Helmet hardening]
+  D[Scalability] --> D1[DB pooling]
+  D --> D2[Query indexes]
+  D --> D3[Job-level advisory locks]
 ```
 
 ### Core Business Capabilities
@@ -200,17 +195,15 @@ flowchart TB
 ## Database Architecture
 
 ```mermaid
-erDiagram
-  USERS ||--o{ CUSTOMER_ORDERS : creates
-  USERS ||--o{ SALES : records
-  USERS ||--o{ INVENTORY_BATCHES : manages
-  LOCATIONS ||--o{ CUSTOMER_ORDERS : scopes
-  LOCATIONS ||--o{ SALES : scopes
-  LOCATIONS ||--o{ INVENTORY_BATCHES : scopes
-  INVENTORY_BATCHES ||--o{ BATCH_ITEMS : contains
-  USERS ||--o{ ACTIVITY_LOG : emits
-  LOCATIONS ||--o{ ARCHIVE_RUNS : tracks
-  INVENTORY_BATCHES ||--o{ INVENTORY_BATCHES_ARCHIVE : archived_to
+flowchart LR
+  USERS[(users)] --> SALES[(sales)]
+  USERS --> INVENTORY_BATCHES[(inventory_batches)]
+  USERS --> ACTIVITY_LOG[(activity_log)]
+  LOCATIONS[(locations)] --> SALES
+  LOCATIONS --> INVENTORY_BATCHES
+  INVENTORY_BATCHES --> BATCH_ITEMS[(batch_items)]
+  INVENTORY_BATCHES --> INVENTORY_BATCHES_ARCHIVE[(inventory_batches_archive)]
+  LOCATIONS --> ARCHIVE_RUNS[(archive_runs)]
 ```
 
 ### Data Strategy
@@ -379,3 +372,11 @@ See dedicated deployment guidance in:
 ---
 
 For implementation details and contributor guardrails, continue in `Main docs/README.md`.
+
+## Roles and Permissions
+
+- **Admin**: full access to business operations, account/staff lifecycle, reports, sync monitoring, and credential management.
+- **Ground Manager**: inventory and batch workflows with time-window safeguards for edits/void actions.
+- **Cashier**: sales execution and cashier sales history with void-window safeguards.
+
+Detailed reference: `Main docs/roles-and-permissions.md`.

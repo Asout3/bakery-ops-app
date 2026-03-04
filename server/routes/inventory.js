@@ -287,7 +287,7 @@ router.post(
         }
 
         const insertColumns = ['location_id', 'created_by', 'batch_date', 'status', 'notes', 'created_at'];
-        const insertValues = ['$1', '$2', '$3::date', "'sent'", '$4', '$3::timestamp'];
+        const insertValues = ['$1', '$2', "($3::timestamptz AT TIME ZONE 'UTC')::date", "'sent'", '$4', "($3::timestamptz AT TIME ZONE 'UTC')"];
         const params = [locationId, effectiveCreatedBy, effectiveCreatedAt, notes || null];
 
         if (batchColumns.hasOfflineFlag) {
@@ -494,8 +494,8 @@ router.get('/batches', authenticateToken, async (req, res) => {
                         FROM batch_items bi
                         JOIN products p ON p.id = bi.product_id
                         WHERE bi.batch_id = b.id), 0) as total_cost,
-              (CURRENT_TIMESTAMP < (b.created_at + make_interval(mins => $${editWindowParamIndex}::int))) as can_edit,
-              EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60 as age_minutes
+              ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (b.created_at + make_interval(mins => $${editWindowParamIndex}::int))) as can_edit,
+              EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - b.created_at)) / 60 as age_minutes
        FROM inventory_batches b
        JOIN users u ON b.created_by = u.id
        WHERE ${whereClause}`;
@@ -553,8 +553,8 @@ router.get('/batches/:id', authenticateToken, async (req, res) => {
               ${syncedByNameExpr} as synced_by_name,
               ${wasSyncedExpr} as was_synced,
               ${isOfflineExpr} as is_offline,
-              (CURRENT_TIMESTAMP < (b.created_at + make_interval(mins => $3::int))) as can_edit,
-              EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - b.created_at)) / 60 as age_minutes
+              ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (b.created_at + make_interval(mins => $3::int))) as can_edit,
+              EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - b.created_at)) / 60 as age_minutes
        FROM inventory_batches b
        JOIN users u ON b.created_by = u.id
        WHERE b.id = $1 AND b.location_id = $2`,
@@ -599,8 +599,8 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
       await ensureInventoryBatchStatusConstraint(tx);
       const batchRes = await tx.query(
         `SELECT *,
-                (CURRENT_TIMESTAMP < (created_at + make_interval(mins => $3::int))) as can_edit,
-                EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - created_at)) / 60 as age_minutes
+                ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (created_at + make_interval(mins => $3::int))) as can_edit,
+                EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - created_at)) / 60 as age_minutes
          FROM inventory_batches
          WHERE id = $1 AND location_id = $2
          FOR UPDATE`,
@@ -682,8 +682,8 @@ router.post('/batches/:id/void', authenticateToken, authorizeRoles('admin', 'man
       await ensureInventoryBatchStatusConstraint(tx);
       const batchRes = await tx.query(
         `SELECT *,
-                (CURRENT_TIMESTAMP < (created_at + make_interval(mins => $3::int))) as can_edit,
-                EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - created_at)) / 60 as age_minutes
+                ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (created_at + make_interval(mins => $3::int))) as can_edit,
+                EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - created_at)) / 60 as age_minutes
          FROM inventory_batches
          WHERE id = $1 AND location_id = $2
          FOR UPDATE`,
