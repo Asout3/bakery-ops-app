@@ -104,7 +104,7 @@ export default function ManagerBatches() {
 
   const normalizeBatch = useCallback((batch) => {
     const wasSynced = normalizeBoolean(batch?.was_synced) || Boolean(batch?.synced_by_name) || Boolean(batch?.synced_at);
-    const isOffline = normalizeBoolean(batch?.is_offline) || wasSynced;
+    const isOffline = normalizeBoolean(batch?.is_offline);
     const rawCanEdit = batch?.can_edit;
     const canEdit = rawCanEdit === undefined || rawCanEdit === null ? null : normalizeBoolean(rawCanEdit);
     return {
