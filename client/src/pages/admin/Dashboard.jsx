@@ -24,6 +24,7 @@ import './Dashboard.css';
 
 const formatMoney = (value) => `ETB ${Number(value || 0).toFixed(2)}`;
 const formatShortDate = (value) => new Date(value).toLocaleDateString();
+const boolFlag = (value) => value === true || value === 'true' || value === 't' || value === 1 || value === '1';
 
 export default function Dashboard() {
   const { selectedLocationId } = useBranch();
@@ -37,7 +38,6 @@ export default function Dashboard() {
 
   const [report, setReport] = useState(null);
   const [kpis, setKpis] = useState(null);
-  const [branchSummary, setBranchSummary] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -66,15 +66,10 @@ export default function Dashboard() {
         setReport(reportRes.data || null);
 
         if (user?.role === 'admin') {
-          const [kpiRes, branchRes] = await Promise.all([
-            api.get('/reports/kpis'),
-            api.get('/reports/branches/summary'),
-          ]);
+          const kpiRes = await api.get('/reports/kpis');
           setKpis(kpiRes.data || null);
-          setBranchSummary(branchRes.data || []);
         } else {
           setKpis(null);
-          setBranchSummary([]);
         }
       } catch (err) {
         setError(err?.response?.data?.error || err?.message || 'Failed to load dashboard data.');
@@ -239,7 +234,7 @@ export default function Dashboard() {
       <DataTable
         title="Batch Performance"
         headers={['Batch', 'Created By', 'Status', 'Product', 'Qty', 'Unit Cost', 'Line Cost', 'Offline']}
-        rows={batchRows.map((r) => [`#${r.batch_id}`, r.created_by_name, r.status, r.product_name, Number(r.quantity || 0), formatMoney(r.unit_cost), formatMoney(r.line_cost), r.is_offline ? 'Yes' : 'No'])}
+        rows={batchRows.map((r) => [`#${r.batch_id}`, r.created_by_name, r.status, r.product_name, Number(r.quantity || 0), formatMoney(r.unit_cost), formatMoney(r.line_cost), boolFlag(r.is_offline) ? 'Yes' : 'No'])}
         empty="No batch records in this period."
       />
 
@@ -260,14 +255,6 @@ export default function Dashboard() {
           ['Net Profit', formatMoney(totals.netProfit), 'Revenue - all costs above'],
         ]}
       />
-
-      {!!branchSummary.length && (
-        <DataTable
-          title="Multi-Branch Snapshot (Today)"
-          headers={['Branch', 'Sales', 'Transactions', 'Expenses', 'Staff Payments', 'Net']}
-          rows={branchSummary.map((r) => [r.location_name, formatMoney(r.today_sales), Number(r.today_transactions || 0), formatMoney(r.today_expenses), formatMoney(r.today_staff_payments), formatMoney(r.today_net)])}
-        />
-      )}
 
       <div className="card">
         <div className="card-header"><h3>{period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly'} Summary</h3></div>

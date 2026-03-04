@@ -37,3 +37,6 @@ Any PR that modifies offline flow, routing behavior, or API error handling shoul
 - updated docs in this folder,
 - test evidence,
 - explicit risk notes for offline replay/refresh behavior.
+
+- `roles-and-permissions.md`
+  - Clear explanation of what Admin, Ground Manager, and Cashier can do
