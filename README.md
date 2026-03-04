@@ -379,3 +379,11 @@ See dedicated deployment guidance in:
 ---
 
 For implementation details and contributor guardrails, continue in `Main docs/README.md`.
+
+## Roles and Permissions
+
+- **Admin**: full access to business operations, account/staff lifecycle, reports, sync monitoring, and credential management.
+- **Ground Manager**: inventory and batch workflows with time-window safeguards for edits/void actions.
+- **Cashier**: sales execution and cashier sales history with void-window safeguards.
+
+Detailed reference: `Main docs/roles-and-permissions.md`.

@@ -37,7 +37,6 @@ export default function Dashboard() {
 
   const [report, setReport] = useState(null);
   const [kpis, setKpis] = useState(null);
-  const [branchSummary, setBranchSummary] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -66,15 +65,10 @@ export default function Dashboard() {
         setReport(reportRes.data || null);
 
         if (user?.role === 'admin') {
-          const [kpiRes, branchRes] = await Promise.all([
-            api.get('/reports/kpis'),
-            api.get('/reports/branches/summary'),
-          ]);
+          const kpiRes = await api.get('/reports/kpis');
           setKpis(kpiRes.data || null);
-          setBranchSummary(branchRes.data || []);
         } else {
           setKpis(null);
-          setBranchSummary([]);
         }
       } catch (err) {
         setError(err?.response?.data?.error || err?.message || 'Failed to load dashboard data.');
@@ -260,14 +254,6 @@ export default function Dashboard() {
           ['Net Profit', formatMoney(totals.netProfit), 'Revenue - all costs above'],
         ]}
       />
-
-      {!!branchSummary.length && (
-        <DataTable
-          title="Multi-Branch Snapshot (Today)"
-          headers={['Branch', 'Sales', 'Transactions', 'Expenses', 'Staff Payments', 'Net']}
-          rows={branchSummary.map((r) => [r.location_name, formatMoney(r.today_sales), Number(r.today_transactions || 0), formatMoney(r.today_expenses), formatMoney(r.today_staff_payments), formatMoney(r.today_net)])}
-        />
-      )}
 
       <div className="card">
         <div className="card-header"><h3>{period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly'} Summary</h3></div>
