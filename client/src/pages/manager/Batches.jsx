@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { Package, Clock, User, Eye, Edit, Ban, RefreshCw, Wifi, WifiOff, CheckCircle, XCircle } from 'lucide-react';
+import { Package, Clock, User, Eye, Edit, Ban, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 import { formatAddisDateTime } from '../../utils/time';
 import './Batches.css';
 import { useToast } from '../../context/ToastContext';
@@ -19,7 +19,6 @@ export default function ManagerBatches() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDay, setSelectedDay] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [syncFilter, setSyncFilter] = useState('all');
   const [tick, setTick] = useState(Date.now());
   const lastOfflineToastAtRef = useRef(0);
   const toast = useToast();
@@ -104,7 +103,7 @@ export default function ManagerBatches() {
 
   const normalizeBatch = useCallback((batch) => {
     const wasSynced = normalizeBoolean(batch?.was_synced) || Boolean(batch?.synced_by_name) || Boolean(batch?.synced_at);
-    const isOffline = normalizeBoolean(batch?.is_offline) || wasSynced;
+    const isOffline = normalizeBoolean(batch?.is_offline);
     const rawCanEdit = batch?.can_edit;
     const canEdit = rawCanEdit === undefined || rawCanEdit === null ? null : normalizeBoolean(rawCanEdit);
     return {
@@ -241,13 +240,10 @@ export default function ManagerBatches() {
     sent: batches.filter((b) => b.status === 'sent').length,
     voided: batches.filter((b) => b.status === 'voided').length,
     edited: batches.filter((b) => b.status === 'edited').length,
-    offline: batches.filter((b) => b.is_offline).length,
-    synced: batches.filter((b) => b.was_synced).length,
   };
   const filteredBatches = batches.filter((batch) => {
     const matchesStatus = statusFilter === 'all' || batch.status === statusFilter;
-    const matchesSync = syncFilter === 'all' || (syncFilter === 'offline' ? batch.is_offline : !batch.is_offline);
-    return matchesStatus && matchesSync;
+    return matchesStatus;
   });
 
 
@@ -304,15 +300,7 @@ export default function ManagerBatches() {
               <option value="pending">Pending</option>
             </select>
           </div>
-          <div>
-            <label className="form-label">Type</label>
-            <select className="form-select" value={syncFilter} onChange={(e) => setSyncFilter(e.target.value)}>
-              <option value="all">All</option>
-              <option value="online">Online</option>
-              <option value="offline">Offline</option>
-            </select>
-          </div>
-          <button className="btn btn-outline-secondary" onClick={() => { setSelectedDay(''); setStatusFilter('all'); setSyncFilter('all'); }}>Clear Filter</button>
+          <button className="btn btn-outline-secondary" onClick={() => { setSelectedDay(''); setStatusFilter('all'); }}>Clear Filter</button>
         </div>
       </div>
 
@@ -321,7 +309,6 @@ export default function ManagerBatches() {
           <span className="badge bg-secondary">Showing {filteredBatches.length} rows</span>
           <span className="badge bg-success">Sent: {stats.sent}</span>
           <span className="badge bg-danger">Voided: {stats.voided}</span>
-          <span className="badge bg-warning text-dark">Offline synced: {stats.offline}</span>
         </div>
       </div>
 
@@ -344,7 +331,6 @@ export default function ManagerBatches() {
                     <th>Items</th>
                     <th>Total Cost</th>
                     <th>Created By</th>
-                    <th>Sync Info</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -364,24 +350,6 @@ export default function ManagerBatches() {
                           <User size={14} className="text-muted" />
                           {batch.display_creator_name || batch.created_by_name}
                         </div>
-                        {batch.was_synced && batch.synced_by_name && (
-                          <small className="text-info d-block" style={{ fontSize: '0.7rem' }}>
-                            Synced via: {batch.synced_by_name}
-                          </small>
-                        )}
-                      </td>
-                      <td>
-                        {batch.is_offline ? (
-                          <div className="d-flex align-items-center gap-1">
-                            <WifiOff size={14} className="text-warning" />
-                            <span className="badge bg-warning text-dark">Offline</span>
-                          </div>
-                        ) : (
-                          <div className="d-flex align-items-center gap-1">
-                            <Wifi size={14} className="text-success" />
-                            <span className="badge bg-success">Online</span>
-                          </div>
-                        )}
                       </td>
                       <td>
                         <div className="d-flex gap-1">
@@ -476,13 +444,6 @@ export default function ManagerBatches() {
                   ? `This batch is editable for ${Math.max(1, getMinutesRemaining(selectedBatch))} more minute(s).`
                   : 'This batch is locked because the 20-minute window expired or it was already voided.'}
               </div>
-
-              {selectedBatch.was_synced && selectedBatch.synced_by_name && (
-                <div className="alert alert-info mb-4">
-                  <WifiOff size={16} className="me-2" />
-                  This batch was synced offline by <strong>{selectedBatch.synced_by_name}</strong>
-                </div>
-              )}
 
               <h5 className="mb-3">Items in Batch</h5>
               <div className="table-responsive">

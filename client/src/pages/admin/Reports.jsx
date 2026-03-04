@@ -198,7 +198,7 @@ export default function ReportsPage() {
       const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
       return {
         name: item.name || item.product_name || 'Unknown',
-        units: Number(item.quantity || item.units_sold || 0),
+        units: Number(item.total_sold || item.quantity || item.units_sold || 0),
         revenue,
         productionCost,
         profit,

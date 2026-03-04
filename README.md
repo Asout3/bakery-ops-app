@@ -42,24 +42,19 @@ The system is intentionally engineered so day-to-day branch activity can continu
 ## Platform Outcomes
 
 ```mermaid
-mindmap
-  root((Bakery Ops Outcomes))
-    Reliability
-      Offline queue replay
-      Idempotent writes
-      Conflict classification
-    Visibility
-      Reporting
-      Archive dashboards
-      Activity logs
-    Security
-      JWT + RBAC
-      Rate limiting
-      Helmet hardening
-    Scalability
-      DB pooling
-      Query indexes
-      Job-level advisory locks
+flowchart TB
+  A[Reliability] --> A1[Offline queue replay]
+  A --> A2[Idempotent writes]
+  A --> A3[Conflict classification]
+  B[Visibility] --> B1[Reporting]
+  B --> B2[Archive dashboards]
+  B --> B3[Activity logs]
+  C[Security] --> C1[JWT and RBAC]
+  C --> C2[Rate limiting]
+  C --> C3[Helmet hardening]
+  D[Scalability] --> D1[DB pooling]
+  D --> D2[Query indexes]
+  D --> D3[Advisory job locks]
 ```
 
 ### Core Business Capabilities
@@ -75,28 +70,28 @@ mindmap
 
 ```mermaid
 flowchart LR
-  subgraph Frontend[Client Layer - React + Vite]
-    UI[Role-based Pages]
+  subgraph Frontend[Client Layer React Vite]
+    UI[Role based pages]
     Router[React Router]
-    APIClient[Axios API Client]
-    OfflineQ[Offline Queue + Replay]
+    APIClient[Axios API client]
+    OfflineQ[Offline queue and replay]
     SW[Service Worker]
-    Cache[Local/IndexedDB cache]
+    Cache[Local indexed cache]
   end
 
-  subgraph Backend[API Layer - Express]
-    MW[Security + Auth Middleware]
+  subgraph Backend[API Layer Express]
+    MW[Security auth middleware]
     Routes[Route Handlers]
     Services[Domain Services]
     Errors[Central Error Handler]
-    Jobs[Schedulers + Job Locks]
+    Jobs[Schedulers and job locks]
   end
 
-  subgraph Data[Data Layer - PostgreSQL]
+  subgraph Data[Data Layer PostgreSQL]
     Core[(Core transactional tables)]
     Idem[(idempotency_keys)]
-    Archive[(archive_* tables)]
-    Audit[(activity_log + sync_audit_logs)]
+    Archive[(archive tables)]
+    Audit[(activity and sync audit logs)]
   end
 
   UI --> Router --> APIClient --> MW --> Routes --> Services --> Data
@@ -131,7 +126,7 @@ sequenceDiagram
 
   User->>UI: Submit write action
   alt Online
-    UI->>API: Request + X-Idempotency-Key
+    UI->>API: Request with idempotency key
     API->>DB: Transaction
     DB-->>API: Commit
     API-->>UI: Success
@@ -140,7 +135,7 @@ sequenceDiagram
     Queue-->>UI: Pending state
     Note over UI,Queue: User can navigate/refresh without losing queue
     Queue->>API: Replay when online
-    API->>DB: Idempotent check + write
+    API->>DB: Idempotent check and write
     DB-->>API: Existing or new result
     API-->>Queue: synced/conflict/needs_review
     Queue-->>UI: Reconciled state
@@ -200,17 +195,15 @@ flowchart TB
 ## Database Architecture
 
 ```mermaid
-erDiagram
-  USERS ||--o{ CUSTOMER_ORDERS : creates
-  USERS ||--o{ SALES : records
-  USERS ||--o{ INVENTORY_BATCHES : manages
-  LOCATIONS ||--o{ CUSTOMER_ORDERS : scopes
-  LOCATIONS ||--o{ SALES : scopes
-  LOCATIONS ||--o{ INVENTORY_BATCHES : scopes
-  INVENTORY_BATCHES ||--o{ BATCH_ITEMS : contains
-  USERS ||--o{ ACTIVITY_LOG : emits
-  LOCATIONS ||--o{ ARCHIVE_RUNS : tracks
-  INVENTORY_BATCHES ||--o{ INVENTORY_BATCHES_ARCHIVE : archived_to
+flowchart LR
+  USERS[(users)] --> SALES[(sales)]
+  USERS --> INVENTORY_BATCHES[(inventory_batches)]
+  USERS --> ACTIVITY_LOG[(activity_log)]
+  LOCATIONS[(locations)] --> SALES
+  LOCATIONS --> INVENTORY_BATCHES
+  INVENTORY_BATCHES --> BATCH_ITEMS[(batch_items)]
+  INVENTORY_BATCHES --> INVENTORY_BATCHES_ARCHIVE[(inventory_batches_archive)]
+  LOCATIONS --> ARCHIVE_RUNS[(archive_runs)]
 ```
 
 ### Data Strategy
@@ -268,7 +261,7 @@ X-Retry-Count: <retry-number>
 ```mermaid
 flowchart LR
   A[Client Request] --> B[Express Route]
-  B --> C[DB Pool + Timeouts]
+  B --> C[DB pool and timeouts]
   C --> D[Indexed Query]
   D --> E[Response]
   B --> F[Scheduler Path]

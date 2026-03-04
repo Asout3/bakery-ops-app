@@ -19,8 +19,8 @@ export default function OfflineIndicator() {
   const statusLabel = useMemo(() => {
     if (!isOnline) return 'Offline Mode';
     if (syncInProgress) return `Syncing ${syncProgress.done}/${syncProgress.total || queueStats.pending}`;
-    if (syncOutcome === 'failed') return 'Sync Failed';
-    if (syncOutcome === 'partial') return 'Sync Partially Complete';
+    if (syncOutcome === 'attention') return 'Needs Review';
+    if (syncOutcome === 'retrying') return 'Retrying Pending Sync';
     if (hasBacklog) return `${queueStats.pending} pending`;
     return 'Synced';
   }, [isOnline, syncInProgress, syncProgress.done, syncProgress.total, queueStats.pending, syncOutcome, hasBacklog]);
@@ -50,6 +50,9 @@ export default function OfflineIndicator() {
 
   if (!appInitialized || !isAuthenticated) return null;
 
+  const shouldRender = !isOnline || syncInProgress || queueStats.total > 0 || issueCount > 0 || syncProgress.finished;
+  if (!shouldRender) return null;
+
   const handleRetry = async (operationId) => {
     await retryOperation(operationId);
     await loadConflicts();
@@ -65,7 +68,7 @@ export default function OfflineIndicator() {
     ? <WifiOff size={16} />
     : syncInProgress
       ? <RefreshCw size={16} className="spinning" />
-      : issueCount > 0 || syncOutcome === 'failed'
+      : issueCount > 0 || syncOutcome === 'attention'
         ? <AlertTriangle size={16} />
         : <CheckCircle size={16} />;
 

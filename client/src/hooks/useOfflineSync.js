@@ -71,12 +71,18 @@ export function useOfflineSync() {
       const failedCount = Number(result?.failed || 0);
       const finishedDone = Math.min(pendingBefore, syncedCount + failedCount);
       const hasPendingAfter = Number(stats.pending || 0) > 0;
-      const successfulSync = syncedCount > 0 && !hasPendingAfter;
-      const partialSync = syncedCount > 0 && hasPendingAfter;
-      const failedSync = syncedCount === 0 && (failedCount > 0 || hasPendingAfter);
-      setSyncOutcome(successfulSync ? 'success' : partialSync ? 'partial' : failedSync ? 'failed' : 'idle');
+      const hasAttentionAfter = Number(stats.failed || 0) > 0 || Number(stats.conflict || 0) > 0 || Number(stats.needsReview || 0) > 0;
+      if (hasAttentionAfter) {
+        setSyncOutcome('attention');
+      } else if (syncedCount > 0 && !hasPendingAfter) {
+        setSyncOutcome('success');
+      } else if (hasPendingAfter) {
+        setSyncOutcome('retrying');
+      } else {
+        setSyncOutcome('idle');
+      }
       if (pendingBefore > 0) {
-        setSyncProgress({ total: pendingBefore, done: finishedDone, active: false, finished: successfulSync || partialSync || failedSync });
+        setSyncProgress({ total: pendingBefore, done: finishedDone, active: false, finished: true });
         if (finishResetTimeoutRef.current) clearTimeout(finishResetTimeoutRef.current);
         finishResetTimeoutRef.current = setTimeout(() => {
           setSyncProgress((prev) => ({ ...prev, finished: false }));
@@ -96,7 +102,7 @@ export function useOfflineSync() {
       }
     } catch (err) {
       const finishedDone = Math.min(pendingBefore, Number(result?.synced || 0) + Number(result?.failed || 0));
-      setSyncOutcome('failed');
+      setSyncOutcome('retrying');
       if (pendingBefore > 0) {
         setSyncProgress({ total: pendingBefore, done: finishedDone, active: false, finished: true });
         if (finishResetTimeoutRef.current) clearTimeout(finishResetTimeoutRef.current);
