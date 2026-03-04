@@ -287,7 +287,7 @@ router.post(
         }
 
         const insertColumns = ['location_id', 'created_by', 'batch_date', 'status', 'notes', 'created_at'];
-        const insertValues = ['$1', '$2', '$3::date', "'sent'", '$4', '$3::timestamp'];
+        const insertValues = ['$1', '$2', "($3::timestamptz AT TIME ZONE 'UTC')::date", "'sent'", '$4', "($3::timestamptz AT TIME ZONE 'UTC')"];
         const params = [locationId, effectiveCreatedBy, effectiveCreatedAt, notes || null];
 
         if (batchColumns.hasOfflineFlag) {

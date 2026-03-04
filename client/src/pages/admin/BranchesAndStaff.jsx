@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Building2, UserPlus, Users, Eye, EyeOff } from 'lucide-react';
+import { UserPlus, Users, Eye, EyeOff } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -9,7 +9,6 @@ const emptyAccount = {
   username: '',
   password: '',
   role: 'cashier',
-  location_id: '',
 };
 
 const ROLE_LABELS = {
@@ -18,7 +17,7 @@ const ROLE_LABELS = {
 };
 
 export default function BranchesAndStaff() {
-  const { user } = useAuth();
+  const { user, updateSession } = useAuth();
   const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [locations, setLocations] = useState([]);
@@ -27,7 +26,6 @@ export default function BranchesAndStaff() {
   const [accountForm, setAccountForm] = useState(emptyAccount);
   const [savingAccount, setSavingAccount] = useState(false);
   const [feedback, setFeedback] = useState(null);
-  const [editBranchModel, setEditBranchModel] = useState(null);
   const [editAccountModel, setEditAccountModel] = useState(null);
   const [credentialForm, setCredentialForm] = useState({ current_password: '', new_username: '', new_password: '' });
   const [savingCredentials, setSavingCredentials] = useState(false);
@@ -89,10 +87,8 @@ export default function BranchesAndStaff() {
         return;
       }
 
-      const defaultLocationId = Number(accountForm.location_id || user?.location_id || locations.find((l) => l.is_active)?.id || 0);
       const payload = {
         ...accountForm,
-        location_id: defaultLocationId || undefined,
         staff_profile_id: Number(accountForm.staff_profile_id),
       };
 
@@ -140,8 +136,7 @@ export default function BranchesAndStaff() {
     setAccountForm((p) => ({
       ...p,
       staff_profile_id: staffId,
-      role: defaultRole,
-      location_id: selected.location_id ? String(selected.location_id) : p.location_id,
+      role: defaultRole
     }));
   };
 
@@ -155,31 +150,6 @@ export default function BranchesAndStaff() {
     }
   };
 
-  const editBranch = async (branch) => {
-    setEditBranchModel({ ...branch });
-  };
-
-  const saveBranchEdit = async () => {
-    try {
-      await api.put(`/locations/${editBranchModel.id}`, editBranchModel);
-      showFeedback('success', 'Branch updated.');
-      setEditBranchModel(null);
-      loadData();
-    } catch (err) {
-      showFeedback('danger', err.response?.data?.error || 'Could not update branch');
-    }
-  };
-
-  const deleteBranch = async (branch) => {
-    if (!window.confirm(`Delete/disable branch "${branch.name}"?`)) return;
-    try {
-      const res = await api.delete(`/locations/${branch.id}`);
-      showFeedback('success', res.data?.message || 'Branch removed.');
-      loadData();
-    } catch (err) {
-      showFeedback('danger', err.response?.data?.error || 'Could not remove branch');
-    }
-  };
 
   const editAccount = async (user) => {
     setEditAccountModel({ ...user, password: '' });
@@ -190,7 +160,6 @@ export default function BranchesAndStaff() {
       const payload = {
         username: editAccountModel.username,
         role: editAccountModel.role,
-        location_id: Number(editAccountModel.location_id || user?.location_id || locations.find((l) => l.is_active)?.id || 0),
       };
       
       if (editAccountModel.password) {
@@ -282,17 +251,12 @@ export default function BranchesAndStaff() {
     try {
       const res = await api.post('/auth/change-credentials', credentialConfirmModal.payload);
       if (res.data?.token && res.data?.user) {
-        localStorage.setItem('token', res.data.token);
-        localStorage.setItem('user', JSON.stringify(res.data.user));
+        updateSession(res.data.user, res.data.token);
       }
       setCredentialForm({ current_password: '', new_username: '', new_password: '' });
       setCredentialConfirmPassword('');
       showFeedback('success', 'Credentials updated successfully.');
-      const changedUsername = Boolean(credentialConfirmModal.payload?.new_username);
       setCredentialConfirmModal({ open: false, payload: null, message: '' });
-      if (changedUsername) {
-        window.location.reload();
-      }
     } catch (err) {
       const validationText = err.response?.data?.details?.map((x) => x.msg).join(', ');
       const apiCode = err.response?.data?.code;
@@ -316,7 +280,6 @@ export default function BranchesAndStaff() {
       {feedback && <div className={`alert alert-${feedback.type} mb-4`}>{feedback.message}</div>}
 
       <div className="stats-grid mb-4">
-        <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><Building2 size={24} /></div><div className="stat-content"><h3>{locations.filter(l => l.is_active).length}</h3><p>Active Branches</p></div></div>
         <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><Users size={24} /></div><div className="stat-content"><h3>{accounts.filter(a => a.is_active).length}</h3><p>Active Accounts</p></div></div>
         <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><UserPlus size={24} /></div><div className="stat-content"><h3>{availableStaff.length}</h3><p>Staff Without Account</p></div></div>
       </div>
@@ -363,7 +326,7 @@ export default function BranchesAndStaff() {
                 <option value="">Select staff profile</option>
                 {availableStaff.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.full_name} • {s.job_title || s.role_preference} {s.role_preference === 'other' ? '(Non-account staff)' : ''}
+                    {s.full_name} • {s.job_title || s.role_preference}
                   </option>
                 ))}
               </select>
@@ -374,13 +337,7 @@ export default function BranchesAndStaff() {
               <div className="col-md-6 mb-3"><label className="form-label">Password *</label><div className="input-group"><input type={showPasswords.createAccount ? "text" : "password"} minLength={8} className="form-control" required value={accountForm.password} onChange={(e)=>setAccountForm((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters, include letter/number/special" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("createAccount")}>{showPasswords.createAccount ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></div>
             </div>
             <div className="row g-2">
-              <div className="col-md-6 mb-3"><label className="form-label">Account Role *</label>
-                <select className="form-select" value={accountForm.role} onChange={(e)=>setAccountForm((p)=>({...p,role:e.target.value}))}>
-                  {Object.entries(ROLE_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
-              </div>
+              <div className="col-md-6 mb-3"><label className="form-label">Account Role *</label><input className="form-control" value={ROLE_LABELS[accountForm.role] || accountForm.role} disabled /></div>
             </div>
             <button className="btn btn-success" disabled={savingAccount}><UserPlus size={16} className="me-1" /> {savingAccount ? 'Creating...' : 'Create Account'}</button>
           </form>
@@ -393,12 +350,12 @@ export default function BranchesAndStaff() {
           <p className="text-muted">No accounts created yet.</p>
         ) : (
         <>
-        <h5 className="mb-2">Active Accounts</h5><table className="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Branch</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+        <h5 className="mb-2">Active Accounts</h5><table className="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>
           {accounts.filter((a)=>a.is_active).map((user) => <tr key={user.id}>
             <td>{user.full_name || user.username}</td>
             <td>{user.username}</td>
             <td><span className={`badge ${user.role === 'manager' ? 'badge-primary' : 'badge-info'}`}>{ROLE_LABELS[user.role] || user.role}</span></td>
-            <td>{user.location_name || '—'}</td>
+            
             <td><span className={`badge ${user.is_active ? 'badge-success':'badge-warning'}`}>{user.is_active ? 'Active':'Inactive'}</span></td>
             <td style={{ display:'flex', gap:'0.5rem' }}>
               <button className="btn btn-sm btn-secondary" onClick={()=>editAccount(user)}>Edit</button>
@@ -406,7 +363,7 @@ export default function BranchesAndStaff() {
               <button className="btn btn-sm btn-danger" onClick={()=>deleteAccount(user)}>Delete</button>
             </td>
           </tr>)}
-        </tbody></table><h5 className="mt-4 mb-2">Inactive Accounts</h5><table className="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Branch</th><th>Status</th><th>Actions</th></tr></thead><tbody>{accounts.filter((a)=>!a.is_active).map((user) => <tr key={`inactive-${user.id}`}><td>{user.full_name || user.username}</td><td>{user.username}</td><td><span className={`badge ${user.role === 'manager' ? 'badge-primary' : 'badge-info'}`}>{ROLE_LABELS[user.role] || user.role}</span></td><td>{user.location_name || '—'}</td><td><span className="badge badge-warning">Inactive</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editAccount(user)}>Edit</button><button className="btn btn-sm btn-success" onClick={()=>toggleAccountStatus(user)}>Enable</button><button className="btn btn-sm btn-danger" onClick={()=>deleteAccount(user)}>Delete</button></td></tr>)}{!accounts.filter((a)=>!a.is_active).length && <tr><td colSpan={6} className="text-muted text-center">No inactive accounts.</td></tr>}</tbody></table>
+        </tbody></table><h5 className="mt-4 mb-2">Inactive Accounts</h5><table className="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{accounts.filter((a)=>!a.is_active).map((user) => <tr key={`inactive-${user.id}`}><td>{user.full_name || user.username}</td><td>{user.username}</td><td><span className={`badge ${user.role === 'manager' ? 'badge-primary' : 'badge-info'}`}>{ROLE_LABELS[user.role] || user.role}</span></td><td><span className="badge badge-warning">Inactive</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editAccount(user)}>Edit</button><button className="btn btn-sm btn-success" onClick={()=>toggleAccountStatus(user)}>Enable</button><button className="btn btn-sm btn-danger" onClick={()=>deleteAccount(user)}>Delete</button></td></tr>)}{!accounts.filter((a)=>!a.is_active).length && <tr><td colSpan={5} className="text-muted text-center">No inactive accounts.</td></tr>}</tbody></table>
         </>
         )}
       </div></div>
