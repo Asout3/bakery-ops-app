@@ -183,7 +183,6 @@ export default function SalesPage() {
                   <th>Payment Method</th>
                   <th>Status</th>
                   <th>Void Details</th>
-                  <th>Location</th>
                   <th>Cashier</th>
                   <th>Actions</th>
                 </tr>
@@ -191,7 +190,7 @@ export default function SalesPage() {
               <tbody>
                 {filteredSales.length === 0 ? (
                   <tr>
-                    <td colSpan="9" className="text-center text-muted py-4">No sales found</td>
+                    <td colSpan="8" className="text-center text-muted py-4">No sales found</td>
                   </tr>
                 ) : (
                   filteredSales.map((sale) => (
@@ -221,7 +220,6 @@ export default function SalesPage() {
                           <span className="text-muted">-</span>
                         )}
                       </td>
-                      <td>{sale.location_name || sale.location_id}</td>
                       <td>{sale.cashier_name || sale.cashier_id}</td>
                       <td>
                         <button className="btn btn-sm btn-outline-primary" onClick={() => setSelectedSale(sale)}>
@@ -253,9 +251,8 @@ export default function SalesPage() {
                   <p><strong>Payment Method:</strong> {selectedSale.payment_method}</p>
                 </div>
                 <div className="col-md-6">
-                  <h5>Staff & Location</h5>
+                  <h5>Staff</h5>
                   <p><strong>Cashier:</strong> {selectedSale.cashier_name || selectedSale.cashier_id}</p>
-                  <p><strong>Location:</strong> {selectedSale.location_name || selectedSale.location_id}</p>
                   <p><strong>Sync Status:</strong> {selectedSale.is_offline ? 'Offline' : 'Online'}</p>
                   {selectedSale.status === 'voided' && <p><strong>Void:</strong> {formatAddisDateTime(selectedSale.voided_at, { hour12: true })} — {selectedSale.void_reason || 'No reason provided'}</p>}
                 </div>

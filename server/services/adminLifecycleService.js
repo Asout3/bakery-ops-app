@@ -26,7 +26,12 @@ export async function createStaffAccount(payload, repository) {
       throw toError('Staff with "other" role typically do not need accounts. Create a manager or cashier staff profile first.', 400, 'STAFF_ROLE_NOT_ELIGIBLE');
     }
 
+    if (staff.role_preference !== payload.role) {
+      throw toError('Account role must match the staff role preference.', 400, 'ROLE_MISMATCH');
+    }
+
     const resolvedEmail = buildResolvedEmail(staff, payload.username);
+    const resolvedLocationId = payload.location_id || staff.location_id || null;
     const password_hash = await bcrypt.hash(payload.password, SALT_ROUNDS);
     const existingUser = await repo.getUserByUsernameOrEmail(payload.username, resolvedEmail);
 
@@ -54,7 +59,7 @@ export async function createStaffAccount(payload, repository) {
         email: resolvedEmail,
         password_hash,
         role: payload.role,
-        location_id: payload.location_id,
+        location_id: resolvedLocationId,
         full_name: staff.full_name,
         national_id: staff.national_id,
         phone_number: staff.phone_number,
@@ -69,7 +74,7 @@ export async function createStaffAccount(payload, repository) {
         email: resolvedEmail,
         password_hash,
         role: payload.role,
-        location_id: payload.location_id,
+        location_id: resolvedLocationId,
         full_name: staff.full_name,
         national_id: staff.national_id,
         phone_number: staff.phone_number,
@@ -80,7 +85,9 @@ export async function createStaffAccount(payload, repository) {
       });
     }
 
-    await repo.upsertUserLocation(user.id, payload.location_id);
+    if (resolvedLocationId) {
+      await repo.upsertUserLocation(user.id, resolvedLocationId);
+    }
     await repo.linkStaffProfile(user.id, payload.staff_profile_id);
 
     return { user, staff_profile_id: payload.staff_profile_id, reactivated: !!existingUser };
@@ -107,10 +114,8 @@ export async function archiveStaffAccount(userId, repository) {
     return { archived: true, already_inactive: true };
   }
 
-  await repository.archiveUser(userId);
-  await repository.unlinkStaffFromUser(userId);
-  await repository.deleteUserLocations(userId);
-  return { archived: true };
+  await repository.hardDeleteUser(userId);
+  return { deleted: true };
 }
 
 export async function archiveStaffProfile(staffId, repository) {
@@ -119,10 +124,8 @@ export async function archiveStaffProfile(staffId, repository) {
     throw toError('Staff member not found', 404, 'STAFF_NOT_FOUND');
   }
   if (staff.linked_user_id) {
-    await repository.archiveUser(staff.linked_user_id);
-    await repository.unlinkStaffFromUser(staff.linked_user_id);
-    await repository.deleteUserLocations(staff.linked_user_id);
+    await repository.hardDeleteUser(staff.linked_user_id);
   }
-  await repository.archiveStaff(staffId);
-  return { archived: true };
+  await repository.hardDeleteStaffProfile(staffId);
+  return { deleted: true };
 }
