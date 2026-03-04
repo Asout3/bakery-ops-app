@@ -233,8 +233,8 @@ export default function Dashboard() {
 
       <DataTable
         title="Batch Performance"
-        headers={['Batch', 'Created By', 'Status', 'Product', 'Qty', 'Unit Cost', 'Line Cost', 'Offline']}
-        rows={batchRows.map((r) => [`#${r.batch_id}`, r.created_by_name, r.status, r.product_name, Number(r.quantity || 0), formatMoney(r.unit_cost), formatMoney(r.line_cost), boolFlag(r.is_offline) ? 'Yes' : 'No'])}
+        headers={['Batch', 'Created By', 'Status', 'Product', 'Qty', 'Unit Cost', 'Line Cost']}
+        rows={batchRows.map((r) => [`#${r.batch_id}`, r.created_by_name, r.status, r.product_name, Number(r.quantity || 0), formatMoney(r.unit_cost), formatMoney(r.line_cost)])}
         empty="No batch records in this period."
       />
 

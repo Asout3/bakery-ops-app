@@ -49,12 +49,12 @@ flowchart TB
   B[Visibility] --> B1[Reporting]
   B --> B2[Archive dashboards]
   B --> B3[Activity logs]
-  C[Security] --> C1[JWT + RBAC]
+  C[Security] --> C1[JWT and RBAC]
   C --> C2[Rate limiting]
   C --> C3[Helmet hardening]
   D[Scalability] --> D1[DB pooling]
   D --> D2[Query indexes]
-  D --> D3[Job-level advisory locks]
+  D --> D3[Advisory job locks]
 ```
 
 ### Core Business Capabilities
@@ -70,28 +70,28 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-  subgraph Frontend[Client Layer - React + Vite]
-    UI[Role-based Pages]
+  subgraph Frontend[Client Layer React Vite]
+    UI[Role based pages]
     Router[React Router]
-    APIClient[Axios API Client]
-    OfflineQ[Offline Queue + Replay]
+    APIClient[Axios API client]
+    OfflineQ[Offline queue and replay]
     SW[Service Worker]
-    Cache[Local/IndexedDB cache]
+    Cache[Local indexed cache]
   end
 
-  subgraph Backend[API Layer - Express]
-    MW[Security + Auth Middleware]
+  subgraph Backend[API Layer Express]
+    MW[Security auth middleware]
     Routes[Route Handlers]
     Services[Domain Services]
     Errors[Central Error Handler]
-    Jobs[Schedulers + Job Locks]
+    Jobs[Schedulers and job locks]
   end
 
-  subgraph Data[Data Layer - PostgreSQL]
+  subgraph Data[Data Layer PostgreSQL]
     Core[(Core transactional tables)]
     Idem[(idempotency_keys)]
-    Archive[(archive_* tables)]
-    Audit[(activity_log + sync_audit_logs)]
+    Archive[(archive tables)]
+    Audit[(activity and sync audit logs)]
   end
 
   UI --> Router --> APIClient --> MW --> Routes --> Services --> Data
@@ -126,7 +126,7 @@ sequenceDiagram
 
   User->>UI: Submit write action
   alt Online
-    UI->>API: Request + X-Idempotency-Key
+    UI->>API: Request with idempotency key
     API->>DB: Transaction
     DB-->>API: Commit
     API-->>UI: Success
@@ -135,7 +135,7 @@ sequenceDiagram
     Queue-->>UI: Pending state
     Note over UI,Queue: User can navigate/refresh without losing queue
     Queue->>API: Replay when online
-    API->>DB: Idempotent check + write
+    API->>DB: Idempotent check and write
     DB-->>API: Existing or new result
     API-->>Queue: synced/conflict/needs_review
     Queue-->>UI: Reconciled state
@@ -261,7 +261,7 @@ X-Retry-Count: <retry-number>
 ```mermaid
 flowchart LR
   A[Client Request] --> B[Express Route]
-  B --> C[DB Pool + Timeouts]
+  B --> C[DB pool and timeouts]
   C --> D[Indexed Query]
   D --> E[Response]
   B --> F[Scheduler Path]
