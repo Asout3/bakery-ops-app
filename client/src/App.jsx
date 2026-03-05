@@ -25,12 +25,10 @@ import StaffManagementPage from './pages/admin/StaffManagement';
 import HistoryLifecyclePage from './pages/admin/HistoryLifecycle';
 import ManagerInventory from './pages/manager/Inventory';
 import ManagerBatches from './pages/manager/Batches';
-import ManagerOrders from './pages/manager/Orders';
 import ManagerProducts from './pages/admin/Products';
 import ManagerNotifications from './pages/admin/Notifications';
 import CashierSales from './pages/cashier/Sales';
 import CashierHistory from './pages/cashier/History';
-import CashierOrders from './pages/cashier/Orders';
 
 function AppInner() {
   return (
@@ -54,14 +52,14 @@ function AppInner() {
           <Route path="/manager" element={<ProtectedRoute roles={['manager', 'admin']}><Layout /></ProtectedRoute>}>
             <Route path="inventory" element={<ManagerInventory />} />
             <Route path="batches" element={<ManagerBatches />} />
-            <Route path="orders" element={<ManagerOrders />} />
+            <Route path="orders" element={<Navigate to="/manager/batches" replace />} />
             <Route path="products" element={<ManagerProducts />} />
             <Route path="notifications" element={<ManagerNotifications />} />
           </Route>
           <Route path="/cashier" element={<ProtectedRoute roles={['cashier', 'admin']}><Layout /></ProtectedRoute>}>
             <Route path="sales" element={<CashierSales />} />
+            <Route path="orders" element={<Navigate to="/cashier/sales" replace />} />
             <Route path="history" element={<CashierHistory />} />
-            <Route path="orders" element={<CashierOrders />} />
           </Route>
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/unauthorized" element={<div style={{ padding: '2rem', textAlign: 'center' }}><h1>Unauthorized</h1><p>You don't have permission to access this page.</p></div>} />

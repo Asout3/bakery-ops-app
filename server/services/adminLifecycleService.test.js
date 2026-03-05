@@ -54,6 +54,21 @@ test('createStaffAccount rejects active duplicate account', async () => {
   );
 });
 
+
+test('createStaffAccount rejects mismatched role against staff preference', async () => {
+  const repository = {
+    withTransaction: async (handler) => handler({
+      getActiveStaffById: async () => ({ id: 10, linked_user_id: null, role_preference: 'cashier', phone_number: '555-1234' }),
+      getUserByUsernameOrEmail: async () => null,
+    }),
+  };
+
+  await assert.rejects(
+    () => createStaffAccount({ username: 'jane', password: 'Passw0rd!', role: 'manager', location_id: 1, staff_profile_id: 10 }, repository),
+    (err) => err.status === 400 && err.code === 'ROLE_MISMATCH'
+  );
+});
+
 test('archiveStaffAccount returns already_inactive for inactive user', async () => {
   const repository = {
     getUserById: async () => ({ id: 4, role: 'manager', is_active: false }),
@@ -63,20 +78,16 @@ test('archiveStaffAccount returns already_inactive for inactive user', async () 
   assert.deepEqual(result, { archived: true, already_inactive: true });
 });
 
-test('archiveStaffProfile archives linked account before archiving profile', async () => {
-  const calls = { archiveUser: 0, unlink: 0, deleteLocations: 0, archiveStaff: 0 };
+test('archiveStaffProfile hard deletes linked account and profile', async () => {
+  const calls = { hardDeleteUser: 0, hardDeleteStaffProfile: 0 };
   const repository = {
     getStaffById: async () => ({ id: 3, linked_user_id: 7 }),
-    archiveUser: async () => { calls.archiveUser += 1; },
-    unlinkStaffFromUser: async () => { calls.unlink += 1; },
-    deleteUserLocations: async () => { calls.deleteLocations += 1; },
-    archiveStaff: async () => { calls.archiveStaff += 1; },
+    hardDeleteUser: async () => { calls.hardDeleteUser += 1; },
+    hardDeleteStaffProfile: async () => { calls.hardDeleteStaffProfile += 1; },
   };
 
   const result = await archiveStaffProfile(3, repository);
-  assert.deepEqual(result, { archived: true });
-  assert.equal(calls.archiveUser, 1);
-  assert.equal(calls.unlink, 1);
-  assert.equal(calls.deleteLocations, 1);
-  assert.equal(calls.archiveStaff, 1);
+  assert.deepEqual(result, { deleted: true });
+  assert.equal(calls.hardDeleteUser, 1);
+  assert.equal(calls.hardDeleteStaffProfile, 1);
 });

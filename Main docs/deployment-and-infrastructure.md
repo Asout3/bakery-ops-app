@@ -76,6 +76,7 @@ flowchart TD
 3. Deploy backend and wait for readiness.
 4. Deploy frontend assets.
 5. Run smoke checks (auth, orders, inventory, sync, archive).
+6. Validate offline refresh in production build flow (service worker is disabled in local dev mode).
 
 ## 5) Observability and SLO Basics
 
@@ -109,3 +110,8 @@ Track:
 - [ ] backup and rollback tested
 - [ ] monitoring and alerting active
 - [ ] offline-critical user paths smoke-tested
+
+## 9) Schema Bootstrap Notes
+
+- Production deployments must still run migrations (`npm run setup-db`) as part of release automation.
+- Startup includes an auth schema safety guard for lockout and refresh-token tables to prevent runtime login failures in partially migrated environments.

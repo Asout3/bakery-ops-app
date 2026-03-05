@@ -150,7 +150,7 @@ export function getCorsOptions() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Location-Id', 'X-Idempotency-Key', 'X-Retry-Count', 'X-Queued-Request'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Location-Id', 'X-Idempotency-Key', 'X-Retry-Count', 'X-Queued-Request', 'X-Queued-Created-At', 'X-Offline-Actor-Id', 'X-Skip-Auth-Redirect'],
     maxAge: 86400,
   };
 }

@@ -33,7 +33,14 @@ export default function HistoryLifecycle() {
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
     fetchData();
+    const refreshTimer = setInterval(() => {
+      if (navigator.onLine) {
+        fetchData();
+      }
+    }, 15000);
+
     return () => {
+      clearInterval(refreshTimer);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
     };
@@ -71,7 +78,7 @@ export default function HistoryLifecycle() {
       if (movedTotal === 0) {
         setMessage({
           type: 'warning',
-          text: `Archive run completed but no rows were eligible before cutoff (${new Date(response.data?.cutoffAt || Date.now()).toLocaleDateString()}).`,
+          text: `Archive run completed but no rows were available to move as of (${new Date(response.data?.cutoffAt || Date.now()).toLocaleDateString()}).`,
         });
       } else {
         setMessage({
@@ -85,6 +92,29 @@ export default function HistoryLifecycle() {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Archive run failed') });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const downloadArchiveExport = async () => {
+    if (!navigator.onLine) {
+      setMessage({ type: 'warning', text: 'Archive export requires online server connection.' });
+      return;
+    }
+    try {
+      const response = await api.get('/archive/export', { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const datePart = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `archive-export-${datePart}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setMessage({ type: 'success', text: 'Archive export downloaded successfully.' });
+    } catch (err) {
+      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to download archive export') });
     }
   };
 
@@ -117,7 +147,7 @@ export default function HistoryLifecycle() {
       </div>
 
       <div className="card mb-4">
-        <div className="card-header"><h4>Archived Data Counts</h4></div>
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}><h4>Archived Data Counts</h4><button className="btn btn-secondary btn-sm" onClick={downloadArchiveExport} disabled={loading || !isOnline}>Download Archive CSV (Excel-ready)</button></div>
         <div className="card-body" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <span className="badge badge-primary">Batches: {data?.archive_counts?.inventory_batches || 0}</span>
           <span className="badge badge-primary">Batch Items: {data?.archive_counts?.batch_items || 0}</span>
@@ -138,7 +168,7 @@ export default function HistoryLifecycle() {
           <code>{expectedPhrase}</code>
           <input className="input" style={{ marginTop: '0.75rem' }} value={confirmationPhrase} onChange={(e) => setConfirmationPhrase(e.target.value)} placeholder="Type confirmation phrase" />
           <button className="btn btn-danger" style={{ marginTop: '0.75rem' }} disabled={confirmationPhrase !== expectedPhrase || loading || !isOnline} onClick={runArchive}>
-            Confirm and archive last 6 month history
+            Confirm and archive available history now
           </button>
         </div>
       </div>

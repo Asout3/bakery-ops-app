@@ -93,6 +93,21 @@ const withTx = (tx) => ({
 
 export const adminLifecycleRepository = {
   withTransaction: async (handler) => withTransaction(async (tx) => handler(withTx(tx))),
+  hardDeleteUser: async (id) => withTransaction(async (tx) => {
+    await tx.query('UPDATE staff_profiles SET linked_user_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE linked_user_id = $1', [id]);
+    await tx.query('UPDATE inventory_batches SET created_by = NULL, original_actor_id = NULL, synced_by_id = NULL WHERE created_by = $1 OR original_actor_id = $1 OR synced_by_id = $1', [id]);
+    await tx.query('UPDATE sales SET cashier_id = NULL, voided_by = NULL WHERE cashier_id = $1 OR voided_by = $1', [id]);
+    await tx.query('UPDATE expenses SET created_by = NULL WHERE created_by = $1', [id]);
+    await tx.query('UPDATE staff_payments SET user_id = NULL, created_by = NULL WHERE user_id = $1 OR created_by = $1', [id]);
+    await tx.query('UPDATE activity_log SET user_id = NULL WHERE user_id = $1', [id]);
+    await tx.query('UPDATE notifications SET user_id = NULL WHERE user_id = $1', [id]);
+    await tx.query('UPDATE inventory_movements SET created_by = NULL WHERE created_by = $1', [id]);
+    await tx.query('UPDATE kpi_events SET user_id = NULL WHERE user_id = $1', [id]);
+    await tx.query('UPDATE alert_rules SET created_by = NULL WHERE created_by = $1', [id]);
+    await tx.query('UPDATE products SET created_by = NULL WHERE created_by = $1', [id]);
+    await tx.query('DELETE FROM user_locations WHERE user_id = $1', [id]);
+    await tx.query('DELETE FROM users WHERE id = $1', [id]);
+  }),
   getUserById: async (id) => {
     const result = await query('SELECT id, role, is_active FROM users WHERE id = $1', [id]);
     return result.rows[0] || null;
@@ -156,4 +171,8 @@ export const adminLifecycleRepository = {
       [id]
     );
   },
+  hardDeleteStaffProfile: async (id) => withTransaction(async (tx) => {
+    await tx.query('UPDATE staff_payments SET staff_profile_id = NULL WHERE staff_profile_id = $1', [id]);
+    await tx.query('DELETE FROM staff_profiles WHERE id = $1', [id]);
+  }),
 };

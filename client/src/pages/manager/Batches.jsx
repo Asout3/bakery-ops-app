@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { Package, Clock, User, Eye, Edit, Ban, RefreshCw, Wifi, WifiOff, CheckCircle, XCircle } from 'lucide-react';
+import { Package, Clock, User, Eye, Edit, Ban, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 import { formatAddisDateTime } from '../../utils/time';
 import './Batches.css';
 import { useToast } from '../../context/ToastContext';
@@ -18,6 +18,7 @@ export default function ManagerBatches() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDay, setSelectedDay] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [tick, setTick] = useState(Date.now());
   const lastOfflineToastAtRef = useRef(0);
   const toast = useToast();
@@ -102,20 +103,25 @@ export default function ManagerBatches() {
 
   const normalizeBatch = useCallback((batch) => {
     const wasSynced = normalizeBoolean(batch?.was_synced) || Boolean(batch?.synced_by_name) || Boolean(batch?.synced_at);
-    const isOffline = normalizeBoolean(batch?.is_offline) || wasSynced;
+    const isOffline = normalizeBoolean(batch?.is_offline);
+    const rawCanEdit = batch?.can_edit;
+    const canEdit = rawCanEdit === undefined || rawCanEdit === null ? null : normalizeBoolean(rawCanEdit);
     return {
       ...batch,
       was_synced: wasSynced,
       is_offline: isOffline,
-      can_edit: normalizeBoolean(batch?.can_edit),
+      can_edit: canEdit,
       fetched_at_ms: Date.now(),
     };
   }, []);
 
   const isBatchEditable = useCallback((batch) => {
     if (!batch) return false;
-    return batch.status !== 'voided';
-  }, []);
+    if (batch.status === 'voided') return false;
+    if (batch.can_edit === true) return true;
+    if (batch.can_edit === false) return false;
+    return getMinutesRemaining(batch) > 0;
+  }, [getMinutesRemaining]);
 
   const fetchBatches = useCallback(async (isRefresh = false) => {
     if (isRefresh && !navigator.onLine) {
@@ -234,9 +240,12 @@ export default function ManagerBatches() {
     sent: batches.filter((b) => b.status === 'sent').length,
     voided: batches.filter((b) => b.status === 'voided').length,
     edited: batches.filter((b) => b.status === 'edited').length,
-    offline: batches.filter((b) => b.is_offline).length,
-    synced: batches.filter((b) => b.was_synced).length,
   };
+  const filteredBatches = batches.filter((batch) => {
+    const matchesStatus = statusFilter === 'all' || batch.status === statusFilter;
+    return matchesStatus;
+  });
+
 
   const getStatusBadge = (status) => {
     const statusMap = {
@@ -281,22 +290,31 @@ export default function ManagerBatches() {
               onChange={(e) => setSelectedDay(e.target.value)}
             />
           </div>
-          <button className="btn btn-outline-secondary" onClick={() => setSelectedDay('')}>Clear Filter</button>
+          <div>
+            <label className="form-label">Status</label>
+            <select className="form-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="all">All</option>
+              <option value="sent">Sent</option>
+              <option value="edited">Edited</option>
+              <option value="voided">Voided</option>
+              <option value="pending">Pending</option>
+            </select>
+          </div>
+          <button className="btn btn-outline-secondary" onClick={() => { setSelectedDay(''); setStatusFilter('all'); }}>Clear Filter</button>
         </div>
       </div>
 
       <div className="card mb-4">
         <div className="card-body d-flex gap-2 flex-wrap align-items-center">
-          <span className="badge bg-secondary">Showing {stats.total} rows</span>
+          <span className="badge bg-secondary">Showing {filteredBatches.length} rows</span>
           <span className="badge bg-success">Sent: {stats.sent}</span>
           <span className="badge bg-danger">Voided: {stats.voided}</span>
-          <span className="badge bg-warning text-dark">Offline synced: {stats.offline}</span>
         </div>
       </div>
 
       <div className="card modern-batch-card">
         <div className="card-body">
-          {batches.length === 0 ? (
+          {filteredBatches.length === 0 ? (
             <div className="empty-state">
               <Package size={48} className="text-muted" />
               <h4>No batches found</h4>
@@ -313,12 +331,11 @@ export default function ManagerBatches() {
                     <th>Items</th>
                     <th>Total Cost</th>
                     <th>Created By</th>
-                    <th>Sync Info</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {batches.map((batch) => (
+                  {filteredBatches.map((batch) => (
                     <tr key={batch.id} className={batch.status === 'voided' ? 'table-disabled' : ''}>
                       <td><strong>#{batch.id}</strong></td>
                       <td>
@@ -333,29 +350,11 @@ export default function ManagerBatches() {
                           <User size={14} className="text-muted" />
                           {batch.display_creator_name || batch.created_by_name}
                         </div>
-                        {batch.was_synced && batch.synced_by_name && (
-                          <small className="text-info d-block" style={{ fontSize: '0.7rem' }}>
-                            Synced via: {batch.synced_by_name}
-                          </small>
-                        )}
-                      </td>
-                      <td>
-                        {batch.is_offline ? (
-                          <div className="d-flex align-items-center gap-1">
-                            <WifiOff size={14} className="text-warning" />
-                            <span className="badge bg-warning text-dark">Offline</span>
-                          </div>
-                        ) : (
-                          <div className="d-flex align-items-center gap-1">
-                            <Wifi size={14} className="text-success" />
-                            <span className="badge bg-success">Online</span>
-                          </div>
-                        )}
                       </td>
                       <td>
                         <div className="d-flex gap-1">
                           <span className={`badge ${isBatchEditable(batch) ? 'bg-success' : 'bg-secondary'}`}>
-                            {isBatchEditable(batch) ? 'Editable' : 'Locked'}
+                            {isBatchEditable(batch) ? `${Math.max(1, getMinutesRemaining(batch))}m left` : 'Locked'}
                           </span>
                           <button 
                             className="btn btn-sm btn-outline-primary" 
@@ -442,16 +441,9 @@ export default function ManagerBatches() {
 
               <div className={`alert ${isBatchEditable(selectedBatch) ? 'alert-success' : 'alert-secondary'} mb-4`}>
                 {isBatchEditable(selectedBatch)
-                  ? 'This batch is editable and can be voided from this page.'
-                  : 'This batch is locked because it is already voided.'}
+                  ? `This batch is editable for ${Math.max(1, getMinutesRemaining(selectedBatch))} more minute(s).`
+                  : 'This batch is locked because the 20-minute window expired or it was already voided.'}
               </div>
-
-              {selectedBatch.was_synced && selectedBatch.synced_by_name && (
-                <div className="alert alert-info mb-4">
-                  <WifiOff size={16} className="me-2" />
-                  This batch was synced offline by <strong>{selectedBatch.synced_by_name}</strong>
-                </div>
-              )}
 
               <h5 className="mb-3">Items in Batch</h5>
               <div className="table-responsive">

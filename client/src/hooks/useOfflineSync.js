@@ -3,7 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import { flushQueue, getSyncStats, isOnline, getConnectionQuality } from '../utils/offlineQueue';
 
-const BASE_SYNC_INTERVAL_MS = 10000;
+const BASE_SYNC_INTERVAL_MS = 12000;
+const MIN_RETRY_GAP_MS = 15000;
 
 function resolveSyncInterval(queueStats) {
   const quality = getConnectionQuality();
@@ -18,6 +19,7 @@ export function useOfflineSync() {
   const [queueStats, setQueueStats] = useState({ total: 0, pending: 0, conflict: 0, needsReview: 0, failed: 0 });
   const [syncProgress, setSyncProgress] = useState({ total: 0, done: 0, active: false, finished: false });
   const [syncInProgress, setSyncInProgress] = useState(false);
+  const [syncOutcome, setSyncOutcome] = useState('idle');
   const [lastSyncResult, setLastSyncResult] = useState(() => {
     try {
       const cached = localStorage.getItem('offline_sync_last_result');
@@ -28,10 +30,16 @@ export function useOfflineSync() {
   });
   const [appInitialized, setAppInitialized] = useState(false);
   const initializedRef = useRef(false);
+  const finishResetTimeoutRef = useRef(null);
+  const lastSyncAttemptRef = useRef(0);
 
   const runSync = useCallback(async (force = false) => {
     if (!isAuthenticated) return;
     if (syncInProgress && !force) return;
+
+    const now = Date.now();
+    if (!force && now - lastSyncAttemptRef.current < MIN_RETRY_GAP_MS) return;
+    lastSyncAttemptRef.current = now;
 
     if (!navigator.onLine) {
       const stats = await getSyncStats();
@@ -40,6 +48,7 @@ export function useOfflineSync() {
     }
 
     setSyncInProgress(true);
+    setSyncOutcome('in_progress');
     let pendingBefore = 0;
     let result = null;
     try {
@@ -58,10 +67,27 @@ export function useOfflineSync() {
       }
       const stats = await getSyncStats();
       setQueueStats(stats);
-      const finishedDone = Math.min(pendingBefore, Number(result.synced || 0) + Number(result.failed || 0));
+      const syncedCount = Number(result?.synced || 0);
+      const failedCount = Number(result?.failed || 0);
+      const finishedDone = Math.min(pendingBefore, syncedCount + failedCount);
+      const hasPendingAfter = Number(stats.pending || 0) > 0;
+      const hasAttentionAfter = Number(stats.failed || 0) > 0 || Number(stats.conflict || 0) > 0 || Number(stats.needsReview || 0) > 0;
+      if (hasAttentionAfter) {
+        setSyncOutcome('attention');
+      } else if (syncedCount > 0 && !hasPendingAfter) {
+        setSyncOutcome('success');
+      } else if (hasPendingAfter) {
+        setSyncOutcome('retrying');
+      } else {
+        setSyncOutcome('idle');
+      }
       if (pendingBefore > 0) {
         setSyncProgress({ total: pendingBefore, done: finishedDone, active: false, finished: true });
-        setTimeout(() => setSyncProgress((prev) => ({ ...prev, finished: false })), 3500);
+        if (finishResetTimeoutRef.current) clearTimeout(finishResetTimeoutRef.current);
+        finishResetTimeoutRef.current = setTimeout(() => {
+          setSyncProgress((prev) => ({ ...prev, finished: false }));
+          setSyncOutcome('idle');
+        }, 6000);
       }
       const syncResult = {
         ...result,
@@ -75,10 +101,15 @@ export function useOfflineSync() {
         console.error('Failed to cache offline sync result');
       }
     } catch (err) {
-      const finishedDone = Math.min(pendingBefore, Number(result.synced || 0) + Number(result.failed || 0));
+      const finishedDone = Math.min(pendingBefore, Number(result?.synced || 0) + Number(result?.failed || 0));
+      setSyncOutcome('retrying');
       if (pendingBefore > 0) {
         setSyncProgress({ total: pendingBefore, done: finishedDone, active: false, finished: true });
-        setTimeout(() => setSyncProgress((prev) => ({ ...prev, finished: false })), 3500);
+        if (finishResetTimeoutRef.current) clearTimeout(finishResetTimeoutRef.current);
+        finishResetTimeoutRef.current = setTimeout(() => {
+          setSyncProgress((prev) => ({ ...prev, finished: false }));
+          setSyncOutcome('idle');
+        }, 6000);
       }
       const syncResult = {
         synced: 0,
@@ -157,7 +188,7 @@ export function useOfflineSync() {
       if (document.visibilityState === 'visible') {
         updateQueueStats();
         if (navigator.onLine && isAuthenticated) {
-          runSync(true);
+          runSync();
         }
       }
     };
@@ -167,13 +198,17 @@ export function useOfflineSync() {
     const handleConnectionChange = () => {
       updateQueueStats();
       if (navigator.onLine && isAuthenticated) {
-        runSync(true);
+        runSync();
       }
     };
     connection?.addEventListener?.('change', handleConnectionChange);
 
     return () => {
       clearInterval(interval);
+      if (finishResetTimeoutRef.current) {
+        clearTimeout(finishResetTimeoutRef.current);
+        finishResetTimeoutRef.current = null;
+      }
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -191,6 +226,7 @@ export function useOfflineSync() {
     syncInterval,
     appInitialized,
     syncProgress,
+    syncOutcome,
   };
 }
 

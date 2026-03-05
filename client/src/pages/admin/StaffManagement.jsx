@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { UserPlus, Users } from 'lucide-react';
 import api from '../../api/axios';
+import { formatCurrencyETB } from '../../utils/currency';
 
 
 const ETHIOPIA_PHONE_REGEX = /^\+251(9|7)\d{8}$/;
@@ -23,7 +24,6 @@ const emptyStaff = {
   monthly_salary: '',
   role_preference: 'cashier',
   other_role_title: '',
-  location_id: '',
   payment_due_date: '25',
 };
 
@@ -38,6 +38,7 @@ export default function StaffManagement() {
   const [profile, setProfile] = useState(null);
 
   const activeStaff = useMemo(() => staff.filter((u) => u.is_active), [staff]);
+  const inactiveStaff = useMemo(() => staff.filter((u) => !u.is_active), [staff]);
   const sortedStaff = useMemo(() => [...staff].sort((a, b) => {
     if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
     return String(a.full_name || '').localeCompare(String(b.full_name || ''));
@@ -66,10 +67,6 @@ export default function StaffManagement() {
 
   const createStaff = async (e) => {
     e.preventDefault();
-    if (!staffForm.location_id) {
-      setFeedback({ type: 'danger', message: 'Please select a branch' });
-      return;
-    }
     const normalizedPhone = normalizeEthiopianPhone(staffForm.phone_number);
     if (!ETHIOPIA_PHONE_REGEX.test(normalizedPhone)) {
       setFeedback({ type: 'danger', message: 'Phone must be +2519XXXXXXXX or +2517XXXXXXXX.' });
@@ -83,14 +80,13 @@ export default function StaffManagement() {
     try {
       await api.post('/admin/staff', {
         ...staffForm,
-        location_id: Number(staffForm.location_id),
         phone_number: normalizedPhone,
         age: staffForm.age ? Number(staffForm.age) : undefined,
         monthly_salary: staffForm.monthly_salary ? Number(staffForm.monthly_salary) : 0,
         payment_due_date: staffForm.payment_due_date ? Number(staffForm.payment_due_date) : 25,
       });
       setFeedback({ type: 'success', message: 'Staff profile created.' });
-      setStaffForm({ ...emptyStaff, location_id: staffForm.location_id });
+      setStaffForm({ ...emptyStaff });
       load();
     } catch (err) {
       const validationText = err.response?.data?.errors?.map((x) => x.msg).join(', ');
@@ -122,14 +118,12 @@ export default function StaffManagement() {
       return;
     }
     const role_preference = row.role_preference || 'cashier';
-    const location_id = Number(row.location_id);
     try {
       await api.put(`/admin/staff/${row.id}`, {
         full_name,
         phone_number,
         monthly_salary,
         role_preference,
-        location_id,
         national_id: row.national_id || null,
         age: row.age || null,
         other_role_title: role_preference === 'other' ? (row.job_title || 'Other Staff') : undefined,
@@ -163,9 +157,9 @@ export default function StaffManagement() {
         <div className="card mb-4"><div className="card-body">
           <h4>Staff Expense Summary (Monthly)</h4>
           <div className="row g-3">
-            <div className="col-md-4"><strong>Total:</strong> ${Number(expenseSummary.total_monthly_staff_expense || 0).toFixed(2)}</div>
-            <div className="col-md-4"><strong>Active Salaries:</strong> ${Number(expenseSummary.active_salary_total || 0).toFixed(2)}</div>
-            <div className="col-md-4"><strong>Prorated Exits:</strong> ${Number(expenseSummary.prorated_exit_total || 0).toFixed(2)}</div>
+            <div className="col-md-4"><strong>Total:</strong> {formatCurrencyETB(expenseSummary.total_monthly_staff_expense || 0)}</div>
+            <div className="col-md-4"><strong>Active Salaries:</strong> {formatCurrencyETB(expenseSummary.active_salary_total || 0)}</div>
+            <div className="col-md-4"><strong>Prorated Exits:</strong> {formatCurrencyETB(expenseSummary.prorated_exit_total || 0)}</div>
           </div>
         </div></div>
       )}
@@ -187,7 +181,7 @@ export default function StaffManagement() {
           </div>
           <div className="row g-2">
             <div className="col-md-4 mb-3"><label className="form-label">Role</label><select className="form-select" value={staffForm.role_preference} onChange={(e)=>setStaffForm((p)=>({...p,role_preference:e.target.value}))}><option value="cashier">Cashier</option><option value="manager">Ground Manager</option><option value="other">Other</option></select></div>
-            <div className="col-md-4 mb-3"><label className="form-label">Branch</label><select className="form-select" required value={staffForm.location_id} onChange={(e)=>setStaffForm((p)=>({...p,location_id:e.target.value}))}><option value="">Select branch</option>{locations.map((location)=><option key={location.id} value={location.id}>{location.name}</option>)}</select></div>
+            
             <div className="col-md-4 mb-3"><label className="form-label">Salary Due Day (1-28)</label><input type="number" min="1" max="28" className="form-control" value={staffForm.payment_due_date} onChange={(e)=>setStaffForm((p)=>({...p,payment_due_date:e.target.value}))} placeholder="25" /><small className="text-muted">Day of month to pay salary</small></div>
             {staffForm.role_preference === 'other' && <div className="col-md-4 mb-3"><label className="form-label">Other Role Title</label><input className="form-control" required value={staffForm.other_role_title} onChange={(e)=>setStaffForm((p)=>({...p,other_role_title:e.target.value}))} /></div>}
           </div>
@@ -196,9 +190,7 @@ export default function StaffManagement() {
       </div></div>
 
       <div className="card"><div className="card-header"><h4>Staff Directory</h4></div><div className="card-body table-container">
-        <table className="table"><thead><tr><th>Name</th><th>Role</th><th>Branch</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {sortedStaff.map((row) => <tr key={row.id}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{row.location_name || row.location_id}</td><td>${Number(row.monthly_salary || 0).toFixed(2)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className={`badge ${row.is_active ? 'badge-success':'badge-warning'}`}>{row.is_active ? 'Active':'Inactive'}</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-secondary" onClick={()=>editStaff(row)}>Quick Save</button><button className={`btn btn-sm ${row.is_active ? 'btn-danger':'btn-success'}`} onClick={()=>toggleStatus(row)}>{row.is_active ? 'Disable':'Enable'}</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}
-        </tbody></table>
+        <h5 className="mb-2">Active Staff</h5><table className="table"><thead><tr><th>Name</th><th>Role</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>{activeStaff.map((row) => <tr key={row.id}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{formatCurrencyETB(row.monthly_salary || 0)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className="badge badge-success">Active</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-secondary" onClick={()=>editStaff(row)}>Quick Save</button><button className="btn btn-sm btn-danger" onClick={()=>toggleStatus(row)}>Disable</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}{!activeStaff.length && <tr><td colSpan={6} className="text-center text-muted">No active staff.</td></tr>}</tbody></table><h5 className="mt-4 mb-2">Inactive Staff</h5><table className="table"><thead><tr><th>Name</th><th>Role</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>{inactiveStaff.map((row) => <tr key={`inactive-${row.id}`}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{formatCurrencyETB(row.monthly_salary || 0)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className="badge badge-warning">Inactive</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-success" onClick={()=>toggleStatus(row)}>Enable</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}{!inactiveStaff.length && <tr><td colSpan={6} className="text-center text-muted">No inactive staff.</td></tr>}</tbody></table>
       </div></div>
 
       {profile && (
@@ -216,14 +208,13 @@ export default function StaffManagement() {
                 <div className="col-md-4 mb-3"><label className="form-label">Monthly Salary</label><input type="number" className="form-control" value={profile.monthly_salary || ''} onChange={(e)=>setProfile((p)=>({...p,monthly_salary:e.target.value}))} /></div>
               </div>
               <div className="row g-2">
-                <div className="col-md-8 mb-3"><label className="form-label">Salary Growth (ETB)</label><input type="number" min="0" step="0.01" className="form-control" value={profile.salary_growth || ''} onChange={(e)=>setProfile((p)=>({...p,salary_growth:e.target.value}))} placeholder="Increase amount" /></div>
-                <div className="col-md-4 mb-3 d-flex align-items-end"><button className="btn btn-outline-primary w-100" type="button" onClick={() => setProfile((p) => ({ ...p, monthly_salary: (Number(p.monthly_salary || 0) + Number(p.salary_growth || 0)).toFixed(2), salary_growth: '' }))}>Apply Growth</button></div>
+                <div className="col-md-9 mb-3"><label className="form-label">Salary Growth (ETB)</label><input type="number" min="0" step="0.01" className="form-control form-control-lg" value={profile.salary_growth || ''} onChange={(e)=>setProfile((p)=>({...p,salary_growth:e.target.value}))} placeholder="Increase amount" /></div>
+                <div className="col-md-3 mb-3 d-flex align-items-end"><button className="btn btn-outline-primary btn-lg w-100" type="button" onClick={() => setProfile((p) => ({ ...p, monthly_salary: (Number(p.monthly_salary || 0) + Number(p.salary_growth || 0)).toFixed(2), salary_growth: '' }))}>Apply Growth</button></div>
               </div>
 
               <div className="row g-2">
                 <div className="col-md-4 mb-3"><label className="form-label">Role</label><select className="form-select" value={profile.role_preference || 'cashier'} onChange={(e)=>setProfile((p)=>({...p,role_preference:e.target.value}))}><option value="cashier">Cashier</option><option value="manager">Ground Manager</option><option value="other">Other</option></select></div>
-                <div className="col-md-4 mb-3"><label className="form-label">Branch</label><select className="form-select" value={profile.location_id || ''} onChange={(e)=>setProfile((p)=>({...p,location_id:e.target.value}))}>{locations.map((l)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
-                {profile.role_preference === 'other' && <div className="col-md-4 mb-3"><label className="form-label">Other Title</label><input className="form-control" value={profile.job_title || ''} onChange={(e)=>setProfile((p)=>({...p,job_title:e.target.value}))} /></div>}
+                {profile.role_preference === 'other' && <div className="col-md-8 mb-3"><label className="form-label">Other Title</label><input className="form-control" value={profile.job_title || ''} onChange={(e)=>setProfile((p)=>({...p,job_title:e.target.value}))} /></div>}
               </div>
               <button className="btn btn-primary" onClick={async()=>{await editStaff(profile); setProfile(null);}}>Save Changes</button>
             </div>

@@ -174,9 +174,9 @@ async function moveRowsToArchive(tx, config) {
   return counts;
 }
 
-export async function runArchiveForLocation({ locationId, userId = null, runType = 'scheduled' }) {
+export async function runArchiveForLocation({ locationId, userId = null, runType = 'scheduled', forceRun = false, forceCutoffNow = false }) {
   const settings = await ensureArchiveSettings(locationId, userId);
-  if (!settings.enabled) {
+  if (!settings.enabled && !forceRun) {
     await query(
       `INSERT INTO archive_runs (location_id, triggered_by, run_type, status, cutoff_at, details)
        VALUES ($1, $2, $3, 'skipped', CURRENT_TIMESTAMP, $4)`,
@@ -186,7 +186,9 @@ export async function runArchiveForLocation({ locationId, userId = null, runType
   }
 
   const retentionMonths = Number(settings.retention_months || 6);
-  const cutoffResult = await query(`SELECT (CURRENT_TIMESTAMP - ($1::text || ' months')::interval) AS cutoff_at`, [retentionMonths]);
+  const cutoffResult = forceCutoffNow
+    ? await query('SELECT CURRENT_TIMESTAMP AS cutoff_at')
+    : await query(`SELECT (CURRENT_TIMESTAMP - ($1::text || ' months')::interval) AS cutoff_at`, [retentionMonths]);
   const cutoffAt = cutoffResult.rows[0].cutoff_at;
 
   try {
@@ -218,7 +220,7 @@ export async function runArchiveForLocation({ locationId, userId = null, runType
       return counts;
     });
 
-    return { skipped: false, cutoffAt, details };
+    return { skipped: false, cutoffAt, details, forceRun: Boolean(forceRun), forceCutoffNow: Boolean(forceCutoffNow) };
   } catch (err) {
     await query(
       `INSERT INTO archive_runs (location_id, triggered_by, run_type, status, cutoff_at, details, error_message)

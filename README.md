@@ -35,38 +35,33 @@ The Bakery Operations Platform combines:
 - **Inventory and batch lifecycle tracking** including archive workflows.
 - **Auditable operational history** through logs, sync audit records, and traceable error contracts.
 
-The system is intentionally engineered so day-to-day branch activity can continue through temporary internet or backend instability without corrupting sales/order data.
+The system is intentionally engineered so day-to-day branch activity can continue through temporary internet or backend instability without corrupting sales data.
 
 ---
 
 ## Platform Outcomes
 
 ```mermaid
-mindmap
-  root((Bakery Ops Outcomes))
-    Reliability
-      Offline queue replay
-      Idempotent writes
-      Conflict classification
-    Visibility
-      Reporting
-      Archive dashboards
-      Activity logs
-    Security
-      JWT + RBAC
-      Rate limiting
-      Helmet hardening
-    Scalability
-      DB pooling
-      Query indexes
-      Job-level advisory locks
+flowchart TB
+  A[Reliability] --> A1[Offline queue replay]
+  A --> A2[Idempotent writes]
+  A --> A3[Conflict classification]
+  B[Visibility] --> B1[Reporting]
+  B --> B2[Archive dashboards]
+  B --> B3[Activity logs]
+  C[Security] --> C1[JWT and RBAC]
+  C --> C2[Rate limiting]
+  C --> C3[Helmet hardening]
+  D[Scalability] --> D1[DB pooling]
+  D --> D2[Query indexes]
+  D --> D3[Advisory job locks]
 ```
 
 ### Core Business Capabilities
 
-- Sales, orders, expenses, payments, and inventory management.
+- Sales, expenses, payments, and inventory management.
 - Branch-aware access via role and location constraints.
-- Scheduled archive and due-order notification jobs.
+- Scheduled archive jobs.
 - Addis Ababa timezone-consistent UI presentation.
 
 ---
@@ -75,28 +70,28 @@ mindmap
 
 ```mermaid
 flowchart LR
-  subgraph Frontend[Client Layer - React + Vite]
-    UI[Role-based Pages]
+  subgraph Frontend[Client Layer React Vite]
+    UI[Role based pages]
     Router[React Router]
-    APIClient[Axios API Client]
-    OfflineQ[Offline Queue + Replay]
+    APIClient[Axios API client]
+    OfflineQ[Offline queue and replay]
     SW[Service Worker]
-    Cache[Local/IndexedDB cache]
+    Cache[Local indexed cache]
   end
 
-  subgraph Backend[API Layer - Express]
-    MW[Security + Auth Middleware]
+  subgraph Backend[API Layer Express]
+    MW[Security auth middleware]
     Routes[Route Handlers]
     Services[Domain Services]
     Errors[Central Error Handler]
-    Jobs[Schedulers + Job Locks]
+    Jobs[Schedulers and job locks]
   end
 
-  subgraph Data[Data Layer - PostgreSQL]
+  subgraph Data[Data Layer PostgreSQL]
     Core[(Core transactional tables)]
     Idem[(idempotency_keys)]
-    Archive[(archive_* tables)]
-    Audit[(activity_log + sync_audit_logs)]
+    Archive[(archive tables)]
+    Audit[(activity and sync audit logs)]
   end
 
   UI --> Router --> APIClient --> MW --> Routes --> Services --> Data
@@ -131,7 +126,7 @@ sequenceDiagram
 
   User->>UI: Submit write action
   alt Online
-    UI->>API: Request + X-Idempotency-Key
+    UI->>API: Request with idempotency key
     API->>DB: Transaction
     DB-->>API: Commit
     API-->>UI: Success
@@ -140,7 +135,7 @@ sequenceDiagram
     Queue-->>UI: Pending state
     Note over UI,Queue: User can navigate/refresh without losing queue
     Queue->>API: Replay when online
-    API->>DB: Idempotent check + write
+    API->>DB: Idempotent check and write
     DB-->>API: Existing or new result
     API-->>Queue: synced/conflict/needs_review
     Queue-->>UI: Reconciled state
@@ -153,10 +148,12 @@ sequenceDiagram
 - Replay status model (`synced`, `failed`, `conflict`, `needs_review`, `ignored`, `resolved`).
 - API error envelope consistency (`error`, `code`, `requestId`) for client classification.
 - Cache fallback in key manager/cashier pages for continuity.
+- Single-flight offline queue flush locking to prevent overlapping replay runs.
+- Service-worker shell caching that discovers and caches current hashed build assets from `index.html`.
 
 ### Important Development Note
 
-In development mode, service workers may be unregistered/cleared, which can make offline refresh behavior differ from production. Production behavior depends on the shipped service worker and cache strategy.
+In development mode, service workers are intentionally unregistered to prevent stale production workers from interfering with Vite dev behavior. Validate offline refresh using production build/preview behavior (`npm run build` + `npm run preview` in `client/`).
 
 ---
 
@@ -198,17 +195,15 @@ flowchart TB
 ## Database Architecture
 
 ```mermaid
-erDiagram
-  USERS ||--o{ CUSTOMER_ORDERS : creates
-  USERS ||--o{ SALES : records
-  USERS ||--o{ INVENTORY_BATCHES : manages
-  LOCATIONS ||--o{ CUSTOMER_ORDERS : scopes
-  LOCATIONS ||--o{ SALES : scopes
-  LOCATIONS ||--o{ INVENTORY_BATCHES : scopes
-  INVENTORY_BATCHES ||--o{ BATCH_ITEMS : contains
-  USERS ||--o{ ACTIVITY_LOG : emits
-  LOCATIONS ||--o{ ARCHIVE_RUNS : tracks
-  INVENTORY_BATCHES ||--o{ INVENTORY_BATCHES_ARCHIVE : archived_to
+flowchart LR
+  USERS[(users)] --> SALES[(sales)]
+  USERS --> INVENTORY_BATCHES[(inventory_batches)]
+  USERS --> ACTIVITY_LOG[(activity_log)]
+  LOCATIONS[(locations)] --> SALES
+  LOCATIONS --> INVENTORY_BATCHES
+  INVENTORY_BATCHES --> BATCH_ITEMS[(batch_items)]
+  INVENTORY_BATCHES --> INVENTORY_BATCHES_ARCHIVE[(inventory_batches_archive)]
+  LOCATIONS --> ARCHIVE_RUNS[(archive_runs)]
 ```
 
 ### Data Strategy
@@ -223,6 +218,7 @@ erDiagram
 - Transactional migration execution.
 - Advisory lock during setup/migrations to avoid concurrent runners.
 - Optional dev-only seed path, gated by environment variables.
+- Startup auth schema guard ensures lockout columns and refresh-token table exist in partially migrated environments.
 
 ---
 
@@ -252,10 +248,10 @@ X-Retry-Count: <retry-number>
 ### High-Value API Domains
 
 - `/api/auth` for authentication and account operations.
-- `/api/orders` for customer order lifecycle.
 - `/api/sales` for checkout and revenue records.
 - `/api/inventory` for stock and batch operations.
 - `/api/archive` for retention policy and archive execution.
+- Manual Danger-Zone archive runs now force a `cutoffAt=now` execution for the selected branch, so admins can archive currently available history immediately (while keeping scheduled retention behavior unchanged).
 - `/api/sync` for offline audit status and reconciliation metadata.
 
 ---
@@ -265,7 +261,7 @@ X-Retry-Count: <retry-number>
 ```mermaid
 flowchart LR
   A[Client Request] --> B[Express Route]
-  B --> C[DB Pool + Timeouts]
+  B --> C[DB pool and timeouts]
   C --> D[Indexed Query]
   D --> E[Response]
   B --> F[Scheduler Path]
@@ -329,7 +325,7 @@ Main docs/                 primary onboarding and operational guides
 
 Recommended expansion:
 
-- Add route-level integration tests for auth/orders/inventory/archive.
+- Add route-level integration tests for auth/inventory/archive.
 - Add API contract snapshot tests for error and pagination behavior.
 - Add scheduled-job simulation tests for multi-instance scenarios.
 
@@ -376,3 +372,11 @@ See dedicated deployment guidance in:
 ---
 
 For implementation details and contributor guardrails, continue in `Main docs/README.md`.
+
+## Roles and Permissions
+
+- **Admin**: full access to business operations, account/staff lifecycle, reports, sync monitoring, and credential management.
+- **Ground Manager**: inventory and batch workflows with time-window safeguards for edits/void actions.
+- **Cashier**: sales execution and cashier sales history with void-window safeguards.
+
+Detailed reference: `Main docs/roles-and-permissions.md`.

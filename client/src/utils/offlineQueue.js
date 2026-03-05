@@ -7,7 +7,21 @@ const PAYLOAD_STORE = 'payloads';
 const MAX_RETRIES = 5;
 const BASE_RETRY_DELAY_MS = 1000;
 const MAX_BATCH_PER_FLUSH = 20;
-let flushInProgress = false;
+let flushLockToken = null;
+
+
+function tryAcquireFlushLock() {
+  if (flushLockToken) return null;
+  const token = Symbol('offline-queue-flush');
+  flushLockToken = token;
+  return token;
+}
+
+function releaseFlushLock(token) {
+  if (flushLockToken === token) {
+    flushLockToken = null;
+  }
+}
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -185,17 +199,17 @@ export async function getPendingCount() {
 }
 
 export async function flushQueue(api) {
-  if (flushInProgress) {
+  const lockToken = tryAcquireFlushLock();
+  if (!lockToken) {
     const queued = await getQueueSize();
     return { synced: 0, failed: 0, pending: queued, skipped: true, completed: [] };
   }
 
   if (!navigator.onLine) {
     const queued = await getQueueSize();
+    releaseFlushLock(lockToken);
     return { synced: 0, failed: 0, pending: queued, offline: true, completed: [] };
   }
-
-  flushInProgress = true;
 
   try {
     const queue = await listQueuedOperations();
@@ -203,7 +217,7 @@ export async function flushQueue(api) {
 
     const now = Date.now();
     const readyToSync = queue
-      .filter((op) => op.nextRetry <= now && op.status !== 'conflict' && op.status !== 'needs_review')
+      .filter((op) => op.nextRetry <= now && op.status === 'pending')
       .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
       .slice(0, MAX_BATCH_PER_FLUSH);
 
@@ -349,7 +363,7 @@ export async function flushQueue(api) {
     const remaining = await getQueueSize();
     return { synced, failed, pending: remaining, completed };
   } finally {
-    flushInProgress = false;
+    releaseFlushLock(lockToken);
   }
 }
 

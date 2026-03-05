@@ -2,31 +2,30 @@ import express from 'express';
 import { body, validationResult } from 'express-validator';
 import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
-import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
+const STAFF_PAYMENT_EDIT_WINDOW_MINUTES = 20;
 
 router.get('/', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const locationId = await getTargetLocationId(req, query);
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
 
     let queryText = `
-      SELECT sp.*, 
-             COALESCE(u.username, fp.full_name) as staff_name, 
+      SELECT sp.*,
+             COALESCE(u.username, fp.full_name) as staff_name,
              COALESCE(u.role, fp.role_preference) as role,
              uc.username as created_by_name,
-             l.name as location_name
+             ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (sp.created_at + make_interval(mins => $1::int))) as can_edit,
+             EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - sp.created_at)) / 60 as age_minutes
       FROM staff_payments sp
       LEFT JOIN users u ON sp.user_id = u.id
       LEFT JOIN staff_profiles fp ON sp.staff_profile_id = fp.id
       LEFT JOIN users uc ON sp.created_by = uc.id
-      LEFT JOIN locations l ON sp.location_id = l.id
-      WHERE sp.location_id = $1
+      WHERE 1=1
     `;
 
-    const params = [locationId];
+    const params = [STAFF_PAYMENT_EDIT_WINDOW_MINUTES];
 
     if (startDate) {
       params.push(startDate);
@@ -44,14 +43,12 @@ router.get('/', authenticateToken, authorizeRoles('admin'), async (req, res) => 
     res.json(result.rows);
   } catch (err) {
     console.error('Get staff payments error:', err);
-    if (err.status) {
-      return res.status(err.status).json({ error: err.message });
-    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-router.post('/',
+router.post(
+  '/',
   authenticateToken,
   authorizeRoles('admin'),
   body('amount').isFloat({ min: 0 }).withMessage('Amount must be a positive number'),
@@ -62,8 +59,8 @@ router.post('/',
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { staff_profile_id, user_id, amount, payment_date, payment_type, notes, location_id } = req.body;
-    
+    const { staff_profile_id, user_id, amount, payment_date, payment_type, notes } = req.body;
+
     if (!staff_profile_id && !user_id) {
       return res.status(400).json({ error: 'Either staff_profile_id or user_id is required' });
     }
@@ -71,29 +68,23 @@ router.post('/',
     const idempotencyKey = req.headers['x-idempotency-key'];
 
     try {
-      const targetLocationId = await getTargetLocationId({ headers: req.headers, query: { ...req.query, location_id }, user: req.user }, query);
-      
       const resolvedUserId = user_id ? Number(user_id) : null;
       const resolvedStaffProfileId = staff_profile_id ? Number(staff_profile_id) : null;
-      
+
       let staffName = 'Unknown';
-      let staffLocationId = targetLocationId;
-      
+
       if (resolvedStaffProfileId) {
-        const staffResult = await query('SELECT full_name, location_id FROM staff_profiles WHERE id = $1', [resolvedStaffProfileId]);
+        const staffResult = await query('SELECT full_name FROM staff_profiles WHERE id = $1', [resolvedStaffProfileId]);
         if (staffResult.rows.length > 0) {
           staffName = staffResult.rows[0].full_name;
-          if (staffResult.rows[0].location_id) {
-            staffLocationId = staffResult.rows[0].location_id;
-          }
         }
       } else if (resolvedUserId) {
-        const userResult = await query('SELECT username, location_id FROM users WHERE id = $1', [resolvedUserId]);
+        const userResult = await query('SELECT username FROM users WHERE id = $1', [resolvedUserId]);
         if (userResult.rows.length > 0) {
           staffName = userResult.rows[0].username;
         }
       }
-      
+
       const result = await withTransaction(async (tx) => {
         if (idempotencyKey) {
           const existing = await tx.query(
@@ -108,31 +99,30 @@ router.post('/',
 
         const paymentResult = await tx.query(
           `INSERT INTO staff_payments (user_id, staff_profile_id, location_id, amount, payment_date, payment_type, notes, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           VALUES ($1, $2, NULL, $3, $4, $5, $6, $7)
            RETURNING *`,
-          [resolvedUserId, resolvedStaffProfileId, staffLocationId, amount, payment_date, payment_type || 'salary', notes || null, req.user.id]
+          [resolvedUserId, resolvedStaffProfileId, amount, payment_date, payment_type || 'salary', notes || null, req.user.id]
         );
 
         const payment = paymentResult.rows[0];
 
         await tx.query(
-          `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata) 
-           VALUES ($1, $2, $3, $4, $5)`,
+          `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
+           VALUES ($1, NULL, $2, $3, $4)`,
           [
             req.user.id,
-            staffLocationId,
             'payment_created',
             `Staff payment: ${amount} to ${staffName}`,
-            JSON.stringify({ payment_id: payment.id, staff_name: staffName, amount })
+            JSON.stringify({ payment_id: payment.id, staff_name: staffName, amount }),
           ]
         );
 
         if (idempotencyKey) {
           await tx.query(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
-             VALUES ($1, $2, $3, $4, $5)
+             VALUES ($1, NULL, $2, $3, $4)
              ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
-            [req.user.id, staffLocationId, idempotencyKey, '/api/payments', JSON.stringify(payment)]
+            [req.user.id, idempotencyKey, '/api/payments', JSON.stringify(payment)]
           );
         }
 
@@ -142,15 +132,13 @@ router.post('/',
       res.status(201).json(result);
     } catch (err) {
       console.error('Create staff payment error:', err);
-      if (err.status) {
-        return res.status(err.status).json({ error: err.message });
-      }
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
     }
   }
 );
 
-router.put('/:id',
+router.put(
+  '/:id',
   authenticateToken,
   authorizeRoles('admin'),
   body('amount').optional().isFloat({ min: 0 }),
@@ -161,58 +149,98 @@ router.put('/:id',
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { amount, payment_date, payment_type, notes, location_id } = req.body;
+    const { amount, payment_date, payment_type, notes } = req.body;
 
     try {
-      const targetLocationId = await getTargetLocationId({ headers: req.headers, query: { ...req.query, location_id }, user: req.user }, query);
-      const result = await query(
-        `UPDATE staff_payments
-         SET amount = COALESCE($1, amount),
-             payment_date = COALESCE($2, payment_date),
-             payment_type = COALESCE($3, payment_type),
-             notes = COALESCE($4, notes),
-             location_id = COALESCE($5, location_id)
-         WHERE id = $6
-         RETURNING *`,
-        [amount || null, payment_date || null, payment_type || null, notes || null, targetLocationId || null, req.params.id]
-      );
+      const updated = await withTransaction(async (tx) => {
+        const existing = await tx.query(
+          `SELECT *,
+                  ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (created_at + make_interval(mins => $2::int))) as can_edit,
+                  EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - created_at)) / 60 as age_minutes
+           FROM staff_payments
+           WHERE id = $1
+           FOR UPDATE`,
+          [req.params.id, STAFF_PAYMENT_EDIT_WINDOW_MINUTES]
+        );
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Payment not found' });
-      }
+        if (!existing.rows.length) {
+          const err = new Error('Payment not found');
+          err.status = 404;
+          throw err;
+        }
 
-      res.json(result.rows[0]);
+        const payment = existing.rows[0];
+        if (!payment.can_edit) {
+          const err = new Error(`Payments can only be edited within ${STAFF_PAYMENT_EDIT_WINDOW_MINUTES} minutes. This payment is ${Math.floor(Number(payment.age_minutes || 0))} minutes old.`);
+          err.status = 403;
+          err.code = 'STAFF_PAYMENT_EDIT_WINDOW_EXPIRED';
+          throw err;
+        }
+
+        const result = await tx.query(
+          `UPDATE staff_payments
+           SET amount = COALESCE($1, amount),
+               payment_date = COALESCE($2, payment_date),
+               payment_type = COALESCE($3, payment_type),
+               notes = COALESCE($4, notes),
+               location_id = NULL
+           WHERE id = $5
+           RETURNING *`,
+          [amount || null, payment_date || null, payment_type || null, notes || null, req.params.id]
+        );
+
+        return result.rows[0];
+      });
+
+      res.json(updated);
     } catch (err) {
       console.error('Update payment error:', err);
-      if (err.status) {
-        return res.status(err.status).json({ error: err.message });
-      }
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: err.code || 'PAYMENT_UPDATE_ERROR' });
     }
   }
 );
 
 router.delete('/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const result = await query('DELETE FROM staff_payments WHERE id = $1 RETURNING id', [req.params.id]);
+    await withTransaction(async (tx) => {
+      const existing = await tx.query(
+        `SELECT *,
+                ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (created_at + make_interval(mins => $2::int))) as can_edit,
+                EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - created_at)) / 60 as age_minutes
+         FROM staff_payments
+         WHERE id = $1
+         FOR UPDATE`,
+        [req.params.id, STAFF_PAYMENT_EDIT_WINDOW_MINUTES]
+      );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Payment not found' });
-    }
+      if (!existing.rows.length) {
+        const err = new Error('Payment not found');
+        err.status = 404;
+        throw err;
+      }
+
+      const payment = existing.rows[0];
+      if (!payment.can_edit) {
+        const err = new Error(`Payments can only be deleted within ${STAFF_PAYMENT_EDIT_WINDOW_MINUTES} minutes. This payment is ${Math.floor(Number(payment.age_minutes || 0))} minutes old.`);
+        err.status = 403;
+        err.code = 'STAFF_PAYMENT_EDIT_WINDOW_EXPIRED';
+        throw err;
+      }
+
+      await tx.query('DELETE FROM staff_payments WHERE id = $1', [req.params.id]);
+    });
 
     res.json({ message: 'Payment deleted successfully' });
   } catch (err) {
     console.error('Delete payment error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: err.code || 'PAYMENT_DELETE_ERROR' });
   }
 });
 
 router.get('/summary', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const locationId = await getTargetLocationId(req, query);
-
     let queryText = `
-      SELECT 
+      SELECT
         COALESCE(u.id, fp.id) as staff_id,
         COALESCE(u.username, fp.full_name) as staff_name,
         COALESCE(u.role, fp.role_preference) as role,
@@ -221,11 +249,10 @@ router.get('/summary', authenticateToken, authorizeRoles('admin'), async (req, r
       FROM staff_payments sp
       LEFT JOIN users u ON sp.user_id = u.id
       LEFT JOIN staff_profiles fp ON sp.staff_profile_id = fp.id
-      WHERE sp.location_id = $1
+      WHERE 1=1
     `;
 
-    const params = [locationId];
-
+    const params = [];
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
 
@@ -245,9 +272,6 @@ router.get('/summary', authenticateToken, authorizeRoles('admin'), async (req, r
     res.json(result.rows);
   } catch (err) {
     console.error('Get payment summary error:', err);
-    if (err.status) {
-      return res.status(err.status).json({ error: err.message });
-    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });

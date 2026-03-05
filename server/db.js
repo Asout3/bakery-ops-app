@@ -220,4 +220,63 @@ export const getPoolStats = () => ({
   min: MIN_POOL_SIZE,
 });
 
+let authSecuritySchemaPromise = null;
+
+export async function ensureAuthSecuritySchema() {
+  if (authSecuritySchemaPromise) {
+    return authSecuritySchemaPromise;
+  }
+
+  authSecuritySchemaPromise = (async () => {
+    await query(
+      `ALTER TABLE users
+       ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+       ADD COLUMN IF NOT EXISTS last_failed_login_at TIMESTAMPTZ,
+       ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ`
+    );
+
+    await query(
+      `CREATE TABLE IF NOT EXISTS auth_refresh_tokens (
+         id BIGSERIAL PRIMARY KEY,
+         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+         token_hash TEXT NOT NULL UNIQUE,
+         expires_at TIMESTAMPTZ NOT NULL,
+         revoked_at TIMESTAMPTZ,
+         replaced_by_id BIGINT REFERENCES auth_refresh_tokens(id) ON DELETE SET NULL,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       )`
+    );
+
+    await query('CREATE INDEX IF NOT EXISTS idx_users_locked_until ON users(locked_until)');
+    await query('CREATE INDEX IF NOT EXISTS idx_auth_refresh_tokens_user_created ON auth_refresh_tokens(user_id, created_at DESC)');
+    await query('CREATE INDEX IF NOT EXISTS idx_auth_refresh_tokens_expires_at ON auth_refresh_tokens(expires_at)');
+  })().catch((error) => {
+    authSecuritySchemaPromise = null;
+    throw error;
+  });
+
+  return authSecuritySchemaPromise;
+}
+
+
+
+
+let productCreatorSchemaPromise = null;
+
+export async function ensureProductCreatorSchema() {
+  if (productCreatorSchemaPromise) {
+    return productCreatorSchemaPromise;
+  }
+
+  productCreatorSchemaPromise = (async () => {
+    await query('ALTER TABLE products ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)');
+    await query('CREATE INDEX IF NOT EXISTS idx_products_created_by ON products(created_by)');
+  })().catch((error) => {
+    productCreatorSchemaPromise = null;
+    throw error;
+  });
+
+  return productCreatorSchemaPromise;
+}
+
 export default pool;
