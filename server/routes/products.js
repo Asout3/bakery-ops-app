@@ -22,7 +22,7 @@ router.get('/', authenticateToken, async (req, res) => {
            FROM products p
            LEFT JOIN categories c ON p.category_id = c.id
            LEFT JOIN users creator ON creator.id = p.created_by
-           ORDER BY c.name, p.name`
+           ORDER BY COALESCE(p.group_name, p.name), p.name`
         )
       : await query(
           `SELECT DISTINCT p.*, c.name as category_name, creator.username as created_by_name,
@@ -34,7 +34,7 @@ router.get('/', authenticateToken, async (req, res) => {
            LEFT JOIN categories c ON p.category_id = c.id
            LEFT JOIN users creator ON creator.id = p.created_by
            LEFT JOIN inventory i ON i.product_id = p.id AND i.location_id = $1
-           ORDER BY c.name, p.name`,
+           ORDER BY COALESCE(p.group_name, p.name), p.name`,
           [locationId]
         );
 
@@ -73,6 +73,7 @@ router.post('/',
   authenticateToken,
   authorizeRoles('admin', 'manager'),
   body('name').trim().notEmpty(),
+  body('group_name').trim().notEmpty(),
   body('price').isFloat({ min: 0 }),
   body('source').optional().isIn(['baked', 'purchased']),
   async (req, res) => {
@@ -81,26 +82,29 @@ router.post('/',
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, category_id, price, cost, unit, source } = req.body;
+    const { name, group_name, category_id, price, cost, unit, source } = req.body;
 
     try {
-      const existing = await query('SELECT id FROM products WHERE LOWER(name) = LOWER($1) LIMIT 1', [name]);
+      const existing = await query(
+        `SELECT id FROM products WHERE LOWER(name) = LOWER($1) AND LOWER(COALESCE(group_name, '')) = LOWER($2) LIMIT 1`,
+        [name, group_name]
+      );
       if (existing.rows.length > 0) {
         return res.status(409).json({ error: 'Product name already exists', code: 'DUPLICATE_PRODUCT_NAME', requestId: req.requestId });
       }
 
       const result = await query(
-        `INSERT INTO products (name, category_id, price, cost, unit, source, created_by) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7) 
+        `INSERT INTO products (name, group_name, category_id, price, cost, unit, source, created_by) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
          RETURNING *`,
-        [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id]
+        [name, group_name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id]
       );
 
       // Log activity
       await query(
         `INSERT INTO activity_log (user_id, location_id, activity_type, description) 
          VALUES ($1, $2, $3, $4)`,
-        [req.user.id, req.user.location_id, 'product_created', `Created product: ${name}`]
+        [req.user.id, req.user.location_id, 'product_created', `Created product: ${group_name} / ${name}`]
       );
 
 
@@ -126,12 +130,15 @@ router.put('/:id',
   authenticateToken,
   authorizeRoles('admin', 'manager'),
   async (req, res) => {
-    const { name, category_id, price, cost, unit, is_active, source } = req.body;
+    const { name, group_name, category_id, price, cost, unit, is_active, source } = req.body;
     const { id } = req.params;
 
     try {
       if (name) {
-        const duplicate = await query('SELECT id FROM products WHERE LOWER(name) = LOWER($1) AND id <> $2 LIMIT 1', [name, id]);
+        const duplicate = await query(
+          `SELECT id FROM products WHERE LOWER(name) = LOWER($1) AND LOWER(COALESCE(group_name, '')) = LOWER($2) AND id <> $3 LIMIT 1`,
+          [name, group_name || '', id]
+        );
         if (duplicate.rows.length > 0) {
           return res.status(409).json({ error: 'Product name already exists', code: 'DUPLICATE_PRODUCT_NAME', requestId: req.requestId });
         }
@@ -140,16 +147,17 @@ router.put('/:id',
       const result = await query(
         `UPDATE products 
          SET name = COALESCE($1, name),
-             category_id = COALESCE($2, category_id),
-             price = COALESCE($3, price),
-             cost = COALESCE($4, cost),
-             unit = COALESCE($5, unit),
-             is_active = COALESCE($6, is_active),
-             source = COALESCE($7, source),
+             group_name = COALESCE($2, group_name),
+             category_id = COALESCE($3, category_id),
+             price = COALESCE($4, price),
+             cost = COALESCE($5, cost),
+             unit = COALESCE($6, unit),
+             is_active = COALESCE($7, is_active),
+             source = COALESCE($8, source),
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $8
+         WHERE id = $9
          RETURNING *`,
-        [name, category_id, price, cost, unit, is_active, source, id]
+        [name, group_name, category_id, price, cost, unit, is_active, source, id]
       );
 
       if (result.rows.length === 0) {

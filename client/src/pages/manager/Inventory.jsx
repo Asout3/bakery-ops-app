@@ -237,7 +237,7 @@ export default function Inventory() {
                         <tr key={product.id}>
                           <td>
                             <div className="product-info">
-                              <div className="product-name-table">{product.name}</div>
+                              <div className="product-name-table">{`${product.group_name || product.name} / ${product.name}`}</div>
                               <div className="product-category-table">
                                 {product.category_name}
                               </div>

@@ -131,7 +131,6 @@ export default function Dashboard() {
   const expenseRows = report?.details?.expenses || [];
   const staffPaymentRows = report?.details?.staff_payments || [];
   const cashierRows = report?.details?.cashier_performance || [];
-  const batchRows = report?.details?.batches?.batch_list || [];
 
   const periodLabel = period === 'daily'
     ? formatShortDate(dailyDate)
@@ -230,14 +229,6 @@ export default function Dashboard() {
         rows={cashierRows.map((r) => [r.cashier_name, r.cashier_role, formatMoney(r.total_sales), Number(r.transactions || 0), Number(r.items_sold || 0), formatMoney(r.cash_sales), formatMoney(r.mobile_sales)])}
         empty="No cashier performance data in this period."
       />
-
-      <DataTable
-        title="Batch Performance"
-        headers={['Batch', 'Created By', 'Status', 'Product', 'Qty', 'Unit Cost', 'Line Cost']}
-        rows={batchRows.map((r) => [`#${r.batch_id}`, r.created_by_name, r.status, r.product_name, Number(r.quantity || 0), formatMoney(r.unit_cost), formatMoney(r.line_cost)])}
-        empty="No batch records in this period."
-      />
-
       <DataTable
         title="Expense Records"
         headers={['Date', 'Category', 'Amount', 'Created By']}

@@ -60,6 +60,8 @@ flowchart TB
 ### Core Business Capabilities
 
 - Sales, expenses, payments, and inventory management.
+- Grouped product variants across admin, manager, and cashier workflows (group card -> variant selection).
+- Dynamic expense categories with audit-friendly expense codes and creator attribution.
 - Branch-aware access via role and location constraints.
 - Scheduled archive jobs.
 - Addis Ababa timezone-consistent UI presentation.

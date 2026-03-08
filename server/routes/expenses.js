@@ -7,6 +7,82 @@ import { getTargetLocationId } from '../utils/location.js';
 const router = express.Router();
 const EXPENSE_EDIT_WINDOW_MINUTES = 20;
 
+
+router.get('/categories', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
+  try {
+    const locationId = await getTargetLocationId(req, query);
+    const result = await query(
+      `SELECT id, name, created_at
+       FROM expense_categories
+       WHERE location_id = $1
+       ORDER BY name ASC`,
+      [locationId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get expense categories error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'EXPENSE_CATEGORY_FETCH_ERROR', requestId: req.requestId });
+  }
+});
+
+router.post('/categories',
+  authenticateToken,
+  authorizeRoles('admin'),
+  body('name').trim().notEmpty(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
+    }
+
+    try {
+      const locationId = await getTargetLocationId(req, query);
+      const name = req.body.name.trim();
+      const result = await query(
+        `INSERT INTO expense_categories (location_id, name, created_by)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (location_id, name) DO NOTHING
+         RETURNING id, name, created_at`,
+        [locationId, name, req.user.id]
+      );
+
+      if (!result.rows.length) {
+        return res.status(409).json({ error: 'Category already exists', code: 'DUPLICATE_EXPENSE_CATEGORY', requestId: req.requestId });
+      }
+
+      res.status(201).json(result.rows[0]);
+    } catch (err) {
+      console.error('Create expense category error:', err);
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'EXPENSE_CATEGORY_CREATE_ERROR', requestId: req.requestId });
+    }
+  }
+);
+
+router.delete('/categories/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    const locationId = await getTargetLocationId(req, query);
+    const category = await query('SELECT id, name FROM expense_categories WHERE id = $1 AND location_id = $2', [req.params.id, locationId]);
+    if (!category.rows.length) {
+      return res.status(404).json({ error: 'Category not found', code: 'NOT_FOUND', requestId: req.requestId });
+    }
+
+    const usage = await query(
+      'SELECT COUNT(*)::int as total FROM expenses WHERE location_id = $1 AND LOWER(category) = LOWER($2)',
+      [locationId, category.rows[0].name]
+    );
+
+    if (usage.rows[0].total > 0) {
+      return res.status(409).json({ error: 'Category is already used by expenses and cannot be deleted', code: 'EXPENSE_CATEGORY_IN_USE', requestId: req.requestId });
+    }
+
+    await query('DELETE FROM expense_categories WHERE id = $1 AND location_id = $2', [req.params.id, locationId]);
+    res.json({ message: 'Category deleted successfully' });
+  } catch (err) {
+    console.error('Delete expense category error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'EXPENSE_CATEGORY_DELETE_ERROR', requestId: req.requestId });
+  }
+});
+
 // Get expenses
 router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
@@ -16,7 +92,7 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (re
     const category = req.query.category;
 
     let queryText = `
-      SELECT e.*, u.username as created_by_name
+      SELECT e.*, CONCAT('EXP-', LPAD(e.id::text, 6, '0')) as expense_code, u.username as created_by_name
       FROM expenses e
       JOIN users u ON e.created_by = u.id
       WHERE e.location_id = $1
@@ -67,6 +143,14 @@ router.post('/',
 
     try {
       const locationId = await getTargetLocationId(req, query);
+      const categoryExists = await query(
+        `SELECT id FROM expense_categories WHERE location_id = $1 AND LOWER(name) = LOWER($2) LIMIT 1`,
+        [locationId, category]
+      );
+      if (!categoryExists.rows.length) {
+        return res.status(400).json({ error: 'Invalid expense category', code: 'INVALID_EXPENSE_CATEGORY', requestId: req.requestId });
+      }
+
       const expense = await withTransaction(async (tx) => {
         if (idempotencyKey) {
           const existing = await tx.query(

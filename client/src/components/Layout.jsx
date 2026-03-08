@@ -104,7 +104,7 @@ export default function Layout() {
       return [
         { to: '/manager/inventory', icon: Package, label: t('inventory') },
         { to: '/manager/batches', icon: Package, label: t('batches') },
-        { to: '/manager/products', icon: Package, label: t('products') },
+        { to: '/manager/expenses', icon: DollarSign, label: t('expenses') },
         { to: '/manager/notifications', icon: Bell, label: t('notifications'), showBadge: true },
       ];
     }

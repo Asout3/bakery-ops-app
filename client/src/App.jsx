@@ -25,8 +25,8 @@ import StaffManagementPage from './pages/admin/StaffManagement';
 import HistoryLifecyclePage from './pages/admin/HistoryLifecycle';
 import ManagerInventory from './pages/manager/Inventory';
 import ManagerBatches from './pages/manager/Batches';
-import ManagerProducts from './pages/admin/Products';
 import ManagerNotifications from './pages/admin/Notifications';
+import ManagerExpenses from './pages/admin/Expenses';
 import CashierSales from './pages/cashier/Sales';
 import CashierHistory from './pages/cashier/History';
 
@@ -53,7 +53,7 @@ function AppInner() {
             <Route path="inventory" element={<ManagerInventory />} />
             <Route path="batches" element={<ManagerBatches />} />
             <Route path="orders" element={<Navigate to="/manager/batches" replace />} />
-            <Route path="products" element={<ManagerProducts />} />
+            <Route path="expenses" element={<ManagerExpenses />} />
             <Route path="notifications" element={<ManagerNotifications />} />
           </Route>
           <Route path="/cashier" element={<ProtectedRoute roles={['cashier', 'admin']}><Layout /></ProtectedRoute>}>

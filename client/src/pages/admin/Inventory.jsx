@@ -206,7 +206,7 @@ export default function AdminInventory() {
         {inventory.filter((item) => (item.product_name || products.find((p) => p.id === item.product_id)?.name || '').toLowerCase().includes(search.toLowerCase())).map((item) => (
           <tr key={item.id}>
             <td>{item.id}</td>
-            <td>{products.find((p) => p.id === item.product_id)?.name || item.product_id}</td>
+            <td>{`${products.find((p) => p.id === item.product_id)?.group_name || products.find((p) => p.id === item.product_id)?.name || item.product_id} / ${products.find((p) => p.id === item.product_id)?.name || item.product_id}` }</td>
             <td><span className={`badge ${Number(item.quantity) <= 5 ? 'badge-warning' : 'badge-success'}`}>{item.quantity}</span>{item.is_pending_sync && <span className="badge badge-info" style={{ marginLeft: '0.4rem' }}>Pending Sync</span>}</td>
             <td>{new Date(item.last_updated).toLocaleDateString()}</td>
             <td>{item.last_updated_by_name || 'System'}</td>
@@ -224,7 +224,7 @@ export default function AdminInventory() {
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header"><h3>{editingItem ? 'Edit Inventory Item' : 'Add New Inventory Item'}</h3><button className="close-btn" onClick={resetForm}>×</button></div>
             <form onSubmit={handleSubmit} className="modal-body">
-              <div className="mb-3"><label className="form-label">Product *</label><select className="form-select" value={formData.product_id} onChange={(e) => setFormData({ ...formData, product_id: e.target.value })} required><option value="">Select Product</option>{availableProductsForCreate.map((product) => (<option key={product.id} value={product.id}>{product.name}</option>))}</select></div>
+              <div className="mb-3"><label className="form-label">Product *</label><select className="form-select" value={formData.product_id} onChange={(e) => setFormData({ ...formData, product_id: e.target.value })} required><option value="">Select Product Variant</option>{availableProductsForCreate.map((product) => (<option key={product.id} value={product.id}>{`${product.group_name || product.name} / ${product.name}`}</option>))}</select></div>
               <div className="mb-3"><label className="form-label">Quantity *</label><input type="number" className="form-control" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} required /></div>
               <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForm}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : editingItem ? 'Update' : 'Add'} Item</button></div>
             </form>
