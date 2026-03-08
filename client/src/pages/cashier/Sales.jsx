@@ -46,12 +46,11 @@ export default function Sales() {
       const [productsRes, inventoryRes] = await Promise.all([api.get('/products'), api.get('/inventory')]);
       const inventoryByProduct = new Map((inventoryRes.data || []).map((it) => [Number(it.product_id), Number(it.quantity) || 0]));
       const productsWithStock = (productsRes.data || [])
-        .filter((product) => inventoryByProduct.has(Number(product.id)))
         .map((product) => ({ ...product, stock_quantity: inventoryByProduct.get(Number(product.id)) || 0 }));
       const productsWithPendingApplied = await applyPendingSalesToProducts(productsWithStock);
       setProducts(productsWithPendingApplied);
       persistProductsCache(productsWithPendingApplied);
-    } catch (err) {
+    } catch {
       const cached = localStorage.getItem(`cashier_products_cache_${selectedLocationId || 'default'}`);
       if (cached) {
         setProducts(JSON.parse(cached));

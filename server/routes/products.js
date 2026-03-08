@@ -52,6 +52,35 @@ function buildGroupExpr(hasGroupName) {
   return hasGroupName ? "COALESCE(p.group_name, p.name)" : 'p.name';
 }
 
+router.get('/categories', authenticateToken, async (req, res) => {
+  try {
+    const result = await query('SELECT id, name FROM categories ORDER BY name ASC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get categories error:', err);
+    res.status(500).json({ error: 'Internal server error', code: 'CATEGORY_FETCH_ERROR', requestId: req.requestId });
+  }
+});
+
+router.post('/categories', authenticateToken, authorizeRoles('admin', 'manager'), body('name').trim().notEmpty(), async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
+  }
+  try {
+    const name = req.body.name.trim();
+    const existing = await query('SELECT id FROM categories WHERE LOWER(name) = LOWER($1) LIMIT 1', [name]);
+    if (existing.rows.length) {
+      return res.status(409).json({ error: 'Category already exists', code: 'DUPLICATE_CATEGORY', requestId: req.requestId });
+    }
+    const created = await query('INSERT INTO categories (name) VALUES ($1) RETURNING id, name', [name]);
+    res.status(201).json(created.rows[0]);
+  } catch (err) {
+    console.error('Create category error:', err);
+    res.status(500).json({ error: 'Internal server error', code: 'CATEGORY_CREATE_ERROR', requestId: req.requestId });
+  }
+});
+
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
@@ -117,76 +146,63 @@ router.get('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-router.post('/',
-  authenticateToken,
-  authorizeRoles('admin', 'manager'),
-  body('name').trim().notEmpty(),
-  body('price').isFloat({ min: 0 }),
-  body('source').optional().isIn(['baked', 'purchased']),
-  async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
-    }
-
-    const { name, group_name, category_id, price, cost, unit, source } = req.body;
-
-    try {
-      const { hasGroupName } = await getProductSchemaSupport();
-      const effectiveGroup = String(group_name || name).trim();
-
-      const existing = hasGroupName
-        ? await query(
-            `SELECT id FROM products
-             WHERE LOWER(name) = LOWER($1) AND LOWER(COALESCE(group_name, '')) = LOWER($2)
-             LIMIT 1`,
-            [name, effectiveGroup]
-          )
-        : await query(
-            `SELECT id FROM products
-             WHERE LOWER(name) = LOWER($1)
-             LIMIT 1`,
-            [name]
-          );
-
-      if (existing.rows.length > 0) {
-        return res.status(409).json({ error: 'Product name already exists', code: 'DUPLICATE_PRODUCT_NAME', requestId: req.requestId });
-      }
-
-      const result = hasGroupName
-        ? await query(
-            `INSERT INTO products (name, group_name, category_id, price, cost, unit, source, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-             RETURNING *`,
-            [name, effectiveGroup, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id]
-          )
-        : await query(
-            `INSERT INTO products (name, category_id, price, cost, unit, source, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             RETURNING *`,
-            [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id]
-          );
-
-      await query(
-        `INSERT INTO activity_log (user_id, location_id, activity_type, description)
-         VALUES ($1, $2, $3, $4)`,
-        [req.user.id, req.user.location_id, 'product_created', `Created product: ${effectiveGroup} / ${name}`]
-      );
-
-      const admins = await query(`SELECT id FROM users WHERE role = 'admin' AND is_active = true`);
-      await Promise.all(admins.rows.map((admin) => query(
-        `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [admin.id, req.user.location_id || null, 'New product needs inventory setup', `Product "${name}" was created by ${req.user.username || `user ${req.user.id}`}. Add it to inventory to make it available for operations.`, 'inventory_setup']
-      )));
-
-      res.status(201).json({ ...result.rows[0], group_name: effectiveGroup });
-    } catch (err) {
-      console.error('Create product error:', err);
-      res.status(500).json({ error: 'Internal server error', code: 'PRODUCT_CREATE_ERROR', requestId: req.requestId });
-    }
+router.post('/', authenticateToken, authorizeRoles('admin', 'manager'), body('name').trim().notEmpty(), body('price').isFloat({ min: 0 }), body('source').optional().isIn(['baked', 'purchased']), async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
   }
-);
+
+  const { name, group_name, category_id, price, cost, unit, source } = req.body;
+
+  try {
+    const { hasGroupName } = await getProductSchemaSupport();
+    const effectiveGroup = String(group_name || name).trim();
+
+    const existing = hasGroupName
+      ? await query(`SELECT id FROM products WHERE LOWER(name) = LOWER($1) AND LOWER(COALESCE(group_name, '')) = LOWER($2) LIMIT 1`, [name, effectiveGroup])
+      : await query('SELECT id FROM products WHERE LOWER(name) = LOWER($1) LIMIT 1', [name]);
+
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'Product name already exists', code: 'DUPLICATE_PRODUCT_NAME', requestId: req.requestId });
+    }
+
+    const result = hasGroupName
+      ? await query(
+          `INSERT INTO products (name, group_name, category_id, price, cost, unit, source, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING *`,
+          [name, effectiveGroup, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id]
+        )
+      : await query(
+          `INSERT INTO products (name, category_id, price, cost, unit, source, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING *`,
+          [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id]
+        );
+
+    const createdProduct = result.rows[0];
+
+    await query(
+      `INSERT INTO inventory (product_id, location_id, quantity, source)
+       SELECT $1, l.id, 0, $2
+       FROM locations l
+       WHERE l.is_active = true
+       ON CONFLICT (product_id, location_id) DO NOTHING`,
+      [createdProduct.id, source || 'baked']
+    );
+
+    await query(
+      `INSERT INTO activity_log (user_id, location_id, activity_type, description)
+       VALUES ($1, $2, $3, $4)`,
+      [req.user.id, req.user.location_id, 'product_created', `Created product: ${effectiveGroup} / ${name}`]
+    );
+
+    res.status(201).json({ ...createdProduct, group_name: effectiveGroup });
+  } catch (err) {
+    console.error('Create product error:', err);
+    res.status(500).json({ error: 'Internal server error', code: 'PRODUCT_CREATE_ERROR', requestId: req.requestId });
+  }
+});
 
 router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   const { name, group_name, category_id, price, cost, unit, is_active, source } = req.body;
@@ -198,12 +214,7 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async 
 
     if (name) {
       const duplicate = hasGroupName
-        ? await query(
-            `SELECT id FROM products
-             WHERE LOWER(name) = LOWER($1) AND LOWER(COALESCE(group_name, '')) = LOWER($2) AND id <> $3
-             LIMIT 1`,
-            [name, effectiveGroup, id]
-          )
+        ? await query(`SELECT id FROM products WHERE LOWER(name) = LOWER($1) AND LOWER(COALESCE(group_name, '')) = LOWER($2) AND id <> $3 LIMIT 1`, [name, effectiveGroup, id])
         : await query('SELECT id FROM products WHERE LOWER(name) = LOWER($1) AND id <> $2 LIMIT 1', [name, id]);
 
       if (duplicate.rows.length > 0) {

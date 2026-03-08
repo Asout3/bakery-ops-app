@@ -169,6 +169,21 @@ export default function AdminInventory() {
     return !inventory.some((item) => Number(item.product_id) === Number(product.id));
   });
 
+
+  const filteredInventory = inventory.filter((item) => {
+    const product = products.find((p) => Number(p.id) === Number(item.product_id));
+    const text = `${product?.group_name || product?.name || ''} ${product?.name || ''}`.toLowerCase();
+    return text.includes(search.toLowerCase());
+  });
+
+  const groupedInventory = filteredInventory.reduce((acc, item) => {
+    const product = products.find((p) => Number(p.id) === Number(item.product_id));
+    const group = product?.group_name || product?.name || 'Ungrouped';
+    if (!acc[group]) acc[group] = [];
+    acc[group].push({ item, product });
+    return acc;
+  }, {});
+
   if (loading) {
     return <div className="loading-container"><div className="spinner"></div></div>;
   }
@@ -202,22 +217,24 @@ export default function AdminInventory() {
         <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><TrendingDown size={24} /></div><div className="stat-content"><h3>{inventory.filter((item) => Number(item.quantity || 0) <= 5).length}</h3><p>Low Stock</p></div></div>
       </div>
 
-      <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>ID</th><th>Product</th><th>Quantity</th><th>Last Updated</th><th>Updated By</th><th>Source</th><th>Actions</th></tr></thead><tbody>
-        {inventory.filter((item) => (item.product_name || products.find((p) => p.id === item.product_id)?.name || '').toLowerCase().includes(search.toLowerCase())).map((item) => (
-          <tr key={item.id}>
-            <td>{item.id}</td>
-            <td>{`${products.find((p) => p.id === item.product_id)?.group_name || products.find((p) => p.id === item.product_id)?.name || item.product_id} / ${products.find((p) => p.id === item.product_id)?.name || item.product_id}` }</td>
-            <td><span className={`badge ${Number(item.quantity) <= 5 ? 'badge-warning' : 'badge-success'}`}>{item.quantity}</span>{item.is_pending_sync && <span className="badge badge-info" style={{ marginLeft: '0.4rem' }}>Pending Sync</span>}</td>
-            <td>{new Date(item.last_updated).toLocaleDateString()}</td>
-            <td>{item.last_updated_by_name || 'System'}</td>
-            <td><span className={`badge ${item.source === 'baked' ? 'badge-info' : 'badge-secondary'}`}>{item.source}</span></td>
-            <td>
-              <button className="btn btn-sm btn-outline-primary me-2" onClick={() => { setEditingItem(item); setFormData({ product_id: item.product_id, quantity: item.quantity, source: item.source || 'baked' }); setShowForm(true); }}><Edit size={14} /></button>
-              <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(item.id)}><Trash2 size={14} /></button>
-            </td>
-          </tr>
-        ))}
-      </tbody></table></div></div></div>
+      {Object.keys(groupedInventory).sort((a, b) => a.localeCompare(b)).map((group) => (
+        <div className="card mb-3" key={group}><div className="card-header"><h4 className="mb-0">{group}</h4></div><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>ID</th><th>Variant</th><th>Quantity</th><th>Last Updated</th><th>Updated By</th><th>Source</th><th>Actions</th></tr></thead><tbody>
+          {groupedInventory[group].map(({ item, product }) => (
+            <tr key={item.id}>
+              <td>{item.id}</td>
+              <td>{product?.name || item.product_id}</td>
+              <td><span className={`badge ${Number(item.quantity) <= 5 ? 'badge-warning' : 'badge-success'}`}>{item.quantity}</span>{item.is_pending_sync && <span className="badge badge-info" style={{ marginLeft: '0.4rem' }}>Pending Sync</span>}</td>
+              <td>{new Date(item.last_updated).toLocaleDateString()}</td>
+              <td>{item.last_updated_by_name || 'System'}</td>
+              <td><span className={`badge ${item.source === 'baked' ? 'badge-info' : 'badge-secondary'}`}>{item.source}</span></td>
+              <td>
+                <button className="btn btn-sm btn-outline-primary me-2" onClick={() => { setEditingItem(item); setFormData({ product_id: item.product_id, quantity: item.quantity, source: item.source || 'baked' }); setShowForm(true); }}><Edit size={14} /></button>
+                <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(item.id)}><Trash2 size={14} /></button>
+              </td>
+            </tr>
+          ))}
+        </tbody></table></div></div></div>
+      ))}
 
       {showForm && (
         <div className="modal-overlay" onClick={resetForm}>
