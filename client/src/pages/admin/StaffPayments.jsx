@@ -180,10 +180,10 @@ export default function StaffPaymentsPage() {
       {feedback && <div className={`alert alert-${feedback.type} mb-3`}>{feedback.message}</div>}
 
       <div className="stats-grid mb-4">
-        <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><DollarSign size={24} /></div><div className="stat-content"><h3>ETB {summary.total.toFixed(2)}</h3><p>Total Paid</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.byFrequency.daily?.toFixed(2) || '0.00'}</h3><p>Daily Paid</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-icon bg-info text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.byFrequency.weekly?.toFixed(2) || '0.00'}</h3><p>Weekly Paid</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.byFrequency.monthly?.toFixed(2) || '0.00'}</h3><p>Monthly Paid</p></div></div>
+        <div className="stat-card card"><div className="stat-icon bg-success text-white"><DollarSign size={24} /></div><div className="stat-content"><h3>ETB {summary.total.toFixed(2)}</h3><p>Total Paid</p></div></div>
+        <div className="stat-card card"><div className="stat-icon bg-primary text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.byFrequency.daily?.toFixed(2) || '0.00'}</h3><p>Daily Paid</p></div></div>
+        <div className="stat-card card"><div className="stat-icon bg-info text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.byFrequency.weekly?.toFixed(2) || '0.00'}</h3><p>Weekly Paid</p></div></div>
+        <div className="stat-card card"><div className="stat-icon bg-warning text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.byFrequency.monthly?.toFixed(2) || '0.00'}</h3><p>Monthly Paid</p></div></div>
       </div>
 
       <div className="card">

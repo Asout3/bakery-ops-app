@@ -205,7 +205,7 @@ export default function StaffManagement() {
               </div>
 
               <div className="row g-2">
-                <div className="col-md-4 mb-3"><label className="form-label">Role</label><select className="form-select" value={profile.role_preference || 'cashier'} onChange={(e)=>setProfile((p)=>({...p,role_preference:e.target.value}))}><option value="cashier">Cashier</option><option value="manager">Ground Manager</option><option value="other">Other</option></select></div>
+                <div className="col-md-4 mb-3"><label className="form-label">Role</label><input className="form-control" value={profile.role_preference === 'manager' ? 'Ground Manager' : profile.role_preference === 'other' ? 'Other' : 'Cashier'} readOnly /></div>
                 {profile.role_preference === 'other' && <div className="col-md-8 mb-3"><label className="form-label">Other Title</label><input className="form-control" value={profile.job_title || ''} onChange={(e)=>setProfile((p)=>({...p,job_title:e.target.value}))} /></div>}
               </div>
               <button className="btn btn-primary" onClick={async()=>{await editStaff(profile); setProfile(null);}}>Save Changes</button>

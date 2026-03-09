@@ -170,7 +170,7 @@ export default function Inventory() {
 
   const groupedProducts = useMemo(() => {
     const grouped = new Map();
-    products.forEach((product) => {
+    products.filter((product) => product.is_active !== false).forEach((product) => {
       const group = product.group_name || product.name;
       const matchesGroup = groupFilter === 'all' || group === groupFilter;
       const matchesCategory = categoryFilter === 'all' || String(product.category_name || 'Uncategorized') === categoryFilter;
@@ -232,8 +232,8 @@ export default function Inventory() {
           <div className="card">
             <div className="card-header" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <h3 style={{ margin: 0 }}>Products</h3>
-              <select className="form-select" style={{ maxWidth: '220px' }} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">All Groups</option>{Array.from(new Set(products.map((p) => p.group_name || p.name))).sort().map((group) => <option key={group} value={group}>{group}</option>)}</select>
-              <select className="form-select" style={{ maxWidth: '220px' }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option value="all">All Categories</option>{Array.from(new Set(products.map((p) => p.category_name || 'Uncategorized'))).sort().map((category) => <option key={category} value={category}>{category}</option>)}</select>
+              <select className="form-select" style={{ maxWidth: '220px' }} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">All Groups</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.group_name || p.name))).sort().map((group) => <option key={group} value={group}>{group}</option>)}</select>
+              <select className="form-select" style={{ maxWidth: '220px' }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option value="all">All Categories</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.category_name || 'Uncategorized'))).sort().map((category) => <option key={category} value={category}>{category}</option>)}</select>
             </div>
             <div className="card-body">
               <div className="products-table-container">

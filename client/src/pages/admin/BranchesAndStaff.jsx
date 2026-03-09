@@ -284,8 +284,8 @@ export default function BranchesAndStaff() {
       {feedback && <div className={`alert alert-${feedback.type} mb-4`}>{feedback.message}</div>}
 
       <div className="stats-grid mb-4">
-        <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><Users size={24} /></div><div className="stat-content"><h3>{accounts.filter(a => a.is_active).length}</h3><p>Active Accounts</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><UserPlus size={24} /></div><div className="stat-content"><h3>{availableStaff.length}</h3><p>Staff Without Account</p></div></div>
+        <div className="stat-card card"><div className="stat-icon bg-success text-white"><Users size={24} /></div><div className="stat-content"><h3>{accounts.filter(a => a.is_active).length}</h3><p>Active Accounts</p></div></div>
+        <div className="stat-card card"><div className="stat-icon bg-warning text-white"><UserPlus size={24} /></div><div className="stat-content"><h3>{availableStaff.length}</h3><p>Staff Without Account</p></div></div>
       </div>
 
       <div className="card mb-4 border-0 shadow-sm"><div className="card-header bg-dark text-white"><h4 className="mb-0">My Admin Credentials</h4></div><div className="card-body">

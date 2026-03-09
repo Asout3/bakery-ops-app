@@ -2,6 +2,7 @@ import express from 'express';
 import { body, validationResult } from 'express-validator';
 import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
+import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
 const STAFF_PAYMENT_EDIT_WINDOW_MINUTES = 20;
@@ -71,6 +72,7 @@ router.post(
     const idempotencyKey = req.headers['x-idempotency-key'];
 
     try {
+      const locationId = await getTargetLocationId(req, query);
       const resolvedUserId = user_id ? Number(user_id) : null;
       const resolvedStaffProfileId = staff_profile_id ? Number(staff_profile_id) : null;
 
@@ -102,18 +104,19 @@ router.post(
 
         const paymentResult = await tx.query(
           `INSERT INTO staff_payments (user_id, staff_profile_id, location_id, amount, payment_date, payment_type, notes, created_by)
-           VALUES ($1, $2, NULL, $3, $4, $5, $6, $7)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            RETURNING *`,
-          [resolvedUserId, resolvedStaffProfileId, amount, payment_date, payment_type || 'salary', JSON.stringify({ notes: notes || '', payment_frequency: payment_frequency || 'monthly', payout_mode: payout_mode || 'pay_now', payroll_month: payroll_month || null }), req.user.id]
+          [resolvedUserId, resolvedStaffProfileId, locationId, amount, payment_date, payment_type || 'salary', JSON.stringify({ notes: notes || '', payment_frequency: payment_frequency || 'monthly', payout_mode: payout_mode || 'pay_now', payroll_month: payroll_month || null }), req.user.id]
         );
 
         const payment = paymentResult.rows[0];
 
         await tx.query(
           `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
-           VALUES ($1, NULL, $2, $3, $4)`,
+           VALUES ($1, $2, $3, $4, $5)`,
           [
             req.user.id,
+            locationId,
             'payment_created',
             `Staff payment: ${amount} to ${staffName}`,
             JSON.stringify({ payment_id: payment.id, staff_name: staffName, amount }),
@@ -123,9 +126,9 @@ router.post(
         if (idempotencyKey) {
           await tx.query(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
-             VALUES ($1, NULL, $2, $3, $4)
+             VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
-            [req.user.id, idempotencyKey, '/api/payments', JSON.stringify(payment)]
+            [req.user.id, locationId, idempotencyKey, '/api/payments', JSON.stringify(payment)]
           );
         }
 
@@ -155,6 +158,7 @@ router.put(
     const { amount, payment_date, payment_type, payment_frequency, payout_mode, payroll_month, notes } = req.body;
 
     try {
+      const locationId = await getTargetLocationId(req, query);
       const updated = await withTransaction(async (tx) => {
         const existing = await tx.query(
           `SELECT *,
@@ -186,10 +190,10 @@ router.put(
                payment_date = COALESCE($2, payment_date),
                payment_type = COALESCE($3, payment_type),
                notes = COALESCE($4, notes),
-               location_id = NULL
-           WHERE id = $5
+               location_id = COALESCE($5, location_id)
+           WHERE id = $6
            RETURNING *`,
-          [amount || null, payment_date || null, payment_type || null, JSON.stringify({ notes: notes || '', payment_frequency: payment_frequency || 'monthly', payout_mode: payout_mode || 'pay_now', payroll_month: payroll_month || null }), req.params.id]
+          [amount || null, payment_date || null, payment_type || null, JSON.stringify({ notes: notes || '', payment_frequency: payment_frequency || 'monthly', payout_mode: payout_mode || 'pay_now', payroll_month: payroll_month || null }), locationId, req.params.id]
         );
 
         return result.rows[0];
