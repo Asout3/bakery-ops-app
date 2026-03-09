@@ -61,7 +61,7 @@ flowchart TB
 
 ### Core Business Capabilities
 
-- Sales, expenses, payments, and inventory management.
+- Sales, expenses, payments, inventory management, and pre-order lifecycle orchestration.
 - Grouped product variants across admin, manager, and cashier workflows (group card -> variant selection).
 - Dynamic expense categories with audit-friendly expense codes and creator attribution.
 - Branch-aware access via role and location constraints.
@@ -161,6 +161,22 @@ sequenceDiagram
 In development mode, service workers are intentionally unregistered to prevent stale production workers from interfering with Vite dev behavior. Validate offline refresh using production build/preview behavior (`npm run build` + `npm run preview` in `client/`).
 
 ---
+
+
+## Pre-Order Workflow
+
+Three-role order lifecycle:
+
+- Cashier creates pre-orders with mixed items: existing product variants and ad-hoc custom items.
+- Manager works from the preparation queue, updates progress, and marks orders ready.
+- Admin oversees all orders, verifies payment completion, and marks pickup completion.
+
+Technical behavior:
+
+- API endpoints: `GET /api/orders`, `POST /api/orders`, `PATCH /api/orders/:id`.
+- Order items are persisted in `order_items` and linked to `customer_orders`.
+- Inventory is decremented once when an order transitions to ready/prepared for product-linked items.
+- Cashier pre-order creation supports offline queue replay using idempotency keys.
 
 ## Security and Compliance Controls
 
