@@ -23,6 +23,7 @@ export default function AdminInventory() {
     fetchData();
   }, [selectedLocationId]);
 
+
   const persistInventoryCache = (payload) => {
     localStorage.setItem(`admin_inventory_cache_${selectedLocationId || 'default'}`, JSON.stringify(payload));
   };
@@ -166,7 +167,7 @@ export default function AdminInventory() {
     if (editingItem) {
       return true;
     }
-    return !inventory.some((item) => Number(item.product_id) === Number(product.id));
+    return product.is_active !== false && !inventory.some((item) => Number(item.product_id) === Number(product.id));
   });
 
 
@@ -222,7 +223,7 @@ export default function AdminInventory() {
           {groupedInventory[group].map(({ item, product }) => (
             <tr key={item.id}>
               <td>{item.id}</td>
-              <td>{product?.name || item.product_id}</td>
+              <td>{product?.name || item.product_id}{product?.is_active === false && <span className="badge badge-warning ms-2">Archived</span>}</td>
               <td><span className={`badge ${Number(item.quantity) <= 5 ? 'badge-warning' : 'badge-success'}`}>{item.quantity}</span>{item.is_pending_sync && <span className="badge badge-info" style={{ marginLeft: '0.4rem' }}>Pending Sync</span>}</td>
               <td>{new Date(item.last_updated).toLocaleDateString()}</td>
               <td>{item.last_updated_by_name || 'System'}</td>

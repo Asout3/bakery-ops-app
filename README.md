@@ -13,6 +13,8 @@ A production-oriented, offline-capable bakery management system for multi-branch
 - [System Architecture](#system-architecture)
 - [Offline Sync and Offline Refresh Design](#offline-sync-and-offline-refresh-design)
 - [Security and Compliance Controls](#security-and-compliance-controls)
+- [Session and Token Lifecycle](#session-and-token-lifecycle)
+- [Staff Payments Behavior](#staff-payments-behavior)
 - [Database Architecture](#database-architecture)
 - [API Design and Contracts](#api-design-and-contracts)
 - [Performance and Scalability](#performance-and-scalability)
@@ -59,7 +61,7 @@ flowchart TB
 
 ### Core Business Capabilities
 
-- Sales, expenses, payments, and inventory management.
+- Sales, expenses, payments, inventory management, and pre-order lifecycle orchestration.
 - Grouped product variants across admin, manager, and cashier workflows (group card -> variant selection).
 - Dynamic expense categories with audit-friendly expense codes and creator attribution.
 - Branch-aware access via role and location constraints.
@@ -146,6 +148,7 @@ sequenceDiagram
 
 ### Reliability Mechanisms
 
+- Cashier sales now block add/increase actions when stock is exhausted and still show variants as out-of-stock in the selector for better operator clarity.
 - Idempotent write headers for retry-safe replay.
 - Replay status model (`synced`, `failed`, `conflict`, `needs_review`, `ignored`, `resolved`).
 - API error envelope consistency (`error`, `code`, `requestId`) for client classification.
@@ -158,6 +161,24 @@ sequenceDiagram
 In development mode, service workers are intentionally unregistered to prevent stale production workers from interfering with Vite dev behavior. Validate offline refresh using production build/preview behavior (`npm run build` + `npm run preview` in `client/`).
 
 ---
+
+
+## Pre-Order Workflow
+
+Three-role order lifecycle:
+
+- Cashier creates pre-orders with mixed items: existing product variants and ad-hoc custom items.
+- Manager works from the preparation queue, updates progress, and marks orders ready.
+- Admin oversees all orders, verifies payment completion, and marks pickup completion.
+
+Technical behavior:
+
+- API endpoints: `GET /api/orders`, `POST /api/orders`, `PATCH /api/orders/:id`.
+- Order items are persisted in `order_items` and linked to `customer_orders`.
+- Inventory is decremented once when an order transitions to ready/prepared for product-linked items.
+- Orders can be edited/deleted only within a 20-minute edit/delete safety window after creation.
+- Cashier pre-order creation supports offline queue replay using idempotency keys.
+- Order performance is surfaced on admin dashboard period views (daily/weekly/monthly) from picked-up orders for revenue transparency.
 
 ## Security and Compliance Controls
 
@@ -193,6 +214,29 @@ flowchart TB
 - Introduce tenant-aware session revocation controls for emergency lockout scenarios.
 
 ---
+
+
+## Session and Token Lifecycle
+
+- Access tokens are used on every API call and can expire during normal use.
+- The client now keeps session credentials per browser tab using `sessionStorage` so role context does not leak across multiple open accounts.
+- On `401` responses from non-auth endpoints, the client performs a single-flight refresh-token rotation (`/api/auth/refresh-token/rotate`) and retries the original request.
+- If refresh fails (expired/revoked token), the app clears session state and redirects to login with `session_expired`.
+- Logout revokes the current refresh token server-side and clears client session keys.
+
+## Staff Payments Behavior
+
+Staff payment records support two payout modes:
+
+- `Pay Now` (`payout_mode=pay_now`): immediate payroll entry for the selected staff and payment date.
+- `Pay to Month` (`payout_mode=pay_to_month`): payroll entry assigned to a target month via `payroll_month`, used for monthly settlement planning/reporting.
+
+Additional rules:
+
+- Frequency (`daily`, `weekly`, `monthly`) is saved per payment and used in payment summaries.
+- Edit/delete is allowed only within a 20-minute safety window from record creation.
+- Offline creation is queue-safe with idempotency keys to avoid duplicate replay writes.
+- Staff payment creation now supports a worked-days recommendation flow (days since last payment x daily salary rate) to assist prorated payouts.
 
 ## Database Architecture
 

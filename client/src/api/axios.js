@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { clearSession, getAccessToken, getRefreshToken, persistSession } from '../utils/authSession';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 const REQUEST_TIMEOUT = 15000;
@@ -10,6 +11,16 @@ const api = axios.create({
   },
   timeout: REQUEST_TIMEOUT,
 });
+
+const refreshClient = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  timeout: REQUEST_TIMEOUT,
+});
+
+let refreshPromise = null;
 
 function resolveAdaptiveTimeout(config) {
   if (config.timeout) return config.timeout;
@@ -67,9 +78,27 @@ const attachLocationContext = (config) => {
   return config;
 };
 
+const rotateRefreshToken = async () => {
+  if (!refreshPromise) {
+    refreshPromise = refreshClient.post('/auth/refresh-token/rotate', {
+      refresh_token: getRefreshToken(),
+    }, {
+      headers: { 'X-Skip-Auth-Redirect': 'true' },
+    }).then((response) => {
+      const { user, token, refresh_token: refreshToken, refresh_token_expires_at: refreshTokenExpiresAt } = response.data;
+      persistSession({ user, token, refreshToken, refreshTokenExpiresAt });
+      return token;
+    }).finally(() => {
+      refreshPromise = null;
+    });
+  }
+
+  return refreshPromise;
+};
+
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -83,22 +112,26 @@ api.interceptors.request.use(
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     error.userMessage = toUserMessage(error);
 
-    if (error.response?.status === 401) {
-      const currentPath = window.location.pathname;
-      const isAuthEndpoint = error.config?.url?.includes('/auth/') || error.config?.url?.includes('/login');
-      const skipAuthRedirect = error.config?.headers?.['X-Skip-Auth-Redirect'] === 'true';
+    const originalRequest = error.config || {};
+    const currentPath = window.location.pathname;
+    const isAuthEndpoint = originalRequest.url?.includes('/auth/');
+    const skipAuthRedirect = originalRequest.headers?.['X-Skip-Auth-Redirect'] === 'true';
 
-      if (!currentPath.includes('/login') && !isAuthEndpoint && !skipAuthRedirect) {
-        const token = localStorage.getItem('token');
-        if (token) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          window.location.href = '/login?reason=session_expired';
-        }
-      }
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint && !skipAuthRedirect && getRefreshToken()) {
+      originalRequest._retry = true;
+      try {
+        const nextToken = await rotateRefreshToken();
+        originalRequest.headers = { ...(originalRequest.headers || {}), Authorization: `Bearer ${nextToken}` };
+        return api(originalRequest);
+      } catch {}
+    }
+
+    if (error.response?.status === 401 && !currentPath.includes('/login') && !isAuthEndpoint && !skipAuthRedirect) {
+      clearSession();
+      window.location.href = '/login?reason=session_expired';
     }
 
     return Promise.reject(error);

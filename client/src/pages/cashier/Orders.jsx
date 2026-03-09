@@ -1,0 +1,212 @@
+import { useEffect, useMemo, useState } from 'react';
+import api, { getErrorMessage } from '../../api/axios';
+import { enqueueOperation } from '../../utils/offlineQueue';
+
+const emptyItem = { product_id: '', custom_item_name: '', quantity: 1, unit_price: '' };
+
+export default function CashierOrders() {
+  const [orders, setOrders] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [form, setForm] = useState({
+    customer_name: '',
+    customer_phone: '',
+    customer_note: '',
+    pickup_at: '',
+    payment_method: 'cash',
+    paid_amount: '',
+    items: [{ ...emptyItem }],
+  });
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState(null);
+  const [editingOrder, setEditingOrder] = useState(null);
+  const [nowTs, setNowTs] = useState(Date.now());
+
+  const activeProducts = useMemo(() => products.filter((p) => p.is_active !== false), [products]);
+
+  const load = async () => {
+    try {
+      const [ordersRes, productsRes] = await Promise.all([api.get('/orders'), api.get('/products')]);
+      setOrders(ordersRes.data || []);
+      setProducts(productsRes.data || []);
+    } catch (err) {
+      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to load pre-orders.') });
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const updateItem = (idx, key, value) => {
+    setForm((prev) => ({ ...prev, items: prev.items.map((item, i) => (i === idx ? { ...item, [key]: value } : item)) }));
+  };
+
+  const addRow = () => setForm((prev) => ({ ...prev, items: [...prev.items, { ...emptyItem }] }));
+
+
+  const canDeleteOrder = (order) => {
+    const createdAt = order?.created_at ? new Date(order.created_at).getTime() : 0;
+    if (!createdAt) return false;
+    return nowTs - createdAt <= 20 * 60 * 1000;
+  };
+
+  const minutesLeft = (order) => {
+    const createdAt = order?.created_at ? new Date(order.created_at).getTime() : 0;
+    if (!createdAt) return 0;
+    const remainingMs = (20 * 60 * 1000) - (nowTs - createdAt);
+    return Math.max(0, Math.ceil(remainingMs / (60 * 1000)));
+  };
+
+  const updateOrder = async () => {
+    if (!editingOrder) return;
+    try {
+      await api.patch(`/orders/${editingOrder.id}`, {
+        customer_note: editingOrder.customer_note,
+        pickup_at: editingOrder.pickup_at,
+        customer_name: editingOrder.customer_name,
+        customer_phone: editingOrder.customer_phone,
+      });
+      setEditingOrder(null);
+      setMessage({ type: 'success', text: 'Pre-order updated.' });
+      load();
+    } catch (err) {
+      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to update pre-order.') });
+    }
+  };
+
+  const deleteOrder = async (orderId) => {
+    if (!window.confirm('Delete this pre-order?')) return;
+    try {
+      await api.delete(`/orders/${orderId}`);
+      setMessage({ type: 'success', text: 'Pre-order deleted.' });
+      load();
+    } catch (err) {
+      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to delete pre-order.') });
+    }
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (loading) return;
+    setLoading(true);
+
+    const payload = {
+      ...form,
+      paid_amount: Number(form.paid_amount || 0),
+      items: form.items
+        .map((item) => ({
+          product_id: item.product_id ? Number(item.product_id) : null,
+          custom_item_name: item.custom_item_name,
+          quantity: Number(item.quantity || 1),
+          unit_price: item.unit_price === '' ? undefined : Number(item.unit_price),
+        }))
+        .filter((item) => item.quantity > 0 && (item.product_id || item.custom_item_name?.trim())),
+    };
+
+    if (!payload.items.length) {
+      setMessage({ type: 'warning', text: 'Add at least one valid order item.' });
+      setLoading(false);
+      return;
+    }
+
+    try {
+      await api.post('/orders', payload);
+      setForm({ customer_name: '', customer_phone: '', customer_note: '', pickup_at: '', payment_method: 'cash', paid_amount: '', items: [{ ...emptyItem }] });
+      setMessage({ type: 'success', text: 'Pre-order created.' });
+      load();
+    } catch (err) {
+      if (!err.response) {
+        const idempotencyKey = `order-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        await enqueueOperation({ url: '/orders', method: 'post', data: payload, idempotencyKey });
+        setForm({ customer_name: '', customer_phone: '', customer_note: '', pickup_at: '', payment_method: 'cash', paid_amount: '', items: [{ ...emptyItem }] });
+        setMessage({ type: 'warning', text: 'Offline: pre-order queued for sync.' });
+      } else {
+        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to create pre-order.') });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="page-header"><h2>Pre-Orders</h2></div>
+      {message && <div className={`alert alert-${message.type} mb-3`}>{message.text}</div>}
+
+      <div className="card mb-4">
+        <div className="card-header"><h4>Create Pre-Order</h4></div>
+        <form className="card-body" onSubmit={submit}>
+          <div className="row g-3">
+            <div className="col-md-4"><label className="form-label">Customer Name *</label><input className="form-control" value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} required /></div>
+            <div className="col-md-4"><label className="form-label">Phone *</label><input className="form-control" value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} required /></div>
+            <div className="col-md-4"><label className="form-label">Pickup Time</label><input type="datetime-local" className="form-control" value={form.pickup_at} onChange={(e) => setForm({ ...form, pickup_at: e.target.value })} /></div>
+            <div className="col-md-4"><label className="form-label">Payment Method</label><select className="form-select" value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value })}><option value="cash">Cash</option><option value="mobile">Mobile</option></select></div>
+            <div className="col-md-4"><label className="form-label">Paid Amount</label><input type="number" step="0.01" min="0" className="form-control" value={form.paid_amount} onChange={(e) => setForm({ ...form, paid_amount: e.target.value })} /></div>
+            <div className="col-md-12"><label className="form-label">Customer Note</label><textarea className="form-control" rows="2" value={form.customer_note} onChange={(e) => setForm({ ...form, customer_note: e.target.value })} /></div>
+          </div>
+
+          <hr />
+          {form.items.map((item, idx) => (
+            <div className="row g-2 mb-2" key={idx}>
+              <div className="col-md-4"><select className="form-select" value={item.product_id} onChange={(e) => updateItem(idx, 'product_id', e.target.value)}><option value="">Custom item</option>{activeProducts.map((p) => <option key={p.id} value={p.id}>{p.group_name || p.name} / {p.name}</option>)}</select></div>
+              <div className="col-md-4"><input className="form-control" placeholder="Custom item name" value={item.custom_item_name} onChange={(e) => updateItem(idx, 'custom_item_name', e.target.value)} disabled={!!item.product_id} /></div>
+              <div className="col-md-2"><input type="number" min="1" className="form-control" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} /></div>
+              <div className="col-md-2"><input type="number" min="0" step="0.01" className="form-control" placeholder="Unit price" value={item.unit_price} onChange={(e) => updateItem(idx, 'unit_price', e.target.value)} /></div>
+            </div>
+          ))}
+
+          <div className="d-flex gap-2">
+            <button type="button" className="btn btn-outline-secondary" onClick={addRow}>+ Add Item Row</button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Saving...' : 'Create Pre-Order'}</button>
+          </div>
+        </form>
+      </div>
+
+      <div className="card">
+        <div className="card-header"><h4>My Orders</h4></div>
+        <div className="card-body table-responsive">
+          <table className="table table-hover">
+            <thead><tr><th>Order ID</th><th>Customer</th><th>Status</th><th>Prep</th><th>Payment</th><th>Pickup</th><th>Actions</th></tr></thead>
+            <tbody>
+              {orders.map((order) => (
+                <tr key={order.id}>
+                  <td>{order.order_code || `ORD-${String(order.id).padStart(6, '0')}`}</td>
+                  <td>{order.customer_name}<div className="text-muted small">{order.customer_phone}</div></td>
+                  <td><span className="badge badge-primary">{order.status}</span></td>
+                  <td>{order.prep_status} ({Number(order.prep_progress || 0)}%)</td>
+                  <td><span className={`badge ${order.payment_status === 'verified' ? 'badge-success' : 'badge-warning'}`}>{order.payment_status}</span></td>
+                  <td>{new Date(order.pickup_at).toLocaleString()}</td>
+                  <td><div className="d-flex gap-2 align-items-center"><button className="btn btn-sm btn-outline-primary" onClick={() => setEditingOrder({ ...order })}>Edit</button>{canDeleteOrder(order) && <button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button>}{canDeleteOrder(order) ? <span className="badge badge-warning">Delete: {minutesLeft(order)}m left</span> : <span className="badge badge-secondary">Delete locked</span>}</div></td>
+                </tr>
+              ))}
+              {!orders.length && <tr><td colSpan="7" className="text-center text-muted">No pre-orders</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {editingOrder && (
+        <div className="modal-overlay" onClick={() => setEditingOrder(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Edit Pre-Order</h3><button className="close-btn" onClick={() => setEditingOrder(null)}>×</button></div>
+            <div className="modal-body">
+              <div className="row g-2">
+                <div className="col-md-6"><label className="form-label">Customer Name</label><input className="form-control" value={editingOrder.customer_name || ''} onChange={(e) => setEditingOrder((p) => ({ ...p, customer_name: e.target.value }))} /></div>
+                <div className="col-md-6"><label className="form-label">Phone</label><input className="form-control" value={editingOrder.customer_phone || ''} onChange={(e) => setEditingOrder((p) => ({ ...p, customer_phone: e.target.value }))} /></div>
+                <div className="col-md-6"><label className="form-label">Pickup</label><input type="datetime-local" className="form-control" value={(editingOrder.pickup_at || '').slice(0,16)} onChange={(e) => setEditingOrder((p) => ({ ...p, pickup_at: e.target.value }))} /></div>
+                <div className="col-md-12"><label className="form-label">Note</label><textarea rows="4" className="form-control" value={editingOrder.customer_note || ''} onChange={(e) => setEditingOrder((p) => ({ ...p, customer_note: e.target.value }))} /></div>
+              </div>
+            </div>
+            <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setEditingOrder(null)}>Cancel</button><button className="btn btn-primary" onClick={updateOrder}>Save</button></div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}

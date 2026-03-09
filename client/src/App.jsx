@@ -23,12 +23,15 @@ import SyncQueuePage from './pages/admin/SyncQueue';
 import BranchesAndStaffPage from './pages/admin/BranchesAndStaff';
 import StaffManagementPage from './pages/admin/StaffManagement';
 import HistoryLifecyclePage from './pages/admin/HistoryLifecycle';
+import AdminOrdersPage from './pages/admin/Orders';
 import ManagerInventory from './pages/manager/Inventory';
 import ManagerBatches from './pages/manager/Batches';
 import ManagerNotifications from './pages/admin/Notifications';
+import ManagerOrdersPage from './pages/manager/Orders';
 import ManagerExpenses from './pages/admin/Expenses';
 import CashierSales from './pages/cashier/Sales';
 import CashierHistory from './pages/cashier/History';
+import CashierOrdersPage from './pages/cashier/Orders';
 
 function AppInner() {
   return (
@@ -48,17 +51,18 @@ function AppInner() {
             <Route path="team" element={<BranchesAndStaffPage />} />
             <Route path="staff" element={<StaffManagementPage />} />
             <Route path="history-lifecycle" element={<HistoryLifecyclePage />} />
+            <Route path="orders" element={<AdminOrdersPage />} />
           </Route>
           <Route path="/manager" element={<ProtectedRoute roles={['manager', 'admin']}><Layout /></ProtectedRoute>}>
             <Route path="inventory" element={<ManagerInventory />} />
             <Route path="batches" element={<ManagerBatches />} />
-            <Route path="orders" element={<Navigate to="/manager/batches" replace />} />
+            <Route path="orders" element={<ManagerOrdersPage />} />
             <Route path="expenses" element={<ManagerExpenses />} />
             <Route path="notifications" element={<ManagerNotifications />} />
           </Route>
           <Route path="/cashier" element={<ProtectedRoute roles={['cashier', 'admin']}><Layout /></ProtectedRoute>}>
             <Route path="sales" element={<CashierSales />} />
-            <Route path="orders" element={<Navigate to="/cashier/sales" replace />} />
+            <Route path="orders" element={<CashierOrdersPage />} />
             <Route path="history" element={<CashierHistory />} />
           </Route>
           <Route path="/" element={<Navigate to="/login" replace />} />

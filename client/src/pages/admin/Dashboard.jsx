@@ -38,6 +38,7 @@ export default function Dashboard() {
 
   const [report, setReport] = useState(null);
   const [kpis, setKpis] = useState(null);
+  const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -66,10 +67,15 @@ export default function Dashboard() {
         setReport(reportRes.data || null);
 
         if (user?.role === 'admin') {
-          const kpiRes = await api.get('/reports/kpis');
+          const [kpiRes, ordersRes] = await Promise.all([
+            api.get('/reports/kpis'),
+            api.get('/orders', { params: { include_completed: true } }),
+          ]);
           setKpis(kpiRes.data || null);
+          setOrders(ordersRes.data || []);
         } else {
           setKpis(null);
+          setOrders([]);
         }
       } catch (err) {
         setError(err?.response?.data?.error || err?.message || 'Failed to load dashboard data.');
@@ -81,6 +87,39 @@ export default function Dashboard() {
     loadReport();
   }, [period, dailyDate, weekEndDate, monthValue, selectedLocationId, user?.role]);
 
+
+  const selectedRange = useMemo(() => {
+    if (period === 'daily') {
+      const start = new Date(`${dailyDate}T00:00:00`);
+      const end = new Date(`${dailyDate}T23:59:59.999`);
+      return { start, end };
+    }
+    if (period === 'weekly') {
+      const end = new Date(`${weekEndDate}T23:59:59.999`);
+      const start = new Date(end);
+      start.setDate(start.getDate() - 6);
+      start.setHours(0, 0, 0, 0);
+      return { start, end };
+    }
+    const [year, month] = monthValue.split('-').map(Number);
+    const start = new Date(year, month - 1, 1, 0, 0, 0, 0);
+    const end = new Date(year, month, 0, 23, 59, 59, 999);
+    return { start, end };
+  }, [period, dailyDate, weekEndDate, monthValue]);
+
+  const orderPerformance = useMemo(() => {
+    const relevant = (orders || []).filter((order) => {
+      if (order.status !== 'picked_up') return false;
+      const dateValue = order.delivered_at || order.updated_at || order.created_at;
+      if (!dateValue) return false;
+      const ts = new Date(dateValue).getTime();
+      return ts >= selectedRange.start.getTime() && ts <= selectedRange.end.getTime();
+    });
+
+    const total = relevant.reduce((sum, order) => sum + Number(order.total_amount || 0), 0);
+    return { count: relevant.length, revenue: total, rows: relevant };
+  }, [orders, selectedRange]);
+
   const totals = useMemo(() => {
     if (!report) {
       return {
@@ -91,6 +130,8 @@ export default function Dashboard() {
         batchCosts: 0,
         totalCosts: 0,
         netProfit: 0,
+        orderRevenue: 0,
+        orderCount: 0,
       };
     }
 
@@ -102,7 +143,7 @@ export default function Dashboard() {
       const batchCosts = Number(report.profit?.batch_costs || report.details?.batches?.total_batch_cost || 0);
       const totalCosts = Number(report.profit?.total_costs || expenses + staffPayments + batchCosts);
       const netProfit = Number(report.profit?.net_profit || revenue - totalCosts);
-      return { revenue, transactions, expenses, staffPayments, batchCosts, totalCosts, netProfit };
+      return { revenue, transactions, expenses, staffPayments, batchCosts, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
     }
 
     if (period === 'weekly') {
@@ -113,7 +154,7 @@ export default function Dashboard() {
       const batchCosts = Number(report.summary?.total_batch_costs || report.details?.batches?.total_batch_cost || 0);
       const totalCosts = Number(report.summary?.total_costs || expenses + staffPayments + batchCosts);
       const netProfit = Number(report.summary?.net_profit || revenue - totalCosts);
-      return { revenue, transactions, expenses, staffPayments, batchCosts, totalCosts, netProfit };
+      return { revenue, transactions, expenses, staffPayments, batchCosts, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
     }
 
     const revenue = Number(report.sales?.total_sales || 0);
@@ -184,6 +225,7 @@ export default function Dashboard() {
         <StatCard icon={<Receipt size={18} />} label={`${period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly'} Expenses`} value={formatMoney(totals.expenses)} sub={`${expenseRows.length} expense entries`} />
         <StatCard icon={<Users size={18} />} label="Staff Payments" value={formatMoney(totals.staffPayments)} sub={`${staffPaymentRows.length} payments`} />
         <StatCard icon={<Wallet size={18} />} label="Net Profit" value={formatMoney(totals.netProfit)} sub="Revenue - all costs" tone={totals.netProfit >= 0 ? 'success' : 'danger'} />
+        <StatCard icon={<Receipt size={18} />} label="Order Performance" value={formatMoney(totals.orderRevenue)} sub={`${totals.orderCount} picked-up orders`} tone="info" />
       </div>
 
       <div className="details-grid">
@@ -243,8 +285,16 @@ export default function Dashboard() {
           ['Batch Production Cost', formatMoney(totals.batchCosts), `${Number(report?.details?.batches?.batch_count || 0)} non-voided batches × product unit cost`],
           ['Manual Expenses', formatMoney(totals.expenses), 'Recorded expenses table entries'],
           ['Staff Payments', formatMoney(totals.staffPayments), 'Payroll and advances paid in period'],
+          ['Pre-Order Revenue (Picked Up)', formatMoney(totals.orderRevenue), `${totals.orderCount} picked-up orders in selected period`],
           ['Net Profit', formatMoney(totals.netProfit), 'Revenue - all costs above'],
         ]}
+      />
+
+      <DataTable
+        title="Order Performance"
+        headers={['Order ID', 'Customer', 'Amount', 'Picked Up At']}
+        rows={orderPerformance.rows.map((o) => [o.order_code || `ORD-${String(o.id).padStart(6, '0')}`, o.customer_name, formatMoney(o.total_amount), formatShortDate(o.delivered_at || o.updated_at || o.created_at)])}
+        empty="No picked-up orders in this period."
       />
 
       <div className="card">
@@ -254,6 +304,7 @@ export default function Dashboard() {
           <SummaryItem label="Total Expenses" value={formatMoney(totals.expenses)} />
           <SummaryItem label="Total Staff Payments" value={formatMoney(totals.staffPayments)} />
           <SummaryItem label="Total Costs" value={formatMoney(totals.totalCosts)} />
+          <SummaryItem label="Pre-Order Revenue (Picked Up)" value={formatMoney(totals.orderRevenue)} />
           <SummaryItem label="Net Profit" value={formatMoney(totals.netProfit)} bold />
         </div>
       </div>

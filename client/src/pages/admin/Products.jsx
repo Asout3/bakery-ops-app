@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
-import { Plus, Edit, Trash2, Search } from 'lucide-react';
+import { Plus, Edit, Trash2, Search, Pencil } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 
 const UNIT_OPTIONS = ['piece', 'kg', 'gram', 'liter', 'pack', 'tray'];
@@ -10,6 +10,15 @@ const formatProductDisplayId = (product) => {
   return `${group}-${String(product.id).padStart(4, '0')}`;
 };
 
+
+const productsControlsCardStyle = { border: '1px solid var(--border-light)' };
+
+const productsControlsRowStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(280px, 1fr) minmax(320px, auto)',
+  gap: '0.75rem',
+  alignItems: 'center',
+};
 
 export default function ProductsPage() {
   const { t } = useLanguage();
@@ -24,6 +33,7 @@ export default function ProductsPage() {
   const [message, setMessage] = useState(null);
   const [search, setSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
+  const [groupRename, setGroupRename] = useState({ name: '', next: '' });
   const [groupData, setGroupData] = useState({ group_name: '', variants: [{ ...emptyVariant }] });
   const [variantData, setVariantData] = useState({ ...emptyVariant, group_name: '' });
   const [formData, setFormData] = useState({ name: '', group_name: '', category_id: '', price: '', cost: '', unit: 'piece', source: 'baked', is_active: true });
@@ -32,6 +42,7 @@ export default function ProductsPage() {
     fetchProducts();
     fetchCategories();
   }, []);
+
 
   const fetchCategories = async () => {
     try {
@@ -164,6 +175,30 @@ export default function ProductsPage() {
     }
   };
 
+  const handleRenameGroup = async (groupName) => {
+    const nextName = groupRename.next.trim();
+    if (!nextName) return;
+    if (nextName.toLowerCase() === groupName.toLowerCase()) {
+      setGroupRename({ name: '', next: '' });
+      return;
+    }
+
+    const variants = products.filter((product) => (product.group_name || product.name) === groupName);
+    if (!variants.length) return;
+
+    setSaving(true);
+    try {
+      await Promise.all(variants.map((variant) => api.put(`/products/${variant.id}`, { group_name: nextName })));
+      await fetchProducts();
+      setGroupRename({ name: '', next: '' });
+      setMessage({ type: 'success', text: `Group renamed to ${nextName}.` });
+    } catch (err) {
+      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to rename group.') });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const groupedProducts = useMemo(() => {
     const filtered = products.filter((product) => {
       const matchesText = `${product.group_name || ''} ${product.name || ''}`.toLowerCase().includes(search.toLowerCase());
@@ -185,24 +220,49 @@ export default function ProductsPage() {
     <div className="products-page">
       <div className="page-header" style={{ gap: '0.75rem', flexWrap: 'wrap' }}>
         <h2>{t('products')}</h2>
-        <div className="d-flex gap-2"><button className="btn btn-secondary" onClick={() => setShowArchived((p) => !p)}>{showArchived ? 'Hide Archived' : 'See Archived Products'}</button><button className="btn btn-primary" onClick={() => { resetForms(); setShowGroupForm(true); }}><Plus size={18} /> Add Product Group</button></div>
+        <div className="d-flex gap-2">
+          <button className="btn btn-secondary" onClick={() => setShowArchived((p) => !p)}>{showArchived ? 'Hide Archived' : 'See Archived Products'}</button>
+          <button className="btn btn-primary" onClick={() => { resetForms(); setShowGroupForm(true); }}><Plus size={18} /> Add Product Group</button>
+        </div>
       </div>
 
-      <div className="card mb-3"><div className="card-body d-flex gap-2 align-items-center" style={{ flexWrap: 'wrap' }}>
-        <div className="search-bar" style={{ maxWidth: '360px' }}><Search size={16} /><input className="input" placeholder="Search groups or variants..." value={search} onChange={(e) => setSearch(e.target.value)} /></div>
-        <div className="d-flex gap-2" style={{ marginLeft: 'auto', minWidth: '320px', flex: '1 1 320px' }}>
-          <input className="form-control" placeholder="New category" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
-          <button className="btn btn-outline-primary" onClick={handleCreateCategory}>Add Category</button>
+      <div className="card mb-3" style={productsControlsCardStyle}>
+        <div className="card-body" style={productsControlsRowStyle}>
+          <div>
+            <label className="form-label mb-1">Search Products</label>
+            <div className="search-bar" style={{ maxWidth: '100%' }}>
+              <Search size={16} />
+              <input className="input" placeholder="Search groups or variants..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label className="form-label mb-1">Add Category</label>
+            <div className="d-flex gap-2" style={{ minWidth: '320px' }}>
+              <input className="form-control" placeholder="New category" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
+              <button className="btn btn-outline-primary" onClick={handleCreateCategory}>Add Category</button>
+            </div>
+          </div>
         </div>
-      </div></div>
+      </div>
 
       {message && <div className={`alert alert-${message.type} mb-3`}>{message.text}</div>}
 
       {groupedProducts.map(([groupName, variants]) => (
         <div className="card mb-3" key={groupName}>
           <div className="card-header d-flex justify-content-between align-items-center" style={{ gap: '0.75rem', flexWrap: 'wrap' }}>
-            <h4 className="mb-0">{groupName}</h4>
-            <button className="btn btn-sm btn-outline-primary" onClick={() => { setVariantData({ ...emptyVariant, group_name: groupName, category_id: variants[0]?.category_id || '' }); setShowVariantForm(true); }}>+ Add Variant</button>
+            {groupRename.name === groupName ? (
+              <div className="d-flex gap-2" style={{ flex: 1, maxWidth: '520px' }}>
+                <input className="form-control form-control-sm" value={groupRename.next} onChange={(e) => setGroupRename((prev) => ({ ...prev, next: e.target.value }))} />
+                <button className="btn btn-sm btn-primary" onClick={() => handleRenameGroup(groupName)} disabled={saving}>Save</button>
+                <button className="btn btn-sm btn-secondary" onClick={() => setGroupRename({ name: '', next: '' })}>Cancel</button>
+              </div>
+            ) : (
+              <h4 className="mb-0">{groupName}</h4>
+            )}
+            <div className="d-flex gap-2">
+              <button className="btn btn-sm btn-outline-secondary" onClick={() => setGroupRename({ name: groupName, next: groupName })}><Pencil size={14} /> Rename Group</button>
+              <button className="btn btn-sm btn-outline-primary" onClick={() => { setVariantData({ ...emptyVariant, group_name: groupName, category_id: variants[0]?.category_id || '' }); setShowVariantForm(true); }}>+ Add Variant</button>
+            </div>
           </div>
           <div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>ID</th><th>Variant</th><th>Category</th><th>Source</th><th>Price</th><th>Cost</th><th>Unit</th><th>Status</th><th>Actions</th></tr></thead><tbody>
             {variants.map((product) => (
@@ -214,7 +274,7 @@ export default function ProductsPage() {
                 <td>ETB {Number(product.price || 0).toFixed(2)}</td>
                 <td>ETB {Number(product.cost || 0).toFixed(2)}</td>
                 <td>{product.unit}</td>
-                <td><span className={`badge ${product.availability_status === 'inactive' ? 'badge-danger' : 'badge-success'}`}>{product.availability_status === 'inactive' ? 'Inactive' : 'Active'}</span></td>
+                <td><span className={`badge ${product.is_active === false ? 'badge-danger' : 'badge-success'}`}>{product.is_active === false ? 'Inactive' : 'Active'}</span></td>
                 <td>
                   <button className="btn btn-sm btn-outline-primary me-2" onClick={() => { setEditingProduct(product); setFormData({ name: product.name, group_name: product.group_name || groupName, category_id: product.category_id || '', price: product.price, cost: product.cost || '', unit: product.unit || 'piece', source: product.source || 'baked', is_active: Boolean(product.is_active) }); }}><Edit size={14} /></button>
                   <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(product.id)} title="Delete or Archive"><Trash2 size={14} /></button>

@@ -279,4 +279,48 @@ export async function ensureProductCreatorSchema() {
   return productCreatorSchemaPromise;
 }
 
+
+
+let ordersSchemaPromise = null;
+
+export async function ensureOrdersSchema() {
+  if (ordersSchemaPromise) return ordersSchemaPromise;
+
+  ordersSchemaPromise = (async () => {
+    await query(`ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS prep_status VARCHAR(30) NOT NULL DEFAULT 'not_started'`);
+    await query(`ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS prep_progress INTEGER NOT NULL DEFAULT 0`);
+    await query(`ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS inventory_applied BOOLEAN NOT NULL DEFAULT false`);
+
+    await query(
+      `CREATE TABLE IF NOT EXISTS order_items (
+         id SERIAL PRIMARY KEY,
+         order_id INTEGER NOT NULL REFERENCES customer_orders(id) ON DELETE CASCADE,
+         product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+         custom_item_name VARCHAR(120),
+         quantity INTEGER NOT NULL CHECK (quantity > 0),
+         unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+         subtotal NUMERIC(12,2) NOT NULL DEFAULT 0,
+         prep_status VARCHAR(20) NOT NULL DEFAULT 'not_started' CHECK (prep_status IN ('not_started', 'preparing', 'ready')),
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       )`
+    );
+
+    await query('CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)');
+    await query('CREATE INDEX IF NOT EXISTS idx_order_items_product ON order_items(product_id)');
+    await query('CREATE INDEX IF NOT EXISTS idx_customer_orders_status_prep ON customer_orders(status, prep_status, pickup_at)');
+
+    await query('ALTER TABLE customer_orders DROP CONSTRAINT IF EXISTS customer_orders_status_check');
+    await query(`ALTER TABLE customer_orders ADD CONSTRAINT customer_orders_status_check CHECK (status IN ('pending', 'confirmed', 'in_production', 'ready', 'picked_up', 'delivered', 'cancelled', 'overdue'))`);
+
+    await query('ALTER TABLE inventory_movements DROP CONSTRAINT IF EXISTS inventory_movements_source_check');
+    await query(`ALTER TABLE inventory_movements ADD CONSTRAINT inventory_movements_source_check CHECK (source IN ('baked', 'purchased', 'sale', 'manual', 'order_prepared'))`);
+  })().catch((error) => {
+    ordersSchemaPromise = null;
+    throw error;
+  });
+
+  return ordersSchemaPromise;
+}
+
+
 export default pool;

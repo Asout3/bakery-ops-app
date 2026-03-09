@@ -23,15 +23,6 @@ export default function Sales() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const checkoutInFlightRef = useRef(false);
 
-  useEffect(() => { fetchProducts(); }, [selectedLocationId]);
-  useEffect(() => {
-    const onOnline = () => { setIsOnline(true); fetchProducts(); };
-    const onOffline = () => setIsOnline(false);
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
-    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
-  }, []);
-
   const persistProductsCache = (nextProducts) => localStorage.setItem(`cashier_products_cache_${selectedLocationId || 'default'}`, JSON.stringify(nextProducts));
 
   const applyPendingSalesToProducts = async (baseProducts) => {
@@ -47,8 +38,7 @@ export default function Sales() {
     try {
       const [productsRes, inventoryRes] = await Promise.all([api.get('/products'), api.get('/inventory')]);
       const inventoryByProduct = new Map((inventoryRes.data || []).map((it) => [Number(it.product_id), Number(it.quantity) || 0]));
-      const productsWithStock = (productsRes.data || [])
-        .map((product) => ({ ...product, stock_quantity: inventoryByProduct.get(Number(product.id)) || 0 }));
+      const productsWithStock = (productsRes.data || []).map((product) => ({ ...product, stock_quantity: inventoryByProduct.get(Number(product.id)) || 0 }));
       const productsWithPendingApplied = await applyPendingSalesToProducts(productsWithStock);
       setProducts(productsWithPendingApplied);
       persistProductsCache(productsWithPendingApplied);
@@ -61,6 +51,26 @@ export default function Sales() {
     }
   };
 
+  useEffect(() => {
+    fetchProducts();
+  }, [selectedLocationId]);
+
+  useEffect(() => {
+    const onOnline = () => {
+      setIsOnline(true);
+      fetchProducts();
+    };
+    const onOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, [selectedLocationId]);
+
   const groupedProducts = useMemo(() => {
     const map = new Map();
     products
@@ -70,8 +80,7 @@ export default function Sales() {
         const matchesSource = sourceFilter === 'all' || (product.source || 'baked') === sourceFilter;
         const matchesGroup = groupFilter === 'all' || groupKey === groupFilter;
         const matchesCategory = categoryFilter === 'all' || String(product.category_name || 'Uncategorized') === categoryFilter;
-        const isAvailable = product.is_active !== false;
-        return isAvailable && matchesSearch && matchesSource && matchesGroup && matchesCategory;
+        return product.is_active !== false && matchesSearch && matchesSource && matchesGroup && matchesCategory;
       })
       .forEach((product) => {
         const key = product.group_name || product.name;
@@ -82,43 +91,60 @@ export default function Sales() {
   }, [products, searchTerm, sourceFilter, groupFilter, categoryFilter]);
 
   const getCartQuantity = (productId) => cart.find((item) => item.product_id === productId)?.quantity || 0;
-  const getRemainingStock = (product) => Number(product.stock_quantity || 0) - getCartQuantity(product.id);
+  const getRemainingStock = (product) => Math.max(0, Number(product.stock_quantity || 0) - getCartQuantity(product.id));
 
   const addVariantToCart = (product) => {
     if (getRemainingStock(product) <= 0) {
       setMessage({ type: 'warning', text: `${product.name} is out of stock.` });
       return;
     }
+
     const existing = cart.find((item) => item.product_id === product.id);
     if (existing) {
-      setCart(cart.map((item) => item.product_id === product.id ? { ...item, quantity: item.quantity + 1 } : item));
+      setCart((current) => current.map((item) => (item.product_id === product.id ? { ...item, quantity: item.quantity + 1 } : item)));
     } else {
-      setCart([...cart, { product_id: product.id, name: `${product.group_name || product.name} / ${product.name}`, price: Number(product.price), quantity: 1 }]);
+      setCart((current) => ([...current, { product_id: product.id, name: `${product.group_name || product.name} / ${product.name}`, price: Number(product.price), quantity: 1 }]));
     }
+
     setVariantModal(null);
   };
 
   const handleGroupClick = (groupKey, variants) => {
-    const available = variants.filter((variant) => getRemainingStock(variant) > 0);
-    if (!available.length) {
-      setMessage({ type: 'warning', text: `${groupKey} is out of stock.` });
+    if (variants.length === 1) {
+      addVariantToCart(variants[0]);
       return;
     }
-    if (available.length === 1) {
-      addVariantToCart(available[0]);
-      return;
-    }
-    setVariantModal({ groupKey, variants: available });
+    setVariantModal({ groupKey, variants });
   };
 
   const updateQuantity = (productId, change) => {
-    setCart((prev) => prev.map((item) => item.product_id === productId ? { ...item, quantity: Math.max(1, item.quantity + change) } : item));
+    setCart((prev) => prev.map((item) => {
+      if (item.product_id !== productId) return item;
+      const product = products.find((p) => Number(p.id) === Number(productId));
+      const maxQty = Number(product?.stock_quantity || 0);
+      const nextQty = Math.max(1, item.quantity + change);
+      if (maxQty > 0 && nextQty > maxQty) {
+        setMessage({ type: 'warning', text: `${product?.name || 'Item'} is out of stock.` });
+        return item;
+      }
+      return { ...item, quantity: nextQty };
+    }));
   };
+
   const setQuantity = (productId, nextQuantity) => {
     const quantity = Number(nextQuantity || 0);
     if (!Number.isFinite(quantity) || quantity <= 0) return removeFromCart(productId);
-    setCart((prev) => prev.map((item) => item.product_id === productId ? { ...item, quantity } : item));
+
+    const product = products.find((p) => Number(p.id) === Number(productId));
+    const maxQty = Number(product?.stock_quantity || 0);
+    if (maxQty > 0 && quantity > maxQty) {
+      setMessage({ type: 'warning', text: `${product?.name || 'Item'} is out of stock.` });
+      return;
+    }
+
+    setCart((prev) => prev.map((item) => (item.product_id === productId ? { ...item, quantity } : item)));
   };
+
   const removeFromCart = (productId) => setCart((prev) => prev.filter((item) => item.product_id !== productId));
   const calculateTotal = () => cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
@@ -137,7 +163,9 @@ export default function Sales() {
     if (checkoutInFlightRef.current || cart.length === 0) return;
     checkoutInFlightRef.current = true;
     setLoading(true);
+
     const payload = { items: cart.map((item) => ({ product_id: item.product_id, quantity: item.quantity })), payment_method: paymentMethod };
+
     try {
       const response = await api.post('/sales', payload);
       setReceiptData(response.data);
@@ -176,7 +204,7 @@ export default function Sales() {
                 const totalStock = variants.reduce((sum, v) => sum + Math.max(0, getRemainingStock(v)), 0);
                 const isOutOfStock = totalStock <= 0;
                 return (
-                  <div key={groupKey} className={`product-card ${isOutOfStock ? 'product-card-disabled' : ''}`} onClick={() => !isOutOfStock && handleGroupClick(groupKey, variants)}>
+                  <div key={groupKey} className={`product-card ${isOutOfStock ? 'product-card-disabled' : ''}`} onClick={() => handleGroupClick(groupKey, variants)}>
                     <div className="product-name">{groupKey}</div>
                     <div className="product-price">ETB {min === max ? min.toFixed(2) : `${min.toFixed(2)} - ${max.toFixed(2)}`}</div>
                     <div className="product-category">{variants.length} variant{variants.length > 1 ? 's' : ''}</div>
@@ -199,7 +227,26 @@ export default function Sales() {
         <div className="modal-overlay" onClick={() => setVariantModal(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header"><h3>Select {variantModal.groupKey} Variant</h3><button className="close-btn" onClick={() => setVariantModal(null)}>×</button></div>
-            <div className="modal-body"><div className="row g-2">{variantModal.variants.map((variant) => <div className="col-md-6" key={variant.id}><button className="btn btn-outline-primary w-100 text-start" onClick={() => addVariantToCart(variant)}><div>{variant.name}</div><small>ETB {Number(variant.price).toFixed(2)} • {getRemainingStock(variant)} left</small></button></div>)}</div></div>
+            <div className="modal-body">
+              <div className="variant-grid">
+                {variantModal.variants.map((variant) => {
+                  const remaining = getRemainingStock(variant);
+                  const outOfStock = remaining <= 0;
+                  return (
+                    <button
+                      key={variant.id}
+                      type="button"
+                      className={`variant-option ${outOfStock ? 'variant-option-disabled' : ''}`}
+                      onClick={() => addVariantToCart(variant)}
+                      disabled={outOfStock}
+                    >
+                      <div className="variant-option-name">{variant.name}</div>
+                      <div className="variant-option-meta">ETB {Number(variant.price).toFixed(2)} • {outOfStock ? 'Out of stock' : `${remaining} left`}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
       )}
