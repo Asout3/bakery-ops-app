@@ -26,7 +26,7 @@ export default function AdminOrders() {
   }, []);
 
 
-  const canEditOrder = (order) => {
+  const canDeleteOrder = (order) => {
     const createdAt = order?.created_at ? new Date(order.created_at).getTime() : 0;
     if (!createdAt) return false;
     return nowTs - createdAt <= 20 * 60 * 1000;
@@ -89,9 +89,9 @@ export default function AdminOrders() {
                   <td className="d-flex gap-2 flex-wrap">
                     {order.payment_status !== 'verified' && <button className="btn btn-sm btn-outline-primary" onClick={() => patch(order.id, { verify_payment: true })}>Verify Payment</button>}
                     {order.status !== 'picked_up' && <button className="btn btn-sm btn-success" onClick={() => patch(order.id, { status: 'picked_up' })}>Mark Picked Up</button>}
-                    {canEditOrder(order) && <button className="btn btn-sm btn-outline-secondary" onClick={() => setEditingOrder({ ...order })}>Edit</button>}
-                    {canEditOrder(order) && <button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button>}
-                    {canEditOrder(order) ? <span className="badge badge-warning">{minutesLeft(order)}m left</span> : <span className="badge badge-secondary">Locked</span>}
+                    <button className="btn btn-sm btn-outline-secondary" onClick={() => setEditingOrder({ ...order })}>Edit</button>
+                    {canDeleteOrder(order) && <button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button>}
+                    {canDeleteOrder(order) ? <span className="badge badge-warning">Delete: {minutesLeft(order)}m left</span> : <span className="badge badge-secondary">Delete locked</span>}
                   </td>
                 </tr>
               ))}

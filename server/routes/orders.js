@@ -245,13 +245,6 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager', 'cash
         throw e;
       }
 
-      if (!isWithinEditWindow(order.created_at)) {
-        const e = new Error(`Orders can only be edited within ${ORDER_EDIT_WINDOW_MINUTES} minutes from creation.`);
-        e.status = 403;
-        e.code = 'ORDER_EDIT_WINDOW_EXPIRED';
-        throw e;
-      }
-
       let nextStatus = status || order.status;
       if (nextStatus === 'delivered') nextStatus = 'picked_up';
       let nextPrepStatus = prep_status || order.prep_status;

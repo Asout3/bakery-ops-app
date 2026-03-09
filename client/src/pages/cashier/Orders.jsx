@@ -49,7 +49,7 @@ export default function CashierOrders() {
   const addRow = () => setForm((prev) => ({ ...prev, items: [...prev.items, { ...emptyItem }] }));
 
 
-  const canEditOrder = (order) => {
+  const canDeleteOrder = (order) => {
     const createdAt = order?.created_at ? new Date(order.created_at).getTime() : 0;
     if (!createdAt) return false;
     return nowTs - createdAt <= 20 * 60 * 1000;
@@ -181,7 +181,7 @@ export default function CashierOrders() {
                   <td>{order.prep_status} ({Number(order.prep_progress || 0)}%)</td>
                   <td><span className={`badge ${order.payment_status === 'verified' ? 'badge-success' : 'badge-warning'}`}>{order.payment_status}</span></td>
                   <td>{new Date(order.pickup_at).toLocaleString()}</td>
-                  <td>{canEditOrder(order) ? <div className="d-flex gap-2 align-items-center"><button className="btn btn-sm btn-outline-primary" onClick={() => setEditingOrder({ ...order })}>Edit</button><button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button><span className="badge badge-warning">{minutesLeft(order)}m left</span></div> : <span className="badge badge-secondary">Locked</span>}</td>
+                  <td><div className="d-flex gap-2 align-items-center"><button className="btn btn-sm btn-outline-primary" onClick={() => setEditingOrder({ ...order })}>Edit</button>{canDeleteOrder(order) && <button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button>}{canDeleteOrder(order) ? <span className="badge badge-warning">Delete: {minutesLeft(order)}m left</span> : <span className="badge badge-secondary">Delete locked</span>}</div></td>
                 </tr>
               ))}
               {!orders.length && <tr><td colSpan="7" className="text-center text-muted">No pre-orders</td></tr>}
