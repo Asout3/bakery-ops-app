@@ -3,6 +3,7 @@ import api, { getErrorMessage } from '../../api/axios';
 import { Plus, Edit, Trash2, Search } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 
+const UNIT_OPTIONS = ['piece', 'kg', 'gram', 'liter', 'pack', 'tray'];
 const emptyVariant = { name: '', price: '', cost: '', unit: 'piece', source: 'baked', category_id: '' };
 
 export default function ProductsPage() {
@@ -17,6 +18,7 @@ export default function ProductsPage() {
   const [editingProduct, setEditingProduct] = useState(null);
   const [message, setMessage] = useState(null);
   const [search, setSearch] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const [groupData, setGroupData] = useState({ group_name: '', variants: [{ ...emptyVariant }] });
   const [variantData, setVariantData] = useState({ ...emptyVariant, group_name: '' });
   const [formData, setFormData] = useState({ name: '', group_name: '', category_id: '', price: '', cost: '', unit: 'piece', source: 'baked', is_active: true });
@@ -141,18 +143,28 @@ export default function ProductsPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this variant?')) return;
+    if (!window.confirm('Delete this variant? If not deletable it will be archived.')) return;
     try {
       await api.delete(`/products/${id}`);
       await fetchProducts();
       setMessage({ type: 'success', text: 'Variant deleted.' });
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to delete variant.') });
+      if (err?.response?.data?.code === 'PRODUCT_DELETE_BLOCKED') {
+        await api.put(`/products/${id}`, { is_active: false });
+        await fetchProducts();
+        setMessage({ type: 'warning', text: 'Variant archived because it has linked history.' });
+      } else {
+        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to delete variant.') });
+      }
     }
   };
 
   const groupedProducts = useMemo(() => {
-    const filtered = products.filter((product) => `${product.group_name || ''} ${product.name || ''}`.toLowerCase().includes(search.toLowerCase()));
+    const filtered = products.filter((product) => {
+      const matchesText = `${product.group_name || ''} ${product.name || ''}`.toLowerCase().includes(search.toLowerCase());
+      const visibleByArchive = showArchived ? true : product.is_active !== false;
+      return matchesText && visibleByArchive;
+    });
     const map = new Map();
     filtered.forEach((product) => {
       const group = product.group_name || product.name;
@@ -160,7 +172,7 @@ export default function ProductsPage() {
       map.get(group).push(product);
     });
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [products, search]);
+  }, [products, search, showArchived]);
 
   if (loading) return <div className="loading-container"><div className="spinner"></div></div>;
 
@@ -168,7 +180,7 @@ export default function ProductsPage() {
     <div className="products-page">
       <div className="page-header" style={{ gap: '0.75rem', flexWrap: 'wrap' }}>
         <h2>{t('products')}</h2>
-        <button className="btn btn-primary" onClick={() => { resetForms(); setShowGroupForm(true); }}><Plus size={18} /> Add Product Group</button>
+        <div className="d-flex gap-2"><button className="btn btn-secondary" onClick={() => setShowArchived((p) => !p)}>{showArchived ? 'Hide Archived' : 'See Archived Products'}</button><button className="btn btn-primary" onClick={() => { resetForms(); setShowGroupForm(true); }}><Plus size={18} /> Add Product Group</button></div>
       </div>
 
       <div className="card mb-3"><div className="card-body d-flex gap-2 align-items-center" style={{ flexWrap: 'wrap' }}>
@@ -200,7 +212,7 @@ export default function ProductsPage() {
                 <td><span className={`badge ${product.availability_status === 'inactive' ? 'badge-danger' : 'badge-success'}`}>{product.availability_status === 'inactive' ? 'Inactive' : 'Active'}</span></td>
                 <td>
                   <button className="btn btn-sm btn-outline-primary me-2" onClick={() => { setEditingProduct(product); setFormData({ name: product.name, group_name: product.group_name || groupName, category_id: product.category_id || '', price: product.price, cost: product.cost || '', unit: product.unit || 'piece', source: product.source || 'baked', is_active: Boolean(product.is_active) }); }}><Edit size={14} /></button>
-                  <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(product.id)}><Trash2 size={14} /></button>
+                  <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(product.id)} title="Delete or Archive"><Trash2 size={14} /></button>
                 </td>
               </tr>
             ))}
@@ -216,7 +228,7 @@ export default function ProductsPage() {
               <form onSubmit={handleCreateGroup} className="modal-body">
                 <div className="mb-3"><label className="form-label">Group Name *</label><input className="form-control" value={groupData.group_name} onChange={(e) => setGroupData({ ...groupData, group_name: e.target.value })} required /></div>
                 {groupData.variants.map((variant, index) => (
-                  <div className="card mb-2" key={index}><div className="card-body"><div className="row g-2"><div className="col-md-4"><label className="form-label">Variant Name *</label><input className="form-control" value={variant.name} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, name: e.target.value } : row) }))} required /></div><div className="col-md-2"><label className="form-label">Price *</label><input type="number" min="0" step="0.01" className="form-control" value={variant.price} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, price: e.target.value } : row) }))} required /></div><div className="col-md-2"><label className="form-label">Cost</label><input type="number" min="0" step="0.01" className="form-control" value={variant.cost} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, cost: e.target.value } : row) }))} /></div><div className="col-md-2"><label className="form-label">Unit</label><input className="form-control" value={variant.unit} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, unit: e.target.value } : row) }))} /></div><div className="col-md-2"><label className="form-label">Source</label><select className="form-select" value={variant.source} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, source: e.target.value } : row) }))}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-4"><label className="form-label">Category</label><select className="form-select" value={variant.category_id} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, category_id: e.target.value } : row) }))}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div></div></div></div>
+                  <div className="card mb-2" key={index}><div className="card-body"><div className="row g-2"><div className="col-md-4"><label className="form-label">Variant Name *</label><input className="form-control" value={variant.name} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, name: e.target.value } : row) }))} required /></div><div className="col-md-2"><label className="form-label">Price *</label><input type="number" min="0" step="0.01" className="form-control" value={variant.price} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, price: e.target.value } : row) }))} required /></div><div className="col-md-2"><label className="form-label">Cost</label><input type="number" min="0" step="0.01" className="form-control" value={variant.cost} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, cost: e.target.value } : row) }))} /></div><div className="col-md-2"><label className="form-label">Unit</label><select className="form-select" value={variant.unit} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, unit: e.target.value } : row) }))}>{UNIT_OPTIONS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></div><div className="col-md-2"><label className="form-label">Source</label><select className="form-select" value={variant.source} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, source: e.target.value } : row) }))}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-4"><label className="form-label">Category</label><select className="form-select" value={variant.category_id} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, category_id: e.target.value } : row) }))}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div></div></div></div>
                 ))}
                 <div className="d-flex gap-2"><button type="button" className="btn btn-outline-secondary" onClick={() => setGroupData((prev) => ({ ...prev, variants: [...prev.variants, { ...emptyVariant }] }))}>+ Add Variant Row</button>{groupData.variants.length > 1 && <button type="button" className="btn btn-outline-danger" onClick={() => setGroupData((prev) => ({ ...prev, variants: prev.variants.slice(0, -1) }))}>Remove Last</button>}</div>
                 <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForms}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Create Group'}</button></div>
@@ -224,13 +236,13 @@ export default function ProductsPage() {
             )}
             {showVariantForm && (
               <form onSubmit={handleCreateVariant} className="modal-body">
-                <div className="row g-2"><div className="col-md-4"><label className="form-label">Variant Name *</label><input className="form-control" value={variantData.name} onChange={(e) => setVariantData({ ...variantData, name: e.target.value })} required /></div><div className="col-md-2"><label className="form-label">Price *</label><input type="number" className="form-control" min="0" step="0.01" value={variantData.price} onChange={(e) => setVariantData({ ...variantData, price: e.target.value })} required /></div><div className="col-md-2"><label className="form-label">Cost</label><input type="number" className="form-control" min="0" step="0.01" value={variantData.cost} onChange={(e) => setVariantData({ ...variantData, cost: e.target.value })} /></div><div className="col-md-2"><label className="form-label">Unit</label><input className="form-control" value={variantData.unit} onChange={(e) => setVariantData({ ...variantData, unit: e.target.value })} /></div><div className="col-md-2"><label className="form-label">Source</label><select className="form-select" value={variantData.source} onChange={(e) => setVariantData({ ...variantData, source: e.target.value })}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-4"><label className="form-label">Category</label><select className="form-select" value={variantData.category_id} onChange={(e) => setVariantData({ ...variantData, category_id: e.target.value })}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div></div>
+                <div className="row g-2"><div className="col-md-4"><label className="form-label">Variant Name *</label><input className="form-control" value={variantData.name} onChange={(e) => setVariantData({ ...variantData, name: e.target.value })} required /></div><div className="col-md-2"><label className="form-label">Price *</label><input type="number" className="form-control" min="0" step="0.01" value={variantData.price} onChange={(e) => setVariantData({ ...variantData, price: e.target.value })} required /></div><div className="col-md-2"><label className="form-label">Cost</label><input type="number" className="form-control" min="0" step="0.01" value={variantData.cost} onChange={(e) => setVariantData({ ...variantData, cost: e.target.value })} /></div><div className="col-md-2"><label className="form-label">Unit</label><select className="form-select" value={variantData.unit} onChange={(e) => setVariantData({ ...variantData, unit: e.target.value })}>{UNIT_OPTIONS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></div><div className="col-md-2"><label className="form-label">Source</label><select className="form-select" value={variantData.source} onChange={(e) => setVariantData({ ...variantData, source: e.target.value })}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-4"><label className="form-label">Category</label><select className="form-select" value={variantData.category_id} onChange={(e) => setVariantData({ ...variantData, category_id: e.target.value })}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div></div>
                 <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForms}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Add Variant'}</button></div>
               </form>
             )}
             {editingProduct && (
               <form onSubmit={handleEditSubmit} className="modal-body">
-                <div className="row g-2"><div className="col-md-6"><label className="form-label">Group *</label><input className="form-control" value={formData.group_name} onChange={(e) => setFormData({ ...formData, group_name: e.target.value })} required /></div><div className="col-md-6"><label className="form-label">Variant Name *</label><input className="form-control" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required /></div><div className="col-md-3"><label className="form-label">Price *</label><input type="number" className="form-control" min="0" step="0.01" value={formData.price} onChange={(e) => setFormData({ ...formData, price: e.target.value })} required /></div><div className="col-md-3"><label className="form-label">Cost</label><input type="number" className="form-control" min="0" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} /></div><div className="col-md-3"><label className="form-label">Unit *</label><input className="form-control" value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value })} required /></div><div className="col-md-3"><label className="form-label">Source *</label><select className="form-select" value={formData.source} onChange={(e) => setFormData({ ...formData, source: e.target.value })}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-6"><label className="form-label">Category</label><select className="form-select" value={formData.category_id} onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div></div>
+                <div className="row g-2"><div className="col-md-6"><label className="form-label">Group *</label><input className="form-control" value={formData.group_name} onChange={(e) => setFormData({ ...formData, group_name: e.target.value })} required /></div><div className="col-md-6"><label className="form-label">Variant Name *</label><input className="form-control" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required /></div><div className="col-md-3"><label className="form-label">Price *</label><input type="number" className="form-control" min="0" step="0.01" value={formData.price} onChange={(e) => setFormData({ ...formData, price: e.target.value })} required /></div><div className="col-md-3"><label className="form-label">Cost</label><input type="number" className="form-control" min="0" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} /></div><div className="col-md-3"><label className="form-label">Unit *</label><select className="form-select" value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value })} required>{UNIT_OPTIONS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></div><div className="col-md-3"><label className="form-label">Source *</label><select className="form-select" value={formData.source} onChange={(e) => setFormData({ ...formData, source: e.target.value })}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-6"><label className="form-label">Category</label><select className="form-select" value={formData.category_id} onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div></div>
                 <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForms}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Update Variant'}</button></div>
               </form>
             )}

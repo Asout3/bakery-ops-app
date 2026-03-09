@@ -20,9 +20,9 @@ export default function BranchesAndStaff() {
   const { user, updateSession } = useAuth();
   const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
-  const [locations, setLocations] = useState([]);
   const [staffProfiles, setStaffProfiles] = useState([]);
   const [accounts, setAccounts] = useState([]);
+  const [authEvents, setAuthEvents] = useState([]);
   const [accountForm, setAccountForm] = useState(emptyAccount);
   const [savingAccount, setSavingAccount] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -46,14 +46,18 @@ export default function BranchesAndStaff() {
 
   const loadData = async () => {
     try {
-      const [locationsRes, staffRes, accountsRes] = await Promise.all([
-        api.get('/locations'),
+      const [staffRes, accountsRes, loginEventsRes, logoutEventsRes] = await Promise.all([
         api.get('/admin/staff').catch(() => ({ data: [] })),
         api.get('/admin/users').catch(() => ({ data: [] })),
+        api.get('/activity', { params: { limit: 50, activity_type: 'user_login' } }).catch(() => ({ data: [] })),
+        api.get('/activity', { params: { limit: 50, activity_type: 'user_logout' } }).catch(() => ({ data: [] })),
       ]);
-      setLocations(locationsRes.data || []);
       setStaffProfiles(staffRes.data || []);
       setAccounts(accountsRes.data || []);
+      const events = [...(loginEventsRes.data || []), ...(logoutEventsRes.data || [])]
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, 40);
+      setAuthEvents(events);
     } catch (err) {
       setFeedback({ type: 'danger', message: err.response?.data?.error || 'Failed to load branch/account data' });
     } finally {
@@ -386,6 +390,10 @@ export default function BranchesAndStaff() {
       )}
 
 
+
+
+
+      <div className="card mt-4"><div className="card-header"><h4>Login & Logout Activity</h4></div><div className="card-body table-container"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>User</th><th>Role</th><th>Action</th><th>Time</th><th>Description</th></tr></thead><tbody>{authEvents.map((event) => (<tr key={`${event.id}-${event.activity_type}`}><td>{event.username}</td><td>{accounts.find((u) => Number(u.id) === Number(event.user_id))?.role || '-'}</td><td><span className={`badge ${event.activity_type === 'user_login' ? 'badge-success' : 'badge-secondary'}`}>{event.activity_type === 'user_login' ? 'Login' : 'Logout'}</span></td><td>{new Date(event.created_at).toLocaleString()}</td><td>{event.description}</td></tr>))}{!authEvents.length && <tr><td colSpan={5} className="text-center text-muted">No login/logout records yet.</td></tr>}</tbody></table></div></div></div>
 
       {editAccountModel && (
         <div className="modal-overlay" onClick={() => setEditAccountModel(null)}>

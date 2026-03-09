@@ -6,16 +6,19 @@ import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 const router = express.Router();
 const STAFF_PAYMENT_EDIT_WINDOW_MINUTES = 20;
 
-router.get('/', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
 
     let queryText = `
-      SELECT sp.*,
+      SELECT sp.*, CONCAT('PAY-', LPAD(sp.id::text, 6, '0')) as payment_code,
              COALESCE(u.username, fp.full_name) as staff_name,
              COALESCE(u.role, fp.role_preference) as role,
              uc.username as created_by_name,
+             COALESCE(CASE WHEN sp.notes LIKE '{%' THEN NULLIF(sp.notes::jsonb ->> 'payment_frequency', '') END, 'monthly') as payment_frequency,
+             COALESCE(CASE WHEN sp.notes LIKE '{%' THEN NULLIF(sp.notes::jsonb ->> 'payout_mode', '') END, 'pay_now') as payout_mode,
+             CASE WHEN sp.notes LIKE '{%' THEN NULLIF(sp.notes::jsonb ->> 'payroll_month', '') END as payroll_month,
              ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (sp.created_at + make_interval(mins => $1::int))) as can_edit,
              EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - sp.created_at)) / 60 as age_minutes
       FROM staff_payments sp
@@ -50,7 +53,7 @@ router.get('/', authenticateToken, authorizeRoles('admin'), async (req, res) => 
 router.post(
   '/',
   authenticateToken,
-  authorizeRoles('admin'),
+  authorizeRoles('admin', 'manager'),
   body('amount').isFloat({ min: 0 }).withMessage('Amount must be a positive number'),
   body('payment_date').isDate().withMessage('Valid payment date is required'),
   async (req, res) => {
@@ -59,7 +62,7 @@ router.post(
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { staff_profile_id, user_id, amount, payment_date, payment_type, notes } = req.body;
+    const { staff_profile_id, user_id, amount, payment_date, payment_type, payment_frequency, payout_mode, payroll_month, notes } = req.body;
 
     if (!staff_profile_id && !user_id) {
       return res.status(400).json({ error: 'Either staff_profile_id or user_id is required' });
@@ -101,7 +104,7 @@ router.post(
           `INSERT INTO staff_payments (user_id, staff_profile_id, location_id, amount, payment_date, payment_type, notes, created_by)
            VALUES ($1, $2, NULL, $3, $4, $5, $6, $7)
            RETURNING *`,
-          [resolvedUserId, resolvedStaffProfileId, amount, payment_date, payment_type || 'salary', notes || null, req.user.id]
+          [resolvedUserId, resolvedStaffProfileId, amount, payment_date, payment_type || 'salary', JSON.stringify({ notes: notes || '', payment_frequency: payment_frequency || 'monthly', payout_mode: payout_mode || 'pay_now', payroll_month: payroll_month || null }), req.user.id]
         );
 
         const payment = paymentResult.rows[0];
@@ -149,7 +152,7 @@ router.put(
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { amount, payment_date, payment_type, notes } = req.body;
+    const { amount, payment_date, payment_type, payment_frequency, payout_mode, payroll_month, notes } = req.body;
 
     try {
       const updated = await withTransaction(async (tx) => {
@@ -186,7 +189,7 @@ router.put(
                location_id = NULL
            WHERE id = $5
            RETURNING *`,
-          [amount || null, payment_date || null, payment_type || null, notes || null, req.params.id]
+          [amount || null, payment_date || null, payment_type || null, JSON.stringify({ notes: notes || '', payment_frequency: payment_frequency || 'monthly', payout_mode: payout_mode || 'pay_now', payroll_month: payroll_month || null }), req.params.id]
         );
 
         return result.rows[0];

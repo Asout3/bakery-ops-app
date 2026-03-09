@@ -16,6 +16,8 @@ export default function Sales() {
   const [message, setMessage] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [sourceFilter, setSourceFilter] = useState('all');
+  const [groupFilter, setGroupFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [receiptData, setReceiptData] = useState(null);
   const [variantModal, setVariantModal] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -66,7 +68,9 @@ export default function Sales() {
         const groupKey = product.group_name || product.name;
         const matchesSearch = `${groupKey} ${product.name}`.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesSource = sourceFilter === 'all' || (product.source || 'baked') === sourceFilter;
-        return matchesSearch && matchesSource;
+        const matchesGroup = groupFilter === 'all' || groupKey === groupFilter;
+        const matchesCategory = categoryFilter === 'all' || String(product.category_name || 'Uncategorized') === categoryFilter;
+        return matchesSearch && matchesSource && matchesGroup && matchesCategory;
       })
       .forEach((product) => {
         const key = product.group_name || product.name;
@@ -74,7 +78,7 @@ export default function Sales() {
         map.get(key).push(product);
       });
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [products, searchTerm, sourceFilter]);
+  }, [products, searchTerm, sourceFilter, groupFilter, categoryFilter]);
 
   const getCartQuantity = (productId) => cart.find((item) => item.product_id === productId)?.quantity || 0;
   const getRemainingStock = (product) => Number(product.stock_quantity || 0) - getCartQuantity(product.id);
@@ -162,7 +166,7 @@ export default function Sales() {
       <div className="sales-layout">
         <div className="products-section">
           <div className="card"><div className="card-header"><h3>Product Groups</h3></div><div className="card-body">
-            <div className="filters-row" style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}><div className="search-bar" style={{ flex: 1 }}><Search size={16} /><input className="input" placeholder="Search groups or variants..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div><select className="input" style={{ maxWidth: '170px' }} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}><option value="all">All Sources</option><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div>
+            <div className="filters-row" style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}><div className="search-bar" style={{ flex: 1 }}><Search size={16} /><input className="input" placeholder="Search groups or variants..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div><select className="input" style={{ maxWidth: '170px' }} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}><option value="all">All Sources</option><option value="baked">Baked</option><option value="purchased">Purchased</option></select><select className="input" style={{ maxWidth: '200px' }} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">All Groups</option>{Array.from(new Set(products.map((p) => p.group_name || p.name))).sort().map((group) => <option key={group} value={group}>{group}</option>)}</select><select className="input" style={{ maxWidth: '200px' }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option value="all">All Categories</option>{Array.from(new Set(products.map((p) => p.category_name || 'Uncategorized'))).sort().map((category) => <option key={category} value={category}>{category}</option>)}</select></div>
             <div className="products-grid">
               {groupedProducts.map(([groupKey, variants]) => {
                 const prices = variants.map((v) => Number(v.price || 0));

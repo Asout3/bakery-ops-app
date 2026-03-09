@@ -12,6 +12,8 @@ export default function Inventory() {
   const [inventory, setInventory] = useState({});
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [groupFilter, setGroupFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const toast = useToast();
 
@@ -170,11 +172,14 @@ export default function Inventory() {
     const grouped = new Map();
     products.forEach((product) => {
       const group = product.group_name || product.name;
+      const matchesGroup = groupFilter === 'all' || group === groupFilter;
+      const matchesCategory = categoryFilter === 'all' || String(product.category_name || 'Uncategorized') === categoryFilter;
+      if (!matchesGroup || !matchesCategory) return;
       if (!grouped.has(group)) grouped.set(group, []);
       grouped.get(group).push(product);
     });
     return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [products]);
+  }, [products, groupFilter, categoryFilter]);
 
   const handleSendBatch = async () => {
     if (cart.length === 0) {
@@ -225,8 +230,10 @@ export default function Inventory() {
       <div className="inventory-layout">
         <div className="products-list">
           <div className="card">
-            <div className="card-header">
-              <h3>Products</h3>
+            <div className="card-header" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0 }}>Products</h3>
+              <select className="form-select" style={{ maxWidth: '220px' }} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">All Groups</option>{Array.from(new Set(products.map((p) => p.group_name || p.name))).sort().map((group) => <option key={group} value={group}>{group}</option>)}</select>
+              <select className="form-select" style={{ maxWidth: '220px' }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option value="all">All Categories</option>{Array.from(new Set(products.map((p) => p.category_name || 'Uncategorized'))).sort().map((category) => <option key={category} value={category}>{category}</option>)}</select>
             </div>
             <div className="card-body">
               <div className="products-table-container">
