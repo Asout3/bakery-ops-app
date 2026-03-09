@@ -8,16 +8,34 @@ const router = express.Router();
 
 const STATUS_FLOW = ['pending', 'in_production', 'ready', 'picked_up', 'cancelled'];
 const PREP_STATUS_FLOW = ['not_started', 'preparing', 'ready'];
+const ORDER_EDIT_WINDOW_MINUTES = 20;
 
 function normalizeNumber(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
 
+function isWithinEditWindow(createdAt) {
+  if (!createdAt) return false;
+  const ageMs = Date.now() - new Date(createdAt).getTime();
+  return ageMs <= ORDER_EDIT_WINDOW_MINUTES * 60 * 1000;
+}
+
+async function notifyRoles(tx, locationId, roles, title, message, notificationType) {
+  await tx.query(
+    `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+     SELECT id, $1, $2, $3, $4
+     FROM users
+     WHERE role = ANY($5::text[]) AND is_active = true AND location_id = $1`,
+    [locationId, title, message, notificationType, roles]
+  );
+}
+
 async function getOrderById(orderId) {
   const orderResult = await query(
     `SELECT o.*, u.username AS cashier_name,
-            CASE WHEN COALESCE(o.paid_amount, 0) >= COALESCE(o.total_amount, 0) THEN 'verified' ELSE 'pending' END AS payment_status
+            CASE WHEN COALESCE(o.paid_amount, 0) >= COALESCE(o.total_amount, 0) THEN 'verified' ELSE 'pending' END AS payment_status,
+            CONCAT('ORD-', LPAD(o.id::text, 6, '0')) AS order_code
      FROM customer_orders o
      LEFT JOIN users u ON u.id = o.cashier_id
      WHERE o.id = $1`,
@@ -57,7 +75,8 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager', 'cashier')
 
     const ordersResult = await query(
       `SELECT o.*, u.username AS cashier_name,
-              CASE WHEN COALESCE(o.paid_amount, 0) >= COALESCE(o.total_amount, 0) THEN 'verified' ELSE 'pending' END AS payment_status
+              CASE WHEN COALESCE(o.paid_amount, 0) >= COALESCE(o.total_amount, 0) THEN 'verified' ELSE 'pending' END AS payment_status,
+              CONCAT('ORD-', LPAD(o.id::text, 6, '0')) AS order_code
        FROM customer_orders o
        LEFT JOIN users u ON u.id = o.cashier_id
        WHERE ${where.join(' AND ')}
@@ -114,14 +133,11 @@ router.post('/',
       const created = await withTransaction(async (tx) => {
         if (idempotencyKey) {
           const existing = await tx.query(
-            `SELECT response_payload FROM idempotency_keys
-             WHERE user_id = $1 AND idempotency_key = $2`,
+            `SELECT response_payload FROM idempotency_keys WHERE user_id = $1 AND idempotency_key = $2`,
             [req.user.id, idempotencyKey]
           );
           if (existing.rows.length > 0) {
-            return typeof existing.rows[0].response_payload === 'string'
-              ? JSON.parse(existing.rows[0].response_payload)
-              : existing.rows[0].response_payload;
+            return typeof existing.rows[0].response_payload === 'string' ? JSON.parse(existing.rows[0].response_payload) : existing.rows[0].response_payload;
           }
         }
 
@@ -142,9 +158,7 @@ router.post('/',
               throw e;
             }
             itemName = productResult.rows[0].name;
-            if (!Number.isFinite(Number(rawItem.unit_price))) {
-              unitPrice = normalizeNumber(productResult.rows[0].price, 0);
-            }
+            if (!Number.isFinite(Number(rawItem.unit_price))) unitPrice = normalizeNumber(productResult.rows[0].price, 0);
           }
 
           if (!productId && !itemName) {
@@ -158,9 +172,7 @@ router.post('/',
           normalizedItems.push({ product_id: productId, custom_item_name: productId ? null : itemName, quantity: qty, unit_price: unitPrice, subtotal });
         }
 
-        const orderDetails = normalizedItems
-          .map((item) => `${item.product_id ? `Product#${item.product_id}` : item.custom_item_name} x${item.quantity}`)
-          .join(', ');
+        const orderDetails = normalizedItems.map((item) => `${item.product_id ? `Product#${item.product_id}` : item.custom_item_name} x${item.quantity}`).join(', ');
 
         const orderResult = await tx.query(
           `INSERT INTO customer_orders
@@ -168,38 +180,20 @@ router.post('/',
               total_amount, paid_amount, payment_method, status, prep_status, prep_progress)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', 'not_started', 0)
            RETURNING *`,
-          [
-            locationId,
-            req.user.id,
-            customer_name,
-            customer_phone,
-            customer_note || null,
-            orderDetails,
-            pickup_at || new Date(Date.now() + (2 * 60 * 60 * 1000)).toISOString(),
-            totalAmount,
-            normalizeNumber(paid_amount, 0),
-            payment_method || 'cash',
-          ]
+          [locationId, req.user.id, customer_name, customer_phone, customer_note || null, orderDetails, pickup_at || new Date(Date.now() + (2 * 60 * 60 * 1000)).toISOString(), totalAmount, normalizeNumber(paid_amount, 0), payment_method || 'cash']
         );
 
         const order = orderResult.rows[0];
 
         for (const item of normalizedItems) {
           await tx.query(
-            `INSERT INTO order_items
-               (order_id, product_id, custom_item_name, quantity, unit_price, subtotal, prep_status)
+            `INSERT INTO order_items (order_id, product_id, custom_item_name, quantity, unit_price, subtotal, prep_status)
              VALUES ($1, $2, $3, $4, $5, $6, 'not_started')`,
             [order.id, item.product_id, item.custom_item_name, item.quantity, item.unit_price, item.subtotal]
           );
         }
 
-        await tx.query(
-          `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-           SELECT id, $1, 'New Pre-Order', $2, 'order_created'
-           FROM users
-           WHERE role IN ('manager', 'admin') AND is_active = true AND location_id = $1`,
-          [locationId, `Pre-order #${order.id} created by ${req.user.username}.`]
-        );
+        await notifyRoles(tx, locationId, ['manager', 'admin', 'cashier'], 'New Pre-Order', `Pre-order #${order.id} created by ${req.user.username}.`, 'order_created');
 
         if (idempotencyKey) {
           await tx.query(
@@ -222,7 +216,7 @@ router.post('/',
   }
 );
 
-router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
+router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager', 'cashier'), async (req, res) => {
   try {
     const orderId = Number(req.params.id);
     if (!Number.isFinite(orderId)) {
@@ -230,21 +224,13 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager'), asyn
     }
 
     const locationId = await getTargetLocationId(req, query);
-    const { status, prep_status, prep_progress, paid_amount, verify_payment } = req.body;
+    const { status, prep_status, prep_progress, paid_amount, verify_payment, customer_note, pickup_at, customer_name, customer_phone } = req.body;
 
-    if (status && !STATUS_FLOW.includes(status)) {
-      return res.status(400).json({ error: 'Invalid status', code: 'VALIDATION_ERROR', requestId: req.requestId });
-    }
-    if (prep_status && !PREP_STATUS_FLOW.includes(prep_status)) {
-      return res.status(400).json({ error: 'Invalid prep_status', code: 'VALIDATION_ERROR', requestId: req.requestId });
-    }
+    if (status && !STATUS_FLOW.includes(status)) return res.status(400).json({ error: 'Invalid status', code: 'VALIDATION_ERROR', requestId: req.requestId });
+    if (prep_status && !PREP_STATUS_FLOW.includes(prep_status)) return res.status(400).json({ error: 'Invalid prep_status', code: 'VALIDATION_ERROR', requestId: req.requestId });
 
     const updated = await withTransaction(async (tx) => {
-      const existingResult = await tx.query(
-        `SELECT * FROM customer_orders WHERE id = $1 AND location_id = $2 FOR UPDATE`,
-        [orderId, locationId]
-      );
-
+      const existingResult = await tx.query('SELECT * FROM customer_orders WHERE id = $1 AND location_id = $2 FOR UPDATE', [orderId, locationId]);
       if (!existingResult.rows.length) {
         const e = new Error('Order not found');
         e.status = 404;
@@ -252,35 +238,37 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager'), asyn
       }
 
       const order = existingResult.rows[0];
+      if (req.user.role === 'cashier' && Number(order.cashier_id) !== Number(req.user.id)) {
+        const e = new Error('Forbidden');
+        e.status = 403;
+        throw e;
+      }
+
+      if (!isWithinEditWindow(order.created_at)) {
+        const e = new Error(`Orders can only be edited within ${ORDER_EDIT_WINDOW_MINUTES} minutes from creation.`);
+        e.status = 403;
+        e.code = 'ORDER_EDIT_WINDOW_EXPIRED';
+        throw e;
+      }
 
       let nextStatus = status || order.status;
       let nextPrepStatus = prep_status || order.prep_status;
-      const nextPrepProgress = prep_progress === undefined || prep_progress === null
-        ? Number(order.prep_progress || 0)
-        : Math.max(0, Math.min(100, Number(prep_progress)));
+      const nextPrepProgress = prep_progress === undefined || prep_progress === null ? Number(order.prep_progress || 0) : Math.max(0, Math.min(100, Number(prep_progress)));
 
       if (req.user.role === 'manager') {
-        if (nextPrepStatus === 'ready' && nextStatus === 'pending') {
-          nextStatus = 'ready';
-        }
-        if (nextStatus === 'ready') {
-          nextPrepStatus = 'ready';
-        }
+        if (nextPrepStatus === 'ready' && nextStatus === 'pending') nextStatus = 'ready';
+        if (nextStatus === 'ready') nextPrepStatus = 'ready';
       }
 
       let nextPaidAmount = paid_amount === undefined ? Number(order.paid_amount || 0) : normalizeNumber(paid_amount, Number(order.paid_amount || 0));
-      if (verify_payment === true) {
-        nextPaidAmount = Number(order.total_amount || 0);
-      }
+      if (verify_payment === true) nextPaidAmount = Number(order.total_amount || 0);
 
       const shouldApplyInventory = (nextPrepStatus === 'ready' || nextStatus === 'ready') && order.inventory_applied !== true;
 
       if (shouldApplyInventory) {
         const itemsResult = await tx.query('SELECT * FROM order_items WHERE order_id = $1 FOR UPDATE', [orderId]);
-
         for (const item of itemsResult.rows) {
           if (!item.product_id) continue;
-
           const invResult = await tx.query(
             `UPDATE inventory
              SET quantity = quantity - $1, last_updated = CURRENT_TIMESTAMP
@@ -288,7 +276,6 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager'), asyn
              RETURNING quantity`,
             [Number(item.quantity), Number(item.product_id), locationId]
           );
-
           if (!invResult.rows.length) {
             const e = new Error(`Insufficient inventory for product ${item.product_id} while preparing order.`);
             e.status = 400;
@@ -296,42 +283,36 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager'), asyn
           }
 
           await tx.query(
-            `INSERT INTO inventory_movements
-               (location_id, product_id, movement_type, quantity_change, source, reference_type, reference_id, created_by, metadata)
+            `INSERT INTO inventory_movements (location_id, product_id, movement_type, quantity_change, source, reference_type, reference_id, created_by, metadata)
              VALUES ($1, $2, 'sale_out', $3, 'order_prepared', 'order', $4, $5, $6)`,
             [locationId, Number(item.product_id), -Number(item.quantity), orderId, req.user.id, JSON.stringify({ order_id: orderId })]
           );
-
-          await tx.query('UPDATE order_items SET prep_status = $1 WHERE id = $2', ['ready', item.id]);
+          await tx.query("UPDATE order_items SET prep_status = 'ready' WHERE id = $1", [item.id]);
         }
       }
 
       const updateResult = await tx.query(
         `UPDATE customer_orders
-         SET status = $1,
-             prep_status = $2,
-             prep_progress = $3,
-             paid_amount = $4,
-             inventory_applied = CASE WHEN $5 THEN true ELSE inventory_applied END,
+         SET status = $1::varchar,
+             prep_status = $2::varchar,
+             prep_progress = $3::int,
+             paid_amount = $4::numeric,
+             customer_note = COALESCE($5::text, customer_note),
+             pickup_at = COALESCE($6::timestamp, pickup_at),
+             customer_name = COALESCE($7::varchar, customer_name),
+             customer_phone = COALESCE($8::varchar, customer_phone),
+             inventory_applied = CASE WHEN $9::boolean THEN true ELSE inventory_applied END,
              updated_at = CURRENT_TIMESTAMP,
-             baked_done = CASE WHEN $2 = 'ready' THEN true ELSE baked_done END,
-             baked_done_at = CASE WHEN $2 = 'ready' THEN CURRENT_TIMESTAMP ELSE baked_done_at END,
-             baked_done_by = CASE WHEN $2 = 'ready' THEN $6 ELSE baked_done_by END,
-             delivered_at = CASE WHEN $1 = 'picked_up' THEN CURRENT_TIMESTAMP ELSE delivered_at END
-         WHERE id = $7
+             baked_done = CASE WHEN $2::varchar = 'ready' THEN true ELSE baked_done END,
+             baked_done_at = CASE WHEN $2::varchar = 'ready' THEN CURRENT_TIMESTAMP ELSE baked_done_at END,
+             baked_done_by = CASE WHEN $2::varchar = 'ready' THEN $10 ELSE baked_done_by END,
+             delivered_at = CASE WHEN $1::varchar = 'picked_up' THEN CURRENT_TIMESTAMP ELSE delivered_at END
+         WHERE id = $11
          RETURNING *`,
-        [nextStatus, nextPrepStatus, nextPrepProgress, nextPaidAmount, shouldApplyInventory, req.user.id, orderId]
+        [nextStatus, nextPrepStatus, nextPrepProgress, nextPaidAmount, customer_note ?? null, pickup_at ?? null, customer_name ?? null, customer_phone ?? null, shouldApplyInventory, req.user.id, orderId]
       );
 
-      if (req.user.role === 'manager' && (nextPrepStatus === 'ready' || nextStatus === 'ready')) {
-        await tx.query(
-          `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-           SELECT id, $1, 'Pre-Order Ready', $2, 'order_ready'
-           FROM users
-           WHERE role = 'admin' AND is_active = true AND location_id = $1`,
-          [locationId, `Order #${orderId} marked ready by ${req.user.username}.`]
-        );
-      }
+      await notifyRoles(tx, locationId, ['admin', 'manager', 'cashier'], 'Pre-Order Updated', `Order #${orderId} updated to ${nextStatus} / ${nextPrepStatus}.`, 'order_updated');
 
       return updateResult.rows[0];
     });
@@ -340,7 +321,44 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager'), asyn
     res.json(fullOrder);
   } catch (err) {
     console.error('Update order error:', err);
-    res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'ORDER_UPDATE_ERROR', requestId: req.requestId });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: err.code || 'ORDER_UPDATE_ERROR', requestId: req.requestId });
+  }
+});
+
+router.delete('/:id', authenticateToken, authorizeRoles('admin', 'cashier'), async (req, res) => {
+  try {
+    const orderId = Number(req.params.id);
+    if (!Number.isFinite(orderId)) return res.status(400).json({ error: 'Invalid order id', code: 'VALIDATION_ERROR', requestId: req.requestId });
+
+    const locationId = await getTargetLocationId(req, query);
+
+    await withTransaction(async (tx) => {
+      const existing = await tx.query('SELECT * FROM customer_orders WHERE id = $1 AND location_id = $2 FOR UPDATE', [orderId, locationId]);
+      if (!existing.rows.length) {
+        const e = new Error('Order not found');
+        e.status = 404;
+        throw e;
+      }
+      const order = existing.rows[0];
+      if (req.user.role === 'cashier' && Number(order.cashier_id) !== Number(req.user.id)) {
+        const e = new Error('Forbidden');
+        e.status = 403;
+        throw e;
+      }
+      if (!isWithinEditWindow(order.created_at)) {
+        const e = new Error(`Orders can only be deleted within ${ORDER_EDIT_WINDOW_MINUTES} minutes from creation.`);
+        e.status = 403;
+        e.code = 'ORDER_EDIT_WINDOW_EXPIRED';
+        throw e;
+      }
+      await tx.query('DELETE FROM customer_orders WHERE id = $1', [orderId]);
+      await notifyRoles(tx, locationId, ['admin', 'manager', 'cashier'], 'Pre-Order Deleted', `Order #${orderId} was deleted.`, 'order_deleted');
+    });
+
+    res.json({ message: 'Order deleted successfully', code: 'ORDER_DELETED' });
+  } catch (err) {
+    console.error('Delete order error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: err.code || 'ORDER_DELETE_ERROR', requestId: req.requestId });
   }
 });
 

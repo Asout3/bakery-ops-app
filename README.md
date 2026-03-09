@@ -176,7 +176,9 @@ Technical behavior:
 - API endpoints: `GET /api/orders`, `POST /api/orders`, `PATCH /api/orders/:id`.
 - Order items are persisted in `order_items` and linked to `customer_orders`.
 - Inventory is decremented once when an order transitions to ready/prepared for product-linked items.
+- Orders can be edited/deleted only within a 20-minute edit/delete safety window after creation.
 - Cashier pre-order creation supports offline queue replay using idempotency keys.
+- Order performance is surfaced on admin dashboard period views (daily/weekly/monthly) from picked-up orders for revenue transparency.
 
 ## Security and Compliance Controls
 

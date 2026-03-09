@@ -18,6 +18,7 @@ export default function CashierOrders() {
   });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
+  const [editingOrder, setEditingOrder] = useState(null);
 
   const activeProducts = useMemo(() => products.filter((p) => p.is_active !== false), [products]);
 
@@ -40,6 +41,41 @@ export default function CashierOrders() {
   };
 
   const addRow = () => setForm((prev) => ({ ...prev, items: [...prev.items, { ...emptyItem }] }));
+
+
+  const canEditOrder = (order) => {
+    const createdAt = order?.created_at ? new Date(order.created_at).getTime() : 0;
+    if (!createdAt) return false;
+    return Date.now() - createdAt <= 20 * 60 * 1000;
+  };
+
+  const updateOrder = async () => {
+    if (!editingOrder) return;
+    try {
+      await api.patch(`/orders/${editingOrder.id}`, {
+        customer_note: editingOrder.customer_note,
+        pickup_at: editingOrder.pickup_at,
+        customer_name: editingOrder.customer_name,
+        customer_phone: editingOrder.customer_phone,
+      });
+      setEditingOrder(null);
+      setMessage({ type: 'success', text: 'Pre-order updated.' });
+      load();
+    } catch (err) {
+      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to update pre-order.') });
+    }
+  };
+
+  const deleteOrder = async (orderId) => {
+    if (!window.confirm('Delete this pre-order?')) return;
+    try {
+      await api.delete(`/orders/${orderId}`);
+      setMessage({ type: 'success', text: 'Pre-order deleted.' });
+      load();
+    } catch (err) {
+      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to delete pre-order.') });
+    }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -122,23 +158,42 @@ export default function CashierOrders() {
         <div className="card-header"><h4>My Orders</h4></div>
         <div className="card-body table-responsive">
           <table className="table table-hover">
-            <thead><tr><th>ID</th><th>Customer</th><th>Status</th><th>Prep</th><th>Payment</th><th>Pickup</th></tr></thead>
+            <thead><tr><th>Order ID</th><th>Customer</th><th>Status</th><th>Prep</th><th>Payment</th><th>Pickup</th><th>Actions</th></tr></thead>
             <tbody>
               {orders.map((order) => (
                 <tr key={order.id}>
-                  <td>#{order.id}</td>
+                  <td>{order.order_code || `ORD-${String(order.id).padStart(6, '0')}`}</td>
                   <td>{order.customer_name}<div className="text-muted small">{order.customer_phone}</div></td>
                   <td><span className="badge badge-primary">{order.status}</span></td>
                   <td>{order.prep_status} ({Number(order.prep_progress || 0)}%)</td>
                   <td><span className={`badge ${order.payment_status === 'verified' ? 'badge-success' : 'badge-warning'}`}>{order.payment_status}</span></td>
                   <td>{new Date(order.pickup_at).toLocaleString()}</td>
+                  <td>{canEditOrder(order) ? <div className="d-flex gap-2"><button className="btn btn-sm btn-outline-primary" onClick={() => setEditingOrder({ ...order })}>Edit</button><button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button></div> : <span className="badge badge-secondary">Locked</span>}</td>
                 </tr>
               ))}
-              {!orders.length && <tr><td colSpan="6" className="text-center text-muted">No pre-orders</td></tr>}
+              {!orders.length && <tr><td colSpan="7" className="text-center text-muted">No pre-orders</td></tr>}
             </tbody>
           </table>
         </div>
       </div>
+
+      {editingOrder && (
+        <div className="modal-overlay" onClick={() => setEditingOrder(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Edit Pre-Order</h3><button className="close-btn" onClick={() => setEditingOrder(null)}>×</button></div>
+            <div className="modal-body">
+              <div className="row g-2">
+                <div className="col-md-6"><label className="form-label">Customer Name</label><input className="form-control" value={editingOrder.customer_name || ''} onChange={(e) => setEditingOrder((p) => ({ ...p, customer_name: e.target.value }))} /></div>
+                <div className="col-md-6"><label className="form-label">Phone</label><input className="form-control" value={editingOrder.customer_phone || ''} onChange={(e) => setEditingOrder((p) => ({ ...p, customer_phone: e.target.value }))} /></div>
+                <div className="col-md-6"><label className="form-label">Pickup</label><input type="datetime-local" className="form-control" value={(editingOrder.pickup_at || '').slice(0,16)} onChange={(e) => setEditingOrder((p) => ({ ...p, pickup_at: e.target.value }))} /></div>
+                <div className="col-md-12"><label className="form-label">Note</label><textarea rows="4" className="form-control" value={editingOrder.customer_note || ''} onChange={(e) => setEditingOrder((p) => ({ ...p, customer_note: e.target.value }))} /></div>
+              </div>
+            </div>
+            <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setEditingOrder(null)}>Cancel</button><button className="btn btn-primary" onClick={updateOrder}>Save</button></div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

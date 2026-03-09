@@ -42,11 +42,11 @@ export default function ManagerOrders() {
       <div className="card">
         <div className="card-body table-responsive">
           <table className="table table-hover">
-            <thead><tr><th>ID</th><th>Customer</th><th>Items</th><th>Status</th><th>Prep Progress</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Order ID</th><th>Customer</th><th>Items</th><th>Status</th><th>Prep Progress</th><th>Actions</th></tr></thead>
             <tbody>
               {orders.filter((o) => o.status !== 'picked_up' && o.status !== 'cancelled').map((order) => (
                 <tr key={order.id}>
-                  <td>#{order.id}</td>
+                  <td>{order.order_code || `ORD-${String(order.id).padStart(6, '0')}`}</td>
                   <td>{order.customer_name}<div className="text-muted small">{order.customer_phone}</div></td>
                   <td>{(order.items || []).map((item) => <div key={item.id}>{item.custom_item_name || `Product #${item.product_id}`} × {item.quantity}</div>)}</td>
                   <td><span className="badge badge-primary">{order.status}</span></td>
