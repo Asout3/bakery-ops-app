@@ -308,6 +308,12 @@ export async function ensureOrdersSchema() {
     await query('CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)');
     await query('CREATE INDEX IF NOT EXISTS idx_order_items_product ON order_items(product_id)');
     await query('CREATE INDEX IF NOT EXISTS idx_customer_orders_status_prep ON customer_orders(status, prep_status, pickup_at)');
+
+    await query('ALTER TABLE customer_orders DROP CONSTRAINT IF EXISTS customer_orders_status_check');
+    await query(`ALTER TABLE customer_orders ADD CONSTRAINT customer_orders_status_check CHECK (status IN ('pending', 'confirmed', 'in_production', 'ready', 'picked_up', 'delivered', 'cancelled', 'overdue'))`);
+
+    await query('ALTER TABLE inventory_movements DROP CONSTRAINT IF EXISTS inventory_movements_source_check');
+    await query(`ALTER TABLE inventory_movements ADD CONSTRAINT inventory_movements_source_check CHECK (source IN ('baked', 'purchased', 'sale', 'manual', 'order_prepared'))`);
   })().catch((error) => {
     ordersSchemaPromise = null;
     throw error;

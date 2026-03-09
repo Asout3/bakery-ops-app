@@ -6,7 +6,7 @@ import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
 
-const STATUS_FLOW = ['pending', 'in_production', 'ready', 'picked_up', 'cancelled'];
+const STATUS_FLOW = ['pending', 'in_production', 'ready', 'picked_up', 'delivered', 'cancelled'];
 const PREP_STATUS_FLOW = ['not_started', 'preparing', 'ready'];
 const ORDER_EDIT_WINDOW_MINUTES = 20;
 
@@ -70,6 +70,7 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager', 'cashier')
 
     if (!includeCompleted) {
       where.push(`o.status <> 'picked_up'`);
+      where.push(`o.status <> 'delivered'`);
       where.push(`o.status <> 'cancelled'`);
     }
 
@@ -252,6 +253,7 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager', 'cash
       }
 
       let nextStatus = status || order.status;
+      if (nextStatus === 'delivered') nextStatus = 'picked_up';
       let nextPrepStatus = prep_status || order.prep_status;
       const nextPrepProgress = prep_progress === undefined || prep_progress === null ? Number(order.prep_progress || 0) : Math.max(0, Math.min(100, Number(prep_progress)));
 
@@ -284,7 +286,7 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager', 'cash
 
           await tx.query(
             `INSERT INTO inventory_movements (location_id, product_id, movement_type, quantity_change, source, reference_type, reference_id, created_by, metadata)
-             VALUES ($1, $2, 'sale_out', $3, 'order_prepared', 'order', $4, $5, $6)`,
+             VALUES ($1, $2, 'sale_out', $3, 'sale', 'order', $4, $5, $6)`,
             [locationId, Number(item.product_id), -Number(item.quantity), orderId, req.user.id, JSON.stringify({ order_id: orderId })]
           );
           await tx.query("UPDATE order_items SET prep_status = 'ready' WHERE id = $1", [item.id]);

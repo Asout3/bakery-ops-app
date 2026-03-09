@@ -5,6 +5,7 @@ export default function AdminOrders() {
   const [orders, setOrders] = useState([]);
   const [message, setMessage] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
+  const [nowTs, setNowTs] = useState(Date.now());
 
   const load = async () => {
     try {
@@ -19,11 +20,23 @@ export default function AdminOrders() {
     load();
   }, []);
 
+  useEffect(() => {
+    const timer = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
 
   const canEditOrder = (order) => {
     const createdAt = order?.created_at ? new Date(order.created_at).getTime() : 0;
     if (!createdAt) return false;
-    return Date.now() - createdAt <= 20 * 60 * 1000;
+    return nowTs - createdAt <= 20 * 60 * 1000;
+  };
+
+  const minutesLeft = (order) => {
+    const createdAt = order?.created_at ? new Date(order.created_at).getTime() : 0;
+    if (!createdAt) return 0;
+    const remainingMs = (20 * 60 * 1000) - (nowTs - createdAt);
+    return Math.max(0, Math.ceil(remainingMs / (60 * 1000)));
   };
 
   const deleteOrder = async (orderId) => {
@@ -78,7 +91,7 @@ export default function AdminOrders() {
                     {order.status !== 'picked_up' && <button className="btn btn-sm btn-success" onClick={() => patch(order.id, { status: 'picked_up' })}>Mark Picked Up</button>}
                     {canEditOrder(order) && <button className="btn btn-sm btn-outline-secondary" onClick={() => setEditingOrder({ ...order })}>Edit</button>}
                     {canEditOrder(order) && <button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button>}
-                    {!canEditOrder(order) && <span className="badge badge-secondary">Locked</span>}
+                    {canEditOrder(order) ? <span className="badge badge-warning">{minutesLeft(order)}m left</span> : <span className="badge badge-secondary">Locked</span>}
                   </td>
                 </tr>
               ))}

@@ -19,6 +19,7 @@ export default function CashierOrders() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
+  const [nowTs, setNowTs] = useState(Date.now());
 
   const activeProducts = useMemo(() => products.filter((p) => p.is_active !== false), [products]);
 
@@ -36,6 +37,11 @@ export default function CashierOrders() {
     load();
   }, []);
 
+  useEffect(() => {
+    const timer = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const updateItem = (idx, key, value) => {
     setForm((prev) => ({ ...prev, items: prev.items.map((item, i) => (i === idx ? { ...item, [key]: value } : item)) }));
   };
@@ -46,7 +52,14 @@ export default function CashierOrders() {
   const canEditOrder = (order) => {
     const createdAt = order?.created_at ? new Date(order.created_at).getTime() : 0;
     if (!createdAt) return false;
-    return Date.now() - createdAt <= 20 * 60 * 1000;
+    return nowTs - createdAt <= 20 * 60 * 1000;
+  };
+
+  const minutesLeft = (order) => {
+    const createdAt = order?.created_at ? new Date(order.created_at).getTime() : 0;
+    if (!createdAt) return 0;
+    const remainingMs = (20 * 60 * 1000) - (nowTs - createdAt);
+    return Math.max(0, Math.ceil(remainingMs / (60 * 1000)));
   };
 
   const updateOrder = async () => {
@@ -168,7 +181,7 @@ export default function CashierOrders() {
                   <td>{order.prep_status} ({Number(order.prep_progress || 0)}%)</td>
                   <td><span className={`badge ${order.payment_status === 'verified' ? 'badge-success' : 'badge-warning'}`}>{order.payment_status}</span></td>
                   <td>{new Date(order.pickup_at).toLocaleString()}</td>
-                  <td>{canEditOrder(order) ? <div className="d-flex gap-2"><button className="btn btn-sm btn-outline-primary" onClick={() => setEditingOrder({ ...order })}>Edit</button><button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button></div> : <span className="badge badge-secondary">Locked</span>}</td>
+                  <td>{canEditOrder(order) ? <div className="d-flex gap-2 align-items-center"><button className="btn btn-sm btn-outline-primary" onClick={() => setEditingOrder({ ...order })}>Edit</button><button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button><span className="badge badge-warning">{minutesLeft(order)}m left</span></div> : <span className="badge badge-secondary">Locked</span>}</td>
                 </tr>
               ))}
               {!orders.length && <tr><td colSpan="7" className="text-center text-muted">No pre-orders</td></tr>}
