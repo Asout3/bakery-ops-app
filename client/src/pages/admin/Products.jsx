@@ -43,12 +43,6 @@ export default function ProductsPage() {
     fetchCategories();
   }, []);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (navigator.onLine && document.visibilityState === 'visible') fetchProducts();
-    }, 20000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   const fetchCategories = async () => {
     try {

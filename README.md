@@ -149,7 +149,6 @@ sequenceDiagram
 ### Reliability Mechanisms
 
 - Cashier sales now block add/increase actions when stock is exhausted and still show variants as out-of-stock in the selector for better operator clarity.
-- Admin and operations pages include lightweight periodic live refresh (visibility + online guarded) to reduce manual refresh without disrupting offline queue behavior.
 - Idempotent write headers for retry-safe replay.
 - Replay status model (`synced`, `failed`, `conflict`, `needs_review`, `ignored`, `resolved`).
 - API error envelope consistency (`error`, `code`, `requestId`) for client classification.

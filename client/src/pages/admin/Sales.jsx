@@ -27,12 +27,6 @@ export default function SalesPage() {
     fetchData();
   }, [selectedLocationId]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (navigator.onLine && document.visibilityState === 'visible') fetchData();
-    }, 20000);
-    return () => window.clearInterval(timer);
-  }, [selectedLocationId]);
 
   const fetchData = async () => {
     setLoading(true);

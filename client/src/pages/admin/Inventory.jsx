@@ -23,12 +23,6 @@ export default function AdminInventory() {
     fetchData();
   }, [selectedLocationId]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (navigator.onLine && document.visibilityState === 'visible') fetchData();
-    }, 20000);
-    return () => window.clearInterval(timer);
-  }, [selectedLocationId]);
 
   const persistInventoryCache = (payload) => {
     localStorage.setItem(`admin_inventory_cache_${selectedLocationId || 'default'}`, JSON.stringify(payload));

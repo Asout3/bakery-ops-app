@@ -65,16 +65,9 @@ export default function Sales() {
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
 
-    const interval = window.setInterval(() => {
-      if (navigator.onLine && document.visibilityState === 'visible') {
-        fetchProducts();
-      }
-    }, 20000);
-
     return () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
-      window.clearInterval(interval);
     };
   }, [selectedLocationId]);
 
