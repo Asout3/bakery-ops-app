@@ -148,6 +148,8 @@ sequenceDiagram
 
 ### Reliability Mechanisms
 
+- Cashier sales now block add/increase actions when stock is exhausted and still show variants as out-of-stock in the selector for better operator clarity.
+- Admin and operations pages include lightweight periodic live refresh (visibility + online guarded) to reduce manual refresh without disrupting offline queue behavior.
 - Idempotent write headers for retry-safe replay.
 - Replay status model (`synced`, `failed`, `conflict`, `needs_review`, `ignored`, `resolved`).
 - API error envelope consistency (`error`, `code`, `requestId`) for client classification.
@@ -217,6 +219,7 @@ Additional rules:
 - Frequency (`daily`, `weekly`, `monthly`) is saved per payment and used in payment summaries.
 - Edit/delete is allowed only within a 20-minute safety window from record creation.
 - Offline creation is queue-safe with idempotency keys to avoid duplicate replay writes.
+- Staff payment creation now supports a worked-days recommendation flow (days since last payment x daily salary rate) to assist prorated payouts.
 
 ## Database Architecture
 

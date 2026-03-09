@@ -92,8 +92,8 @@ router.get('/', authenticateToken, async (req, res) => {
     const result = role === 'admin'
       ? await query(
           `SELECT p.*, ${groupSelect}, c.name as category_name, creator.username as created_by_name,
-                  CASE WHEN EXISTS (SELECT 1 FROM inventory i WHERE i.product_id = p.id AND i.quantity > 0) THEN 'active'
-                       WHEN p.is_active = false THEN 'inactive'
+                  CASE WHEN p.is_active = false THEN 'inactive'
+                       WHEN EXISTS (SELECT 1 FROM inventory i WHERE i.product_id = p.id AND i.quantity > 0) THEN 'active'
                        ELSE 'out_of_stock'
                   END AS availability_status
            FROM products p
@@ -103,8 +103,8 @@ router.get('/', authenticateToken, async (req, res) => {
         )
       : await query(
           `SELECT DISTINCT p.*, ${groupSelect}, c.name as category_name, creator.username as created_by_name,
-                  CASE WHEN EXISTS (SELECT 1 FROM inventory i2 WHERE i2.product_id = p.id AND i2.location_id = $1 AND i2.quantity > 0) THEN 'active'
-                       WHEN p.is_active = false THEN 'inactive'
+                  CASE WHEN p.is_active = false THEN 'inactive'
+                       WHEN EXISTS (SELECT 1 FROM inventory i2 WHERE i2.product_id = p.id AND i2.location_id = $1 AND i2.quantity > 0) THEN 'active'
                        ELSE 'out_of_stock'
                   END AS availability_status
            FROM products p

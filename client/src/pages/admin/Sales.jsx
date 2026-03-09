@@ -20,10 +20,18 @@ export default function SalesPage() {
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedSale, setSelectedSale] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [filters, setFilters] = useState(initialFilters);
 
   useEffect(() => {
     fetchData();
+  }, [selectedLocationId]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (navigator.onLine && document.visibilityState === 'visible') fetchData();
+    }, 20000);
+    return () => window.clearInterval(timer);
   }, [selectedLocationId]);
 
   const fetchData = async () => {
@@ -41,6 +49,18 @@ export default function SalesPage() {
       setBatches([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openSaleDetails = async (sale) => {
+    setDetailLoading(true);
+    try {
+      const response = await api.get(`/sales/${sale.id}`);
+      setSelectedSale(response.data);
+    } catch {
+      setSelectedSale(sale);
+    } finally {
+      setDetailLoading(false);
     }
   };
 
@@ -141,6 +161,8 @@ export default function SalesPage() {
         </div>
       </div>
 
+      {detailLoading && <div className="alert alert-info mb-3">Loading sale details...</div>}
+
       {activeView === 'sales' ? (
         <>
           <div className="stats-grid mb-4">
@@ -150,7 +172,7 @@ export default function SalesPage() {
           </div>
           <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>Receipt #</th><th>Date & Time</th><th>Amount</th><th>Payment Method</th><th>Status</th><th>Void Details</th><th>Cashier</th><th>Actions</th></tr></thead><tbody>
             {filteredSales.length === 0 ? <tr><td colSpan="8" className="text-center text-muted py-4">No sales found</td></tr> : filteredSales.map((sale) => (
-              <tr key={sale.id}><td>{sale.receipt_number}</td><td>{formatAddisDateTime(sale.sale_date, { hour12: true })}</td><td>ETB {Number(sale.total_amount).toFixed(2)}</td><td><span className={`badge ${sale.payment_method === 'cash' ? 'badge-success' : sale.payment_method === 'card' ? 'badge-primary' : 'badge-info'}`}>{sale.payment_method}</span></td><td>{sale.is_offline ? <span className="badge badge-warning">Offline</span> : <span className="badge badge-success">Online</span>}</td><td>{sale.status === 'voided' ? <div><small className="text-muted d-block">{formatAddisDateTime(sale.voided_at, { hour12: true })}</small><small className="text-danger">{sale.void_reason || 'No reason provided'}</small></div> : <span className="text-muted">-</span>}</td><td>{sale.cashier_name || sale.cashier_id}</td><td><button className="btn btn-sm btn-outline-primary" onClick={() => setSelectedSale(sale)}><Eye size={14} /> View</button></td></tr>
+              <tr key={sale.id}><td>{sale.receipt_number}</td><td>{formatAddisDateTime(sale.sale_date, { hour12: true })}</td><td>ETB {Number(sale.total_amount).toFixed(2)}</td><td><span className={`badge ${sale.payment_method === 'cash' ? 'badge-success' : sale.payment_method === 'card' ? 'badge-primary' : 'badge-info'}`}>{sale.payment_method}</span></td><td>{sale.is_offline ? <span className="badge badge-warning">Offline</span> : <span className="badge badge-success">Online</span>}</td><td>{sale.status === 'voided' ? <div><small className="text-muted d-block">{formatAddisDateTime(sale.voided_at, { hour12: true })}</small><small className="text-danger">{sale.void_reason || 'No reason provided'}</small></div> : <span className="text-muted">-</span>}</td><td>{sale.cashier_name || sale.cashier_id}</td><td><button className="btn btn-sm btn-outline-primary" onClick={() => openSaleDetails(sale)}><Eye size={14} /> View</button></td></tr>
             ))}
           </tbody></table></div></div></div>
         </>
@@ -163,7 +185,7 @@ export default function SalesPage() {
       )}
 
       {selectedSale && (
-        <div className="modal-overlay" onClick={() => setSelectedSale(null)}><div className="modal-content" onClick={(e) => e.stopPropagation()}><div className="modal-header"><h3>Sale Details - {selectedSale.receipt_number}</h3><button className="close-btn" onClick={() => setSelectedSale(null)}>×</button></div><div className="modal-body"><div className="row"><div className="col-md-6"><h5>Transaction Info</h5><p><strong>Date & Time:</strong> {formatAddisDateTime(selectedSale.sale_date, { hour12: true })}</p><p><strong>Amount:</strong> ETB {Number(selectedSale.total_amount).toFixed(2)}</p><p><strong>Payment Method:</strong> {selectedSale.payment_method}</p></div><div className="col-md-6"><h5>Staff</h5><p><strong>Cashier:</strong> {selectedSale.cashier_name || selectedSale.cashier_id}</p><p><strong>Sync Status:</strong> {selectedSale.is_offline ? 'Offline' : 'Online'}</p>{selectedSale.status === 'voided' && <p><strong>Void:</strong> {formatAddisDateTime(selectedSale.voided_at, { hour12: true })} — {selectedSale.void_reason || 'No reason provided'}</p>}</div></div></div><div className="modal-footer"><button className="btn btn-secondary" onClick={() => setSelectedSale(null)}>Close</button></div></div></div>
+        <div className="modal-overlay" onClick={() => setSelectedSale(null)}><div className="modal-content" onClick={(e) => e.stopPropagation()}><div className="modal-header"><h3>Sale Details - {selectedSale.receipt_number}</h3><button className="close-btn" onClick={() => setSelectedSale(null)}>×</button></div><div className="modal-body"><div className="row"><div className="col-md-6"><h5>Transaction Info</h5><p><strong>Date & Time:</strong> {formatAddisDateTime(selectedSale.sale_date, { hour12: true })}</p><p><strong>Amount:</strong> ETB {Number(selectedSale.total_amount).toFixed(2)}</p><p><strong>Payment Method:</strong> {selectedSale.payment_method}</p></div><div className="col-md-6"><h5>Staff</h5><p><strong>Cashier:</strong> {selectedSale.cashier_name || selectedSale.cashier_id}</p><p><strong>Sync Status:</strong> {selectedSale.is_offline ? 'Offline' : 'Online'}</p>{selectedSale.status === 'voided' && <p><strong>Void:</strong> {formatAddisDateTime(selectedSale.voided_at, { hour12: true })} — {selectedSale.void_reason || 'No reason provided'}</p>}</div></div><hr /><h5>Items Sold</h5><div className="table-responsive"><table className="table table-sm"><thead><tr><th>Product</th><th>Qty</th><th>Unit Price</th><th>Subtotal</th></tr></thead><tbody>{(selectedSale.items || []).length === 0 ? <tr><td colSpan="4" className="text-muted text-center">No item details</td></tr> : selectedSale.items.map((item) => <tr key={item.id || `${item.product_id}-${item.product_name}`}><td>{item.product_name || item.product_id}</td><td>{item.quantity}</td><td>ETB {Number(item.unit_price || 0).toFixed(2)}</td><td>ETB {Number(item.subtotal || 0).toFixed(2)}</td></tr>)}</tbody></table></div></div><div className="modal-footer"><button className="btn btn-secondary" onClick={() => setSelectedSale(null)}>Close</button></div></div></div>
       )}
     </div>
   );
