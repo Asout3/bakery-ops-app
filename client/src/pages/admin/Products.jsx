@@ -11,6 +11,15 @@ const formatProductDisplayId = (product) => {
 };
 
 
+const productsControlsCardStyle = { border: '1px solid var(--border-light)' };
+
+const productsControlsRowStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(280px, 1fr) minmax(320px, auto)',
+  gap: '0.75rem',
+  alignItems: 'center',
+};
+
 export default function ProductsPage() {
   const { t } = useLanguage();
   const [products, setProducts] = useState([]);
@@ -185,16 +194,30 @@ export default function ProductsPage() {
     <div className="products-page">
       <div className="page-header" style={{ gap: '0.75rem', flexWrap: 'wrap' }}>
         <h2>{t('products')}</h2>
-        <div className="d-flex gap-2"><button className="btn btn-secondary" onClick={() => setShowArchived((p) => !p)}>{showArchived ? 'Hide Archived' : 'See Archived Products'}</button><button className="btn btn-primary" onClick={() => { resetForms(); setShowGroupForm(true); }}><Plus size={18} /> Add Product Group</button></div>
+        <div className="d-flex gap-2">
+          <button className="btn btn-secondary" onClick={() => setShowArchived((p) => !p)}>{showArchived ? 'Hide Archived' : 'See Archived Products'}</button>
+          <button className="btn btn-primary" onClick={() => { resetForms(); setShowGroupForm(true); }}><Plus size={18} /> Add Product Group</button>
+        </div>
       </div>
 
-      <div className="card mb-3"><div className="card-body d-flex gap-2 align-items-center" style={{ flexWrap: 'wrap' }}>
-        <div className="search-bar" style={{ maxWidth: '360px' }}><Search size={16} /><input className="input" placeholder="Search groups or variants..." value={search} onChange={(e) => setSearch(e.target.value)} /></div>
-        <div className="d-flex gap-2" style={{ marginLeft: 'auto', minWidth: '320px', flex: '1 1 320px' }}>
-          <input className="form-control" placeholder="New category" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
-          <button className="btn btn-outline-primary" onClick={handleCreateCategory}>Add Category</button>
+      <div className="card mb-3" style={productsControlsCardStyle}>
+        <div className="card-body" style={productsControlsRowStyle}>
+          <div>
+            <label className="form-label mb-1">Search Products</label>
+            <div className="search-bar" style={{ maxWidth: '100%' }}>
+              <Search size={16} />
+              <input className="input" placeholder="Search groups or variants..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label className="form-label mb-1">Add Category</label>
+            <div className="d-flex gap-2" style={{ minWidth: '320px' }}>
+              <input className="form-control" placeholder="New category" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
+              <button className="btn btn-outline-primary" onClick={handleCreateCategory}>Add Category</button>
+            </div>
+          </div>
         </div>
-      </div></div>
+      </div>
 
       {message && <div className={`alert alert-${message.type} mb-3`}>{message.text}</div>}
 

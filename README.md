@@ -13,6 +13,8 @@ A production-oriented, offline-capable bakery management system for multi-branch
 - [System Architecture](#system-architecture)
 - [Offline Sync and Offline Refresh Design](#offline-sync-and-offline-refresh-design)
 - [Security and Compliance Controls](#security-and-compliance-controls)
+- [Session and Token Lifecycle](#session-and-token-lifecycle)
+- [Staff Payments Behavior](#staff-payments-behavior)
 - [Database Architecture](#database-architecture)
 - [API Design and Contracts](#api-design-and-contracts)
 - [Performance and Scalability](#performance-and-scalability)
@@ -193,6 +195,28 @@ flowchart TB
 - Introduce tenant-aware session revocation controls for emergency lockout scenarios.
 
 ---
+
+
+## Session and Token Lifecycle
+
+- Access tokens are used on every API call and can expire during normal use.
+- The client now keeps session credentials per browser tab using `sessionStorage` so role context does not leak across multiple open accounts.
+- On `401` responses from non-auth endpoints, the client performs a single-flight refresh-token rotation (`/api/auth/refresh-token/rotate`) and retries the original request.
+- If refresh fails (expired/revoked token), the app clears session state and redirects to login with `session_expired`.
+- Logout revokes the current refresh token server-side and clears client session keys.
+
+## Staff Payments Behavior
+
+Staff payment records support two payout modes:
+
+- `Pay Now` (`payout_mode=pay_now`): immediate payroll entry for the selected staff and payment date.
+- `Pay to Month` (`payout_mode=pay_to_month`): payroll entry assigned to a target month via `payroll_month`, used for monthly settlement planning/reporting.
+
+Additional rules:
+
+- Frequency (`daily`, `weekly`, `monthly`) is saved per payment and used in payment summaries.
+- Edit/delete is allowed only within a 20-minute safety window from record creation.
+- Offline creation is queue-safe with idempotency keys to avoid duplicate replay writes.
 
 ## Database Architecture
 

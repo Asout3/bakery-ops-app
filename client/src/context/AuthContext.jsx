@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import api from '../api/axios';
+import { clearSession, getSessionSnapshot, persistSession, getRefreshToken } from '../utils/authSession';
 
 const AuthContext = createContext(null);
 
@@ -8,54 +9,56 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const savedUser = localStorage.getItem('user');
-    
-    if (token && savedUser) {
-      try {
-        setUser(JSON.parse(savedUser));
-      } catch {
-        localStorage.removeItem('user');
-        localStorage.removeItem('token');
+    const bootstrap = async () => {
+      const session = getSessionSnapshot();
+      if (!session?.token || !session?.user) {
+        setLoading(false);
+        return;
       }
-    }
-    setLoading(false);
+
+      setUser(session.user);
+
+      try {
+        const response = await api.get('/auth/me', { headers: { 'X-Skip-Auth-Redirect': 'true' } });
+        persistSession({ user: response.data });
+        setUser(response.data);
+      } catch {
+        clearSession();
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    bootstrap();
   }, []);
 
   const login = async (username, password) => {
     const response = await api.post('/auth/login', { username, password });
-    const { user, token } = response.data;
-    
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(user));
-    setUser(user);
-    
-    return user;
+    const { user: nextUser, token, refresh_token: refreshToken, refresh_token_expires_at: refreshTokenExpiresAt } = response.data;
+    persistSession({ user: nextUser, token, refreshToken, refreshTokenExpiresAt });
+    setUser(nextUser);
+    return nextUser;
   };
 
   const register = async (userData) => {
     const response = await api.post('/auth/register', userData);
-    const { user, token } = response.data;
-    
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(user));
-    setUser(user);
-    
-    return user;
+    const { user: nextUser, token, refresh_token: refreshToken, refresh_token_expires_at: refreshTokenExpiresAt } = response.data;
+    persistSession({ user: nextUser, token, refreshToken, refreshTokenExpiresAt });
+    setUser(nextUser);
+    return nextUser;
   };
-
 
   const updateSession = (nextUser, nextToken) => {
-    if (nextToken) localStorage.setItem('token', nextToken);
-    if (nextUser) {
-      localStorage.setItem('user', JSON.stringify(nextUser));
-      setUser(nextUser);
-    }
+    persistSession({ user: nextUser, token: nextToken });
+    if (nextUser) setUser(nextUser);
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+  const logout = async () => {
+    try {
+      await api.post('/auth/logout', { refresh_token: getRefreshToken() }, { headers: { 'X-Skip-Auth-Redirect': 'true' } });
+    } catch {}
+    clearSession();
     setUser(null);
   };
 

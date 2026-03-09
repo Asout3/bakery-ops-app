@@ -47,6 +47,8 @@
   flex-direction: column;
   height: fit-content;
   max-height: calc(100vh - 200px);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
 }
 
 .batch-cart .card-header h3 {
@@ -66,6 +68,24 @@
   justify-content: space-between;
   align-items: start;
   margin-bottom: 0.75rem;
+}
+
+.batch-cart .cart-item {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  background: var(--bg-secondary);
+}
+
+.batch-cart .cart-item-name {
+  overflow-wrap: anywhere;
+}
+
+.batch-cart .cart-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
 }
 
 @media (max-width: 1024px) {
