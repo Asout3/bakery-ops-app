@@ -5,6 +5,7 @@ export default function ManagerOrders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(null);
+  const [selectedNoteOrder, setSelectedNoteOrder] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -53,7 +54,8 @@ export default function ManagerOrders() {
                   <td>
                     <input type="number" min="0" max="100" className="form-control form-control-sm" style={{ maxWidth: '110px' }} defaultValue={Number(order.prep_progress || 0)} onBlur={(e) => updateOrder(order, { prep_status: 'preparing', prep_progress: Number(e.target.value) })} />
                   </td>
-                  <td className="d-flex gap-2">
+                  <td className="d-flex gap-2 flex-wrap">
+                    <button className="btn btn-sm btn-outline-info" onClick={() => setSelectedNoteOrder(order)}>View Note</button>
                     <button className="btn btn-sm btn-outline-primary" onClick={() => updateOrder(order, { status: 'in_production', prep_status: 'preparing' })}>Start</button>
                     <button className="btn btn-sm btn-success" onClick={() => updateOrder(order, { status: 'ready', prep_status: 'ready', prep_progress: 100 })}>Mark Ready</button>
                   </td>
@@ -64,6 +66,17 @@ export default function ManagerOrders() {
           </table>
         </div>
       </div>
+
+
+      {selectedNoteOrder && (
+        <div className="modal-overlay" onClick={() => setSelectedNoteOrder(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Customer Note</h3><button className="close-btn" onClick={() => setSelectedNoteOrder(null)}>×</button></div>
+            <div className="modal-body"><p className="note-viewer-text">{selectedNoteOrder.customer_note || 'No note added for this pre-order.'}</p></div>
+            <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setSelectedNoteOrder(null)}>Close</button></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

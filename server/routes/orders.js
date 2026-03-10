@@ -33,11 +33,12 @@ async function notifyRoles(tx, locationId, roles, title, message, notificationTy
 
 async function getOrderById(orderId) {
   const orderResult = await query(
-    `SELECT o.*, u.username AS cashier_name,
-            CASE WHEN COALESCE(o.paid_amount, 0) >= COALESCE(o.total_amount, 0) THEN 'verified' ELSE 'pending' END AS payment_status,
+    `SELECT o.*, COALESCE(NULLIF(o.total_amount, 0), item_totals.items_total, 0) AS total_amount, u.username AS cashier_name,
+            CASE WHEN COALESCE(NULLIF(o.total_amount, 0), item_totals.items_total, 0) > 0 AND COALESCE(o.paid_amount, 0) >= COALESCE(NULLIF(o.total_amount, 0), item_totals.items_total, 0) THEN 'verified' ELSE 'pending' END AS payment_status,
             CONCAT('ORD-', LPAD(o.id::text, 6, '0')) AS order_code
      FROM customer_orders o
      LEFT JOIN users u ON u.id = o.cashier_id
+     LEFT JOIN (SELECT order_id, COALESCE(SUM(subtotal), 0) AS items_total FROM order_items GROUP BY order_id) item_totals ON item_totals.order_id = o.id
      WHERE o.id = $1`,
     [orderId]
   );
@@ -75,11 +76,12 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager', 'cashier')
     }
 
     const ordersResult = await query(
-      `SELECT o.*, u.username AS cashier_name,
-              CASE WHEN COALESCE(o.paid_amount, 0) >= COALESCE(o.total_amount, 0) THEN 'verified' ELSE 'pending' END AS payment_status,
+      `SELECT o.*, COALESCE(NULLIF(o.total_amount, 0), item_totals.items_total, 0) AS total_amount, u.username AS cashier_name,
+              CASE WHEN COALESCE(NULLIF(o.total_amount, 0), item_totals.items_total, 0) > 0 AND COALESCE(o.paid_amount, 0) >= COALESCE(NULLIF(o.total_amount, 0), item_totals.items_total, 0) THEN 'verified' ELSE 'pending' END AS payment_status,
               CONCAT('ORD-', LPAD(o.id::text, 6, '0')) AS order_code
        FROM customer_orders o
        LEFT JOIN users u ON u.id = o.cashier_id
+       LEFT JOIN (SELECT order_id, COALESCE(SUM(subtotal), 0) AS items_total FROM order_items GROUP BY order_id) item_totals ON item_totals.order_id = o.id
        WHERE ${where.join(' AND ')}
        ORDER BY o.created_at DESC
        LIMIT 300`,
@@ -255,8 +257,15 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager', 'cash
         if (nextStatus === 'ready') nextPrepStatus = 'ready';
       }
 
+      const itemTotalsResult = await tx.query('SELECT COALESCE(SUM(subtotal), 0) AS items_total FROM order_items WHERE order_id = $1', [orderId]);
+      const effectiveTotalAmount = Number(order.total_amount || 0) > 0 ? Number(order.total_amount || 0) : Number(itemTotalsResult.rows[0]?.items_total || 0);
+
+      if (Number(order.total_amount || 0) !== effectiveTotalAmount) {
+        await tx.query('UPDATE customer_orders SET total_amount = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [effectiveTotalAmount, orderId]);
+      }
+
       let nextPaidAmount = paid_amount === undefined ? Number(order.paid_amount || 0) : normalizeNumber(paid_amount, Number(order.paid_amount || 0));
-      if (verify_payment === true) nextPaidAmount = Number(order.total_amount || 0);
+      if (verify_payment === true) nextPaidAmount = effectiveTotalAmount;
 
       const shouldApplyInventory = (nextPrepStatus === 'ready' || nextStatus === 'ready') && order.inventory_applied !== true;
 

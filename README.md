@@ -178,7 +178,9 @@ Technical behavior:
 - Inventory is decremented once when an order transitions to ready/prepared for product-linked items.
 - Orders can be edited/deleted only within a 20-minute edit/delete safety window after creation.
 - Cashier pre-order creation supports offline queue replay using idempotency keys.
-- Order performance is surfaced on admin dashboard period views (daily/weekly/monthly) from picked-up orders for revenue transparency.
+- Cashier pre-order item selection auto-fills product prices, shows live total/paid/balance values, and supports product dropdown fallback from offline cached products.
+- Admin and manager order oversight now include dedicated customer-note viewing actions with larger note editing/readability surfaces.
+- Order performance is surfaced on admin dashboard period views (daily/weekly/monthly) from picked-up orders for revenue transparency and is included in revenue/profit rollups.
 
 ## Security and Compliance Controls
 
