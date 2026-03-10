@@ -19,7 +19,7 @@ export function ToastProvider({ children }) {
   const value = useMemo(() => ({
     pushToast,
     success: (message, options = {}) => pushToast({ ...options, type: 'success', message }),
-    error: (message, options = {}) => pushToast({ ...options, type: 'danger', message }),
+    error: (message, options = {}) => pushToast({ ...options, type: 'error', message }),
     warning: (message, options = {}) => pushToast({ ...options, type: 'warning', message }),
     info: (message, options = {}) => pushToast({ ...options, type: 'info', message }),
   }), [pushToast]);

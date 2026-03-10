@@ -99,14 +99,14 @@ export default function Layout() {
         { to: '/admin/team', icon: Users, label: t('accountManagement') },
         { to: '/admin/staff', icon: Users, label: t('staffManagement') },
         { to: '/admin/history-lifecycle', icon: BarChart3, label: t('historyLifecycle') },
-        { to: '/admin/orders', icon: ClipboardList, label: 'Orders' },
+        { to: '/admin/orders', icon: ClipboardList, label: t('orders') },
       ];
     }
     if (role === 'manager') {
       return [
         { to: '/manager/inventory', icon: Package, label: t('inventory') },
         { to: '/manager/batches', icon: Package, label: t('batches') },
-        { to: '/manager/orders', icon: ClipboardList, label: 'Orders Queue' },
+        { to: '/manager/orders', icon: ClipboardList, label: t('ordersQueue') },
         { to: '/manager/expenses', icon: DollarSign, label: t('expenses') },
         { to: '/manager/notifications', icon: Bell, label: t('notifications'), showBadge: true },
       ];
@@ -114,7 +114,7 @@ export default function Layout() {
     if (role === 'cashier') {
       return [
         { to: '/cashier/sales', icon: ShoppingCart, label: t('newSale') },
-        { to: '/cashier/orders', icon: ClipboardList, label: 'Pre-Orders' },
+        { to: '/cashier/orders', icon: ClipboardList, label: t('preOrders') },
         { to: '/cashier/history', icon: BarChart3, label: t('salesHistory') },
       ];
     }
@@ -125,7 +125,7 @@ export default function Layout() {
     <div className="layout">
       <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
         <div className="sidebar-header">
-          <h2>Sina Sweet</h2>
+          <h2>{t('appTitle')}</h2>
           <button className="sidebar-close" onClick={() => setSidebarOpen(false)}>
             <X size={20} />
           </button>
@@ -193,19 +193,18 @@ export default function Layout() {
         <div className="modal-overlay" onClick={() => setShowLogoutWarning(false)}>
           <div className="modal-content modal-sm" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Pending Offline Actions</h3>
+              <h3>{t('pendingOfflineActions')}</h3>
               <button className="close-btn" onClick={() => setShowLogoutWarning(false)}>×</button>
             </div>
             <div className="modal-body">
               <p>
-                You have <strong>{pendingLogoutCount}</strong> offline action(s) pending.
-                These will be forwarded to admin for syncing when online.
+                {t('pendingOfflineDetails')} <strong>{pendingLogoutCount}</strong>
               </p>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowLogoutWarning(false)}>Cancel</button>
+              <button className="btn btn-secondary" onClick={() => setShowLogoutWarning(false)}>{t('cancel')}</button>
               <button className="btn btn-danger" onClick={() => { setShowLogoutWarning(false); doLogout(); }}>
-                Logout Anyway
+                {t('logoutAnyway')}
               </button>
             </div>
           </div>
