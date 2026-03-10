@@ -5,15 +5,20 @@ import { Plus, Minus, ShoppingCart, Trash2, Search } from 'lucide-react';
 import './Sales.css';
 import { enqueueOperation, listQueuedOperations } from '../../utils/offlineQueue';
 import { useLanguage } from '../../context/LanguageContext';
+import { useToast } from '../../context/ToastContext';
+import { Button } from '../../components/ui/Button';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { Card, CardHeader, CardBody, CardFooter } from '../../components/ui/Card';
+import { EmptyState } from '../../components/ui/EmptyState';
 
 export default function Sales() {
   const { selectedLocationId } = useBranch();
   const { t } = useLanguage();
+  const toast = useToast();
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [groupFilter, setGroupFilter] = useState('all');
@@ -46,7 +51,7 @@ export default function Sales() {
       const cached = localStorage.getItem(`cashier_products_cache_${selectedLocationId || 'default'}`);
       if (cached) {
         setProducts(JSON.parse(cached));
-        setMessage({ type: 'warning', text: 'Offline mode: using cached products.' });
+        toast.warning(t('offlineMode') + ': ' + 'using cached products.');
       }
     }
   };
@@ -95,7 +100,7 @@ export default function Sales() {
 
   const addVariantToCart = (product) => {
     if (getRemainingStock(product) <= 0) {
-      setMessage({ type: 'warning', text: `${product.name} is out of stock.` });
+      toast.warning(`${product.name} ${t('outOfStock').toLowerCase()}.`);
       return;
     }
 
@@ -124,7 +129,7 @@ export default function Sales() {
       const maxQty = Number(product?.stock_quantity || 0);
       const nextQty = Math.max(1, item.quantity + change);
       if (maxQty > 0 && nextQty > maxQty) {
-        setMessage({ type: 'warning', text: `${product?.name || 'Item'} is out of stock.` });
+        toast.warning(`${product?.name || 'Item'} ${t('outOfStock').toLowerCase()}.`);
         return item;
       }
       return { ...item, quantity: nextQty };
@@ -138,7 +143,7 @@ export default function Sales() {
     const product = products.find((p) => Number(p.id) === Number(productId));
     const maxQty = Number(product?.stock_quantity || 0);
     if (maxQty > 0 && quantity > maxQty) {
-      setMessage({ type: 'warning', text: `${product?.name || 'Item'} is out of stock.` });
+      toast.warning(`${product?.name || 'Item'} ${t('outOfStock').toLowerCase()}.`);
       return;
     }
 
@@ -171,16 +176,16 @@ export default function Sales() {
       setReceiptData(response.data);
       applySaleToLocalStock(payload.items);
       setCart([]);
-      setMessage({ type: 'success', text: 'Sale completed.' });
+      toast.success(t('saleCompleted'));
     } catch (err) {
       if (!err.response) {
         const idempotencyKey = `sale-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         await enqueueOperation({ url: '/sales', method: 'post', data: payload, idempotencyKey });
         applySaleToLocalStock(payload.items);
         setCart([]);
-        setMessage({ type: 'warning', text: 'Offline: sale queued for sync.' });
+        toast.warning(t('offlineMode') + ': ' + t('saleQueuedForSync'));
       } else {
-        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to complete sale.') });
+        toast.error(getErrorMessage(err, t('failedToCompleteSale')));
       }
     } finally {
       setLoading(false);
@@ -190,12 +195,11 @@ export default function Sales() {
 
   return (
     <div className="sales-page">
-      <div className="page-header"><h2>{t('newSale')}</h2></div>
-      {message && <div className={`alert alert-${message.type}`}>{message.text}</div>}
+      <PageHeader title={t('newSale')} />
       <div className="sales-layout">
         <div className="products-section">
-          <div className="card"><div className="card-header"><h3>Product Groups</h3></div><div className="card-body">
-            <div className="filters-row" style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}><div className="search-bar" style={{ flex: 1 }}><Search size={16} /><input className="input" placeholder="Search groups or variants..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div><select className="input" style={{ maxWidth: '170px' }} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}><option value="all">All Sources</option><option value="baked">Baked</option><option value="purchased">Purchased</option></select><select className="input" style={{ maxWidth: '200px' }} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">All Groups</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.group_name || p.name))).sort().map((group) => <option key={group} value={group}>{group}</option>)}</select><select className="input" style={{ maxWidth: '200px' }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option value="all">All Categories</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.category_name || 'Uncategorized'))).sort().map((category) => <option key={category} value={category}>{category}</option>)}</select><button className="btn btn-outline-secondary" type="button" onClick={() => { setSearchTerm(''); setSourceFilter('all'); setGroupFilter('all'); setCategoryFilter('all'); }}>Reset Filters</button></div>
+          <div className="card"><div className="card-header"><h3>{t('productGroups')}</h3></div><div className="card-body">
+            <div className="filters-row" style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}><div className="search-bar" style={{ flex: 1 }}><Search size={16} /><input className="input" placeholder={t('searchProducts')} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div><select className="input" style={{ maxWidth: '170px' }} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}><option value="all">{t('allSources')}</option><option value="baked">{t('baked')}</option><option value="purchased">{t('purchased')}</option></select><select className="input" style={{ maxWidth: '200px' }} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">{t('allGroups')}</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.group_name || p.name))).sort().map((group) => <option key={group} value={group}>{group}</option>)}</select><select className="input" style={{ maxWidth: '200px' }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option value="all">{t('allCategories')}</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.category_name || 'Uncategorized'))).sort().map((category) => <option key={category} value={category}>{category}</option>)}</select><button className="btn btn-outline-secondary" type="button" onClick={() => { setSearchTerm(''); setSourceFilter('all'); setGroupFilter('all'); setCategoryFilter('all'); }}>{t('resetFilters')}</button></div>
             <div className="products-grid">
               {groupedProducts.map(([groupKey, variants]) => {
                 const prices = variants.map((v) => Number(v.price || 0));
@@ -207,8 +211,8 @@ export default function Sales() {
                   <div key={groupKey} className={`product-card ${isOutOfStock ? 'product-card-disabled' : ''}`} onClick={() => handleGroupClick(groupKey, variants)}>
                     <div className="product-name">{groupKey}</div>
                     <div className="product-price">ETB {min === max ? min.toFixed(2) : `${min.toFixed(2)} - ${max.toFixed(2)}`}</div>
-                    <div className="product-category">{variants.length} variant{variants.length > 1 ? 's' : ''}</div>
-                    <div className={`product-stock ${isOutOfStock ? 'product-stock-empty' : ''}`}>{isOutOfStock ? 'Out of stock' : `${totalStock} in stock`}</div>
+                    <div className="product-category">{variants.length} {variants.length > 1 ? t('variants') : t('variant')}</div>
+                    <div className={`product-stock ${isOutOfStock ? 'product-stock-empty' : ''}`}>{isOutOfStock ? t('outOfStock') : `${totalStock} ${t('inStock')}`}</div>
                   </div>
                 );
               })}
@@ -217,9 +221,9 @@ export default function Sales() {
         </div>
 
         <div className="cart-section">
-          <div className="card"><div className="card-header"><h3><ShoppingCart size={20} />Cart ({cart.length})</h3></div><div className="card-body cart-body">
+          <div className="card"><div className="card-header"><h3><ShoppingCart size={20} />{t('cart')} ({cart.length})</h3></div><div className="card-body cart-body">
             {cart.length === 0 ? <div className="empty-cart"><ShoppingCart size={48} /><p>{t('cartEmpty')}</p></div> : <div className="cart-items">{cart.map((item) => <div key={item.product_id} className="cart-item"><div className="cart-item-details"><div className="cart-item-name">{item.name}</div><div className="cart-item-price">ETB {Number(item.price).toFixed(2)}</div></div><div className="cart-item-actions"><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, -1)}><Minus size={14} /></button><input type="number" min="1" className="form-control form-control-sm" style={{ width: '72px', textAlign: 'center' }} value={item.quantity} onChange={(e) => setQuantity(item.product_id, Number(e.target.value))} /><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, 1)}><Plus size={14} /></button><button className="btn btn-sm btn-danger" onClick={() => removeFromCart(item.product_id)}><Trash2 size={14} /></button></div><div className="cart-item-subtotal">ETB {(item.price * item.quantity).toFixed(2)}</div></div>)}</div>}
-          </div><div className="card-footer"><div className="payment-method-select"><span>Payment:</span><select className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div><div className="cart-total"><span className="cart-total-label">Total:</span><span className="cart-total-amount">ETB {calculateTotal().toFixed(2)}</span></div><button className="btn btn-success btn-lg" onClick={handleCheckout} disabled={loading || cart.length === 0} style={{ width: '100%', marginTop: '1rem' }}>{loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}</button></div></div>
+          </div><div className="card-footer"><div className="payment-method-select"><span>{t('paymentMethod')}:</span><select className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}><option value="cash">{t('cash')}</option><option value="mobile">{t('mobileBanking')}</option><option value="telebirr">{t('telebirr')}</option></select></div><div className="cart-total"><span className="cart-total-label">{t('total')}:</span><span className="cart-total-amount">ETB {calculateTotal().toFixed(2)}</span></div><button className="btn btn-success btn-lg" onClick={handleCheckout} disabled={loading || cart.length === 0} style={{ width: '100%', marginTop: '1rem' }}>{loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}</button></div></div>
         </div>
       </div>
 

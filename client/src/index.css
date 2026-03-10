@@ -201,7 +201,7 @@ a:hover {
 
 .input:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  box-shadow: 0 0 0 3px rgba(244, 162, 97, 0.2);
 }
 
 .input:disabled {
@@ -227,8 +227,8 @@ a:hover {
 }
 
 .badge-primary {
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--primary);
+  background: rgba(244, 162, 97, 0.15);
+  color: var(--primary-dark);
 }
 
 .badge-success {
@@ -445,7 +445,7 @@ a:hover {
 .input:focus,
 textarea:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
+  box-shadow: 0 0 0 3px rgba(244, 162, 97, 0.2);
 }
 
 .form-select {
@@ -485,7 +485,7 @@ textarea.form-control {
   background: transparent;
 }
 
-.btn-outline-primary:hover { background: rgba(99, 102, 241, 0.08); }
+.btn-outline-primary:hover { background: rgba(244, 162, 97, 0.12); }
 
 .btn-outline-danger {
   border: 1px solid var(--danger);
