@@ -185,6 +185,7 @@ Technical behavior:
 - Inventory lists now hide archived products and admin inventory identifiers are formatted for readability (e.g. `INV-000123`).
 - Expense visibility is role-aware: managers only see expenses they created, while admins retain full branch visibility.
 - Archive lifecycle now includes pre-order history (`customer_orders` and `order_items`) in 6-month archival and export datasets.
+- Staff payments flow now has stronger branch-scoped validation (`staff_profile_id`/`user_id`), standardized API error envelopes, and safer update semantics (no location reassignment on edit).
 
 ## Security and Compliance Controls
 
