@@ -80,7 +80,7 @@ export default function ProductsPage() {
       const response = await api.post('/products/categories', { name: newCategoryName.trim() });
       setCategories((current) => [...current, response.data].sort((a, b) => a.name.localeCompare(b.name)));
       setNewCategoryName('');
-      setMessage({ type: 'success', text: 'Category added.' });
+      setMessage({ type: 'success', text: t('categoryAdded') });
     } catch (err) {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to add category.') });
     }
@@ -159,7 +159,7 @@ export default function ProductsPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this variant? If not deletable it will be archived.')) return;
+    if (!window.confirm(t('deleteVariantConfirm'))) return;
     try {
       await api.delete(`/products/${id}`);
       await fetchProducts();
@@ -221,25 +221,25 @@ export default function ProductsPage() {
       <div className="page-header" style={{ gap: '0.75rem', flexWrap: 'wrap' }}>
         <h2>{t('products')}</h2>
         <div className="d-flex gap-2">
-          <button className="btn btn-secondary" onClick={() => setShowArchived((p) => !p)}>{showArchived ? 'Hide Archived' : 'See Archived Products'}</button>
-          <button className="btn btn-primary" onClick={() => { resetForms(); setShowGroupForm(true); }}><Plus size={18} /> Add Product Group</button>
+          <button className="btn btn-secondary" onClick={() => setShowArchived((p) => !p)}>{showArchived ? t('hideArchived') : t('seeArchivedProducts')}</button>
+          <button className="btn btn-primary" onClick={() => { resetForms(); setShowGroupForm(true); }}><Plus size={18} /> {t('addProductGroup')}</button>
         </div>
       </div>
 
       <div className="card mb-3" style={productsControlsCardStyle}>
         <div className="card-body" style={productsControlsRowStyle}>
           <div>
-            <label className="form-label mb-1">Search Products</label>
+            <label className="form-label mb-1">{t('searchProducts')}</label>
             <div className="search-bar" style={{ maxWidth: '100%' }}>
               <Search size={16} />
-              <input className="input" placeholder="Search groups or variants..." value={search} onChange={(e) => setSearch(e.target.value)} />
+              <input className="input" placeholder={t('searchGroupsOrVariants')} value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
           </div>
           <div>
-            <label className="form-label mb-1">Add Category</label>
+            <label className="form-label mb-1">{t('addCategory')}</label>
             <div className="d-flex gap-2" style={{ minWidth: '320px' }}>
               <input className="form-control" placeholder="New category" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
-              <button className="btn btn-outline-primary" onClick={handleCreateCategory}>Add Category</button>
+              <button className="btn btn-outline-primary" onClick={handleCreateCategory}>{t('addCategory')}</button>
             </div>
           </div>
         </div>

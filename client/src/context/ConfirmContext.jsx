@@ -1,20 +1,22 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { useLanguage } from './LanguageContext';
 
 const ConfirmContext = createContext(null);
 
 export function ConfirmProvider({ children }) {
   const [state, setState] = useState(null);
+  const { t } = useLanguage();
 
   const confirm = useCallback((options) => new Promise((resolve) => {
     setState({
-      title: options?.title || 'Please Confirm',
-      message: options?.message || 'Are you sure?',
-      confirmText: options?.confirmText || 'Confirm',
-      cancelText: options?.cancelText || 'Cancel',
+      title: options?.title || t('pendingOfflineActions'),
+      message: options?.message || t('confirmAction'),
+      confirmText: options?.confirmText || t('confirm'),
+      cancelText: options?.cancelText || t('cancel'),
       variant: options?.variant || 'primary',
       resolve,
     });
-  }), []);
+  }), [t]);
 
   const handleClose = useCallback((value) => {
     if (!state) return;

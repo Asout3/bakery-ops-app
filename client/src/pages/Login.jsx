@@ -6,6 +6,8 @@ import { useLanguage } from '../context/LanguageContext';
 import api, { getErrorMessage } from '../api/axios';
 import './Login.css';
 
+const validatePassword = (value) => /^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/.test(value);
+
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -32,13 +34,9 @@ export default function Login() {
 
     try {
       const user = await login(username, password);
-      if (user.role === 'admin') {
-        navigate('/admin/dashboard');
-      } else if (user.role === 'manager') {
-        navigate('/manager/inventory');
-      } else if (user.role === 'cashier') {
-        navigate('/cashier/sales');
-      }
+      if (user.role === 'admin') navigate('/admin/dashboard');
+      else if (user.role === 'manager') navigate('/manager/inventory');
+      else if (user.role === 'cashier') navigate('/cashier/sales');
     } catch (err) {
       setError(getErrorMessage(err, 'Login failed'));
     } finally {
@@ -49,12 +47,16 @@ export default function Login() {
   const handleRecoverPassword = async (e) => {
     e.preventDefault();
     setRecoveryMessage('');
-    if (!recoveryUsername || !recoveryKey || !recoveryPassword) {
-      setRecoveryMessage('Fill all recovery fields.');
+    if (!recoveryUsername || !recoveryKey || !recoveryPassword || !recoveryPasswordConfirm) {
+      setRecoveryMessage(t('fillAllRecoveryFields'));
+      return;
+    }
+    if (!validatePassword(recoveryPassword)) {
+      setRecoveryMessage(t('passwordPolicyHint'));
       return;
     }
     if (recoveryPassword !== recoveryPasswordConfirm) {
-      setRecoveryMessage('New password and confirmation do not match.');
+      setRecoveryMessage(t('passwordMismatch'));
       return;
     }
 
@@ -65,17 +67,14 @@ export default function Login() {
         recovery_key: recoveryKey,
         new_password: recoveryPassword,
       });
-      setRecoveryMessage(res.data?.message || 'Admin password reset successfully. You can login now.');
+      setRecoveryMessage(res.data?.message || t('adminPasswordResetSuccess'));
       setRecoveryPassword('');
       setRecoveryPasswordConfirm('');
       setRecoveryKey('');
     } catch (err) {
       const apiCode = err.response?.data?.code;
       const baseMessage = getErrorMessage(err, 'Recovery failed');
-      const recoveryMessage = apiCode === 'RECOVERY_NOT_CONFIGURED'
-        ? 'Recovery is disabled on this server. Ask owner to set ADMIN_RECOVERY_KEY.'
-        : baseMessage;
-      setRecoveryMessage(recoveryMessage);
+      setRecoveryMessage(apiCode === 'RECOVERY_NOT_CONFIGURED' ? t('recoveryDisabled') : baseMessage);
     } finally {
       setRecoveryLoading(false);
     }
@@ -85,101 +84,68 @@ export default function Login() {
     <div className="login-container">
       <div className="login-card card">
         <div className="login-header">
-          <h1>Sina Sweet</h1>
-          <p>Welcome back — sign in to continue.</p>
+          <h1>{t('appTitle')}</h1>
+          <p>{t('welcomeBack')}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
           {error && <div className="alert alert-danger">{error}</div>}
-
           <div className="form-group">
             <label className="label" htmlFor="username">{t('username')}</label>
-            <input
-              id="username"
-              type="text"
-              className="input"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              autoFocus
-            />
+            <input id="username" type="text" className="input" value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus />
           </div>
 
           <div className="form-group">
             <label className="label" htmlFor="password">{t('password')}</label>
             <div className="password-field">
-              <input
-                id="password"
-                type={showPassword ? 'text' : 'password'}
-                className="input"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
+              <input id="password" type={showPassword ? 'text' : 'password'} className="input" value={password} onChange={(e) => setPassword(e.target.value)} required />
               <button type="button" className="password-toggle" onClick={() => setShowPassword((prev) => !prev)} aria-label="Toggle password visibility">
                 {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
               </button>
             </div>
           </div>
 
-          <button
-            type="submit"
-            className="btn btn-primary btn-lg"
-            disabled={loading}
-          >
-            {loading ? t('signingIn') : t('signIn')}
-          </button>
-          <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setShowRecoveryModal(true)}>
-            Forgot admin password?
-          </button>
+          <button type="submit" className="btn btn-primary btn-lg" disabled={loading}>{loading ? t('signingIn') : t('signIn')}</button>
+          <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setShowRecoveryModal(true)}>{t('forgotAdminPassword')}</button>
         </form>
-
-
       </div>
 
       {showRecoveryModal && (
         <div className="modal-overlay" onClick={() => setShowRecoveryModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Recover Admin Password</h3>
+              <h3>{t('recoverAdminPassword')}</h3>
               <button className="close-btn" onClick={() => setShowRecoveryModal(false)}>×</button>
             </div>
             <form className="modal-body" onSubmit={handleRecoverPassword}>
               {recoveryMessage && <div className="alert alert-info mb-3">{recoveryMessage}</div>}
               <div className="mb-3">
-                <label className="form-label">Admin Username</label>
+                <label className="form-label">{t('adminUsername')}</label>
                 <input className="form-control" value={recoveryUsername} onChange={(e) => setRecoveryUsername(e.target.value)} required />
               </div>
               <div className="mb-3">
-                <label className="form-label">Recovery Key</label>
+                <label className="form-label">{t('recoveryKey')}</label>
                 <input className="form-control" value={recoveryKey} onChange={(e) => setRecoveryKey(e.target.value)} required />
               </div>
               <div className="mb-3">
-                <label className="form-label">New Password</label>
+                <label className="form-label">{t('newPassword')}</label>
                 <div className="password-field">
-                  <input type={showRecoveryPassword ? 'text' : 'password'} className="form-control" value={recoveryPassword} onChange={(e) => setRecoveryPassword(e.target.value)} required />
-                  <button type="button" className="password-toggle" onClick={() => setShowRecoveryPassword((prev) => !prev)}>
-                    {showRecoveryPassword ? <EyeOff size={17} /> : <Eye size={17} />}
-                  </button>
+                  <input type={showRecoveryPassword ? 'text' : 'password'} className={`form-control ${recoveryPassword && !validatePassword(recoveryPassword) ? 'is-invalid' : ''}`} value={recoveryPassword} onChange={(e) => setRecoveryPassword(e.target.value)} required />
+                  <button type="button" className="password-toggle" onClick={() => setShowRecoveryPassword((prev) => !prev)}>{showRecoveryPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button>
                 </div>
               </div>
               <div className="mb-3">
-                <label className="form-label">Confirm New Password</label>
+                <label className="form-label">{t('confirmNewPassword')}</label>
                 <div className="password-field">
-                  <input type={showRecoveryPasswordConfirm ? 'text' : 'password'} className="form-control" value={recoveryPasswordConfirm} onChange={(e) => setRecoveryPasswordConfirm(e.target.value)} required />
-                  <button type="button" className="password-toggle" onClick={() => setShowRecoveryPasswordConfirm((prev) => !prev)}>
-                    {showRecoveryPasswordConfirm ? <EyeOff size={17} /> : <Eye size={17} />}
-                  </button>
+                  <input type={showRecoveryPasswordConfirm ? 'text' : 'password'} className={`form-control ${recoveryPasswordConfirm && recoveryPasswordConfirm !== recoveryPassword ? 'is-invalid' : ''}`} value={recoveryPasswordConfirm} onChange={(e) => setRecoveryPasswordConfirm(e.target.value)} required />
+                  <button type="button" className="password-toggle" onClick={() => setShowRecoveryPasswordConfirm((prev) => !prev)}>{showRecoveryPasswordConfirm ? <EyeOff size={17} /> : <Eye size={17} />}</button>
                 </div>
               </div>
               <div className="d-flex gap-2">
-                <button className="btn btn-primary" disabled={recoveryLoading}>{recoveryLoading ? 'Resetting...' : 'Reset Password'}</button>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowRecoveryModal(false)}>Close</button>
+                <button className="btn btn-primary" disabled={recoveryLoading}>{recoveryLoading ? t('resetting') : t('resetPassword')}</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowRecoveryModal(false)}>{t('closeModal')}</button>
               </div>
-              <div className="alert alert-warning mt-2 mb-0">
-                If you are not an admin, contact your system administrator to reset your password.
-                If you are an admin and forgot your password, contact the technical team to request the secure recovery key.
-              </div>
+              <div className="alert alert-warning mt-2 mb-0">{t('recoveryHelp')}</div>
             </form>
           </div>
         </div>
