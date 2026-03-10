@@ -99,14 +99,14 @@ export default function Layout() {
         { to: '/admin/team', icon: Users, label: t('accountManagement') },
         { to: '/admin/staff', icon: Users, label: t('staffManagement') },
         { to: '/admin/history-lifecycle', icon: BarChart3, label: t('historyLifecycle') },
-        { to: '/admin/orders', icon: ClipboardList, label: 'Orders' },
+        { to: '/admin/orders', icon: ClipboardList, label: t('orders') },
       ];
     }
     if (role === 'manager') {
       return [
         { to: '/manager/inventory', icon: Package, label: t('inventory') },
         { to: '/manager/batches', icon: Package, label: t('batches') },
-        { to: '/manager/orders', icon: ClipboardList, label: 'Orders Queue' },
+        { to: '/manager/orders', icon: ClipboardList, label: t('ordersQueue') },
         { to: '/manager/expenses', icon: DollarSign, label: t('expenses') },
         { to: '/manager/notifications', icon: Bell, label: t('notifications'), showBadge: true },
       ];
@@ -114,7 +114,7 @@ export default function Layout() {
     if (role === 'cashier') {
       return [
         { to: '/cashier/sales', icon: ShoppingCart, label: t('newSale') },
-        { to: '/cashier/orders', icon: ClipboardList, label: 'Pre-Orders' },
+        { to: '/cashier/orders', icon: ClipboardList, label: t('preOrders') },
         { to: '/cashier/history', icon: BarChart3, label: t('salesHistory') },
       ];
     }

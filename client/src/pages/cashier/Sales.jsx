@@ -5,15 +5,20 @@ import { Plus, Minus, ShoppingCart, Trash2, Search } from 'lucide-react';
 import './Sales.css';
 import { enqueueOperation, listQueuedOperations } from '../../utils/offlineQueue';
 import { useLanguage } from '../../context/LanguageContext';
+import { useToast } from '../../context/ToastContext';
+import { Button } from '../../components/ui/Button';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { Card, CardHeader, CardBody, CardFooter } from '../../components/ui/Card';
+import { EmptyState } from '../../components/ui/EmptyState';
 
 export default function Sales() {
   const { selectedLocationId } = useBranch();
   const { t } = useLanguage();
+  const toast = useToast();
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [groupFilter, setGroupFilter] = useState('all');
@@ -46,7 +51,7 @@ export default function Sales() {
       const cached = localStorage.getItem(`cashier_products_cache_${selectedLocationId || 'default'}`);
       if (cached) {
         setProducts(JSON.parse(cached));
-        setMessage({ type: 'warning', text: 'Offline mode: using cached products.' });
+        toast.warning(t('offlineMode') + ': ' + 'using cached products.');
       }
     }
   };
@@ -95,7 +100,7 @@ export default function Sales() {
 
   const addVariantToCart = (product) => {
     if (getRemainingStock(product) <= 0) {
-      setMessage({ type: 'warning', text: `${product.name} is out of stock.` });
+      toast.warning(`${product.name} ${t('outOfStock').toLowerCase()}.`);
       return;
     }
 
@@ -124,7 +129,7 @@ export default function Sales() {
       const maxQty = Number(product?.stock_quantity || 0);
       const nextQty = Math.max(1, item.quantity + change);
       if (maxQty > 0 && nextQty > maxQty) {
-        setMessage({ type: 'warning', text: `${product?.name || 'Item'} is out of stock.` });
+        toast.warning(`${product?.name || 'Item'} ${t('outOfStock').toLowerCase()}.`);
         return item;
       }
       return { ...item, quantity: nextQty };
