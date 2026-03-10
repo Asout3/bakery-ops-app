@@ -29,6 +29,8 @@ export default function StaffPaymentsPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [notePreview, setNotePreview] = useState(null);
   const [suggestedPayment, setSuggestedPayment] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [frequencyFilter, setFrequencyFilter] = useState('all');
 
   useEffect(() => {
     fetchData();
@@ -61,9 +63,10 @@ export default function StaffPaymentsPage() {
         return bDate - aDate;
       });
     const lastPaymentDate = staffPayments[0]?.payment_date ? new Date(staffPayments[0].payment_date) : null;
-    const now = new Date();
-    const workedDays = lastPaymentDate ? Math.max(1, Math.ceil((now - lastPaymentDate) / (1000 * 60 * 60 * 24))) : 30;
-    const dailyRate = Number(selected.monthly_salary || 0) / 30;
+    const targetDate = formData.payment_date ? new Date(formData.payment_date) : new Date();
+    const workedDays = lastPaymentDate ? Math.max(1, Math.ceil((targetDate - lastPaymentDate) / (1000 * 60 * 60 * 24))) : 30;
+    const monthlySalary = Number(selected.monthly_salary || 0);
+    const dailyRate = monthlySalary > 0 ? (monthlySalary / 30) : 0;
     const recommendedAmount = Math.max(0, dailyRate * workedDays);
 
     setSuggestedPayment({
@@ -80,6 +83,7 @@ export default function StaffPaymentsPage() {
       amount: recommendedAmount > 0 ? recommendedAmount.toFixed(2) : (selected.monthly_salary ? String(selected.monthly_salary) : prev.amount),
     }));
   };
+
 
   const isPaymentEditable = (payment) => {
     if (typeof payment.can_edit === 'boolean') return payment.can_edit;
@@ -148,12 +152,16 @@ export default function StaffPaymentsPage() {
       amount: Number(formData.amount),
       payment_date: formData.payment_date,
       payment_type: formData.payment_type,
-      payment_frequency: formData.payment_frequency,
-      payout_mode: formData.payout_mode,
-      payroll_month: formData.payroll_month,
-      notes: formData.notes,
+      payment_frequency: 'monthly',
+      payout_mode: 'pay_now',
+      payroll_month: null,
+      notes: String(formData.notes || '').trim(),
     };
 
+    if (payload.amount < 0) {
+      setFeedback({ type: 'warning', message: 'Amount cannot be negative.' });
+      return;
+    }
     try {
       if (editingPayment) {
         await api.put(`/payments/${editingPayment.id}`, payload);
@@ -206,6 +214,18 @@ export default function StaffPaymentsPage() {
     return { total, byFrequency };
   }, [payments]);
 
+
+  const filteredPayments = useMemo(() => {
+    const needle = searchTerm.trim().toLowerCase();
+    return payments.filter((payment) => {
+      const frequency = payment.payment_frequency || 'monthly';
+      if (frequencyFilter !== 'all' && frequency !== frequencyFilter) return false;
+      if (!needle) return true;
+      const hay = `${payment.payment_code || ''} ${payment.staff_name || ''} ${payment.created_by_name || ''}`.toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [payments, searchTerm, frequencyFilter]);
+
   if (loading) {
     return <div className="loading-container"><div className="spinner"></div></div>;
   }
@@ -218,6 +238,16 @@ export default function StaffPaymentsPage() {
       </div>
 
       {feedback && <div className={`alert alert-${feedback.type} mb-3`}>{feedback.message}</div>}
+
+
+      <div className="card mb-3">
+        <div className="card-body">
+          <div className="row g-2">
+            <div className="col-md-8"><input className="form-control" placeholder="Search by payment ID, staff name, creator..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
+            <div className="col-md-4"><select className="form-select" value={frequencyFilter} onChange={(e) => setFrequencyFilter(e.target.value)}><option value="all">All Frequencies</option>{FREQUENCY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+          </div>
+        </div>
+      </div>
 
       <div className="stats-grid mb-4">
         <div className="stat-card card"><div className="stat-icon bg-success text-white"><DollarSign size={24} /></div><div className="stat-content"><h3>ETB {summary.total.toFixed(2)}</h3><p>Total Paid</p></div></div>
@@ -234,23 +264,17 @@ export default function StaffPaymentsPage() {
                 <th>Payment ID</th>
                 <th>Staff</th>
                 <th>Amount</th>
-                <th>Frequency</th>
-                <th>Payout Mode</th>
-                <th>Payroll Month</th>
                 <th>Date</th>
                 <th>Edit Window</th>
                 <th>Notes</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {payments.map((payment) => (
+              {filteredPayments.map((payment) => (
                 <tr key={payment.id}>
                   <td>{payment.payment_code || `PAY-${String(payment.id).padStart(6, '0')}`}</td>
                   <td>{payment.staff_name || 'Unknown'}</td>
                   <td>ETB {Number(payment.amount || 0).toFixed(2)}</td>
-                  <td><span className="badge badge-primary">{payment.payment_frequency || 'monthly'}</span></td>
-                  <td><span className="badge badge-secondary">{payment.payout_mode || 'pay_now'}</span></td>
-                  <td>{payment.payroll_month || '-'}</td>
                   <td>{new Date(payment.payment_date).toLocaleDateString()}</td>
                   <td>{isPaymentEditable(payment) ? <span className="badge badge-warning"><Clock size={12} className="me-1" />{minutesRemaining(payment)}m left</span> : <span className="badge badge-secondary">Locked</span>}</td>
                   <td><button className="btn btn-sm btn-outline-secondary" onClick={() => setNotePreview(getReadableNote(payment.notes)) }><Eye size={14} /> View</button></td><td>
@@ -259,6 +283,7 @@ export default function StaffPaymentsPage() {
                   </td>
                 </tr>
               ))}
+              {!filteredPayments.length && <tr><td colSpan="7" className="text-center text-muted">No payments match the current filters.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -270,14 +295,11 @@ export default function StaffPaymentsPage() {
             <div className="modal-header"><h3>{editingPayment ? 'Edit Payment' : 'Create Payment'}</h3><button className="close-btn" onClick={() => setShowForm(false)}><X size={18} /></button></div>
             <form className="modal-body" onSubmit={handleSubmit}>
               <div className="row g-3">
-                {suggestedPayment && <div className="col-12"><div className="alert alert-info" style={{ display: "flex", flexWrap: "wrap", gap: "0.65rem", alignItems: "center", justifyContent: "space-between" }}><div style={{ fontSize: "0.95rem" }}>Worked days since last payment: <strong>{suggestedPayment.workedDays}</strong> • Daily rate: <strong>ETB {suggestedPayment.dailyRate.toFixed(2)}</strong> • Suggested payout: <strong>ETB {suggestedPayment.recommendedAmount.toFixed(2)}</strong></div><button type="button" className="btn btn-sm btn-outline-primary" onClick={() => setFormData((prev) => ({ ...prev, amount: suggestedPayment.recommendedAmount.toFixed(2) }))}>Use Suggested</button></div></div>}
+                {suggestedPayment && <div className="col-12"><div className="alert alert-info" style={{ display: 'grid', gap: '0.75rem' }}><div style={{ fontSize: '1rem', lineHeight: 1.6 }}>Worked days since last payment: <strong>{suggestedPayment.workedDays}</strong> • Daily rate: <strong>ETB {suggestedPayment.dailyRate.toFixed(2)}</strong> • Suggested payout: <strong>ETB {suggestedPayment.recommendedAmount.toFixed(2)}</strong></div><button type="button" className="btn btn-primary" style={{ width: '100%' }} onClick={() => setFormData((prev) => ({ ...prev, amount: suggestedPayment.recommendedAmount.toFixed(2) }))}>Use Suggested Amount</button></div></div>}
 
                 <div className="col-md-6"><label className="form-label">Staff *</label><select className="form-select" value={formData.staff_profile_id} onChange={(e) => handleStaffSelect(e.target.value)} required><option value="">Select staff</option>{staffMembers.map((staff) => <option key={staff.id} value={staff.id}>{staff.full_name}</option>)}</select></div>
                 <div className="col-md-6"><label className="form-label">Amount *</label><input type="number" min="0" step="0.01" className="form-control" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required /></div>
-                <div className="col-md-4"><label className="form-label">Payment Date *</label><input type="date" className="form-control" value={formData.payment_date} onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })} required /></div>
-                <div className="col-md-4"><label className="form-label">Frequency *</label><select className="form-select" value={formData.payment_frequency} onChange={(e) => setFormData({ ...formData, payment_frequency: e.target.value })}>{FREQUENCY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
-                <div className="col-md-4"><label className="form-label">Payout *</label><select className="form-select" value={formData.payout_mode} onChange={(e) => setFormData({ ...formData, payout_mode: e.target.value })}><option value="pay_now">Pay Now</option><option value="pay_to_month">Pay to Month</option></select></div>
-                <div className="col-md-4"><label className="form-label">Payroll Month</label><input type="month" className="form-control" value={formData.payroll_month} onChange={(e) => setFormData({ ...formData, payroll_month: e.target.value })} /></div>
+                <div className="col-md-4"><label className="form-label">Payment Date *</label><input type="date" className="form-control" value={formData.payment_date} onChange={(e) => { const nextDate = e.target.value; setFormData({ ...formData, payment_date: nextDate }); if (formData.staff_profile_id) { const selected = staffMembers.find((st) => Number(st.id) === Number(formData.staff_profile_id)); if (selected) { const staffPayments = payments.filter((payment) => Number(payment.staff_profile_id) === Number(formData.staff_profile_id)).sort((a, b) => new Date(b.payment_date || b.created_at || 0).getTime() - new Date(a.payment_date || a.created_at || 0).getTime()); const lastPaymentDate = staffPayments[0]?.payment_date ? new Date(staffPayments[0].payment_date) : null; const targetDate = nextDate ? new Date(nextDate) : new Date(); const workedDays = lastPaymentDate ? Math.max(1, Math.ceil((targetDate - lastPaymentDate) / (1000 * 60 * 60 * 24))) : 30; const monthlySalary = Number(selected.monthly_salary || 0); const dailyRate = monthlySalary > 0 ? (monthlySalary / 30) : 0; const recommendedAmount = Math.max(0, dailyRate * workedDays); setSuggestedPayment({ workedDays, dailyRate, recommendedAmount, lastPaymentDate }); } } }} required /></div>
                 <div className="col-12"><label className="form-label">Notes</label><textarea rows="5" className="form-control" style={{ minHeight: "160px", fontSize: "0.98rem" }} value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} /></div>
               </div>
               <div className="modal-footer mt-3"><button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancel</button><button type="submit" className="btn btn-primary">{editingPayment ? 'Update Payment' : 'Pay Now'}</button></div>

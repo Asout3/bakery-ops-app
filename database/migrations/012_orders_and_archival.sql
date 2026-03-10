@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS customer_orders (
     pickup_at TIMESTAMP NOT NULL,
     total_amount NUMERIC(12,2) NOT NULL,
     paid_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-    payment_method VARCHAR(20) NOT NULL DEFAULT 'cash' CHECK (payment_method IN ('cash', 'mobile')),
+    payment_method VARCHAR(20) NOT NULL DEFAULT 'cash' CHECK (payment_method IN ('cash', 'mobile', 'telebirr')),
     status VARCHAR(30) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'in_production', 'ready', 'delivered', 'cancelled', 'overdue')),
     baked_done BOOLEAN NOT NULL DEFAULT false,
     baked_done_by INTEGER REFERENCES users(id) ON DELETE SET NULL,

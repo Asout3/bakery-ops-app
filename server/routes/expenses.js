@@ -178,6 +178,11 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (re
 
     const params = [locationId];
 
+    if (req.user.role === 'manager') {
+      params.push(req.user.id);
+      queryText += ` AND e.created_by = $${params.length}`;
+    }
+
     if (startDate) {
       params.push(startDate);
       queryText += ` AND e.expense_date >= $${params.length}`;
@@ -398,6 +403,11 @@ router.get('/summary/categories', authenticateToken, authorizeRoles('admin', 'ma
     `;
 
     const params = [locationId];
+
+    if (req.user.role === 'manager') {
+      params.push(req.user.id);
+      queryText += ` AND e.created_by = $${params.length}`;
+    }
 
     if (startDate) {
       params.push(startDate);

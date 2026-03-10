@@ -21,3 +21,11 @@ If you are developing a production application, we recommend using TypeScript wi
 - Admin Sales page now includes a Sales/Batch Performance toggle.
 - Cashier sales flow now supports grouped products with variant-selection modal.
 - Admin/Manager expense pages use dynamic expense categories and show formatted expense IDs.
+
+- Cashier pre-order form was redesigned for clearer money inputs (unit price auto-fill, live total/paid/remaining summary) and offline product dropdown continuity via cached products.
+- Admin and manager order tables now provide a View Note action and larger note inputs for better operational visibility.
+
+- Payment method options now include Telebirr in cashier/admin sales flows and pre-order payment selection.
+- Manager order actions now prevent restarting already-ready pre-orders, and finalized orders are protected from further edits.
+
+- Staff Payments UI now includes quick search + frequency filtering, a simplified pay form (removed frequency/payroll-month inputs), and improved suggested-payment readability/interactions.

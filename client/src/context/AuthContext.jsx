@@ -22,9 +22,13 @@ export const AuthProvider = ({ children }) => {
         const response = await api.get('/auth/me', { headers: { 'X-Skip-Auth-Redirect': 'true' } });
         persistSession({ user: response.data });
         setUser(response.data);
-      } catch {
-        clearSession();
-        setUser(null);
+      } catch (err) {
+        if (!err?.response) {
+          setUser(session.user);
+        } else {
+          clearSession();
+          setUser(null);
+        }
       } finally {
         setLoading(false);
       }
@@ -57,7 +61,9 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await api.post('/auth/logout', { refresh_token: getRefreshToken() }, { headers: { 'X-Skip-Auth-Redirect': 'true' } });
-    } catch {}
+    } catch {
+      return;
+    }
     clearSession();
     setUser(null);
   };

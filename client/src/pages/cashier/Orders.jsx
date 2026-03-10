@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { enqueueOperation } from '../../utils/offlineQueue';
+import './Orders.css';
 
+const PRODUCT_CACHE_KEY = 'orders.products.cache.v1';
 const emptyItem = { product_id: '', custom_item_name: '', quantity: 1, unit_price: '' };
 
 export default function CashierOrders() {
@@ -19,15 +21,51 @@ export default function CashierOrders() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
-  const [nowTs, setNowTs] = useState(Date.now());
+  const [noteViewerOrder, setNoteViewerOrder] = useState(null);
+  const [nowTs, setNowTs] = useState(() => Date.now());
 
   const activeProducts = useMemo(() => products.filter((p) => p.is_active !== false), [products]);
 
+  const productById = useMemo(() => {
+    const map = new Map();
+    activeProducts.forEach((product) => map.set(String(product.id), product));
+    return map;
+  }, [activeProducts]);
+
+  const calculatedTotal = useMemo(() => form.items.reduce((sum, item) => {
+    const qty = Math.max(1, Number(item.quantity || 1));
+    const unitPrice = Number(item.unit_price || 0);
+    return sum + (qty * unitPrice);
+  }, 0), [form.items]);
+
+  const calculatedPaid = Number(form.paid_amount || 0);
+  const calculatedBalance = Math.max(calculatedTotal - calculatedPaid, 0);
+
+  const resetForm = () => setForm({ customer_name: '', customer_phone: '', customer_note: '', pickup_at: '', payment_method: 'cash', paid_amount: '', items: [{ ...emptyItem }] });
+
   const load = async () => {
     try {
-      const [ordersRes, productsRes] = await Promise.all([api.get('/orders'), api.get('/products')]);
-      setOrders(ordersRes.data || []);
-      setProducts(productsRes.data || []);
+      const [ordersRes, productsRes] = await Promise.allSettled([api.get('/orders'), api.get('/products')]);
+
+      if (ordersRes.status === 'fulfilled') {
+        setOrders(ordersRes.value.data || []);
+      } else {
+        setMessage({ type: 'danger', text: getErrorMessage(ordersRes.reason, 'Failed to load pre-orders.') });
+      }
+
+      if (productsRes.status === 'fulfilled') {
+        const serverProducts = productsRes.value.data || [];
+        setProducts(serverProducts);
+        localStorage.setItem(PRODUCT_CACHE_KEY, JSON.stringify(serverProducts));
+      } else {
+        const cachedProducts = localStorage.getItem(PRODUCT_CACHE_KEY);
+        if (cachedProducts) {
+          setProducts(JSON.parse(cachedProducts));
+          setMessage({ type: 'warning', text: 'Offline mode: using cached products for item selection.' });
+        } else {
+          setMessage({ type: 'danger', text: 'Could not load products and no offline cache is available.' });
+        }
+      }
     } catch (err) {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to load pre-orders.') });
     }
@@ -43,11 +81,31 @@ export default function CashierOrders() {
   }, []);
 
   const updateItem = (idx, key, value) => {
-    setForm((prev) => ({ ...prev, items: prev.items.map((item, i) => (i === idx ? { ...item, [key]: value } : item)) }));
+    setForm((prev) => {
+      const nextItems = prev.items.map((item, i) => {
+        if (i !== idx) return item;
+        const nextItem = { ...item, [key]: value };
+
+        if (key === 'product_id') {
+          if (value) {
+            const selectedProduct = productById.get(String(value));
+            nextItem.custom_item_name = '';
+            nextItem.unit_price = selectedProduct?.price !== undefined ? String(selectedProduct.price) : '';
+          } else {
+            nextItem.product_id = '';
+          }
+        }
+
+        return nextItem;
+      });
+      return { ...prev, items: nextItems };
+    });
   };
 
+  const removeRow = (idx) => setForm((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }));
   const addRow = () => setForm((prev) => ({ ...prev, items: [...prev.items, { ...emptyItem }] }));
 
+  const isFinalOrderState = (order) => ['picked_up', 'delivered', 'cancelled'].includes(order?.status);
 
   const canDeleteOrder = (order) => {
     const createdAt = order?.created_at ? new Date(order.created_at).getTime() : 0;
@@ -114,16 +172,23 @@ export default function CashierOrders() {
       return;
     }
 
+    const totalFromItems = payload.items.reduce((sum, item) => sum + (Number(item.unit_price || 0) * Number(item.quantity || 0)), 0);
+    if (Number(payload.paid_amount || 0) > totalFromItems) {
+      setMessage({ type: 'warning', text: 'Amount paid now cannot be greater than the order total.' });
+      setLoading(false);
+      return;
+    }
+
     try {
       await api.post('/orders', payload);
-      setForm({ customer_name: '', customer_phone: '', customer_note: '', pickup_at: '', payment_method: 'cash', paid_amount: '', items: [{ ...emptyItem }] });
+      resetForm();
       setMessage({ type: 'success', text: 'Pre-order created.' });
       load();
     } catch (err) {
       if (!err.response) {
         const idempotencyKey = `order-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         await enqueueOperation({ url: '/orders', method: 'post', data: payload, idempotencyKey });
-        setForm({ customer_name: '', customer_phone: '', customer_note: '', pickup_at: '', payment_method: 'cash', paid_amount: '', items: [{ ...emptyItem }] });
+        resetForm();
         setMessage({ type: 'warning', text: 'Offline: pre-order queued for sync.' });
       } else {
         setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to create pre-order.') });
@@ -145,20 +210,28 @@ export default function CashierOrders() {
             <div className="col-md-4"><label className="form-label">Customer Name *</label><input className="form-control" value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} required /></div>
             <div className="col-md-4"><label className="form-label">Phone *</label><input className="form-control" value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} required /></div>
             <div className="col-md-4"><label className="form-label">Pickup Time</label><input type="datetime-local" className="form-control" value={form.pickup_at} onChange={(e) => setForm({ ...form, pickup_at: e.target.value })} /></div>
-            <div className="col-md-4"><label className="form-label">Payment Method</label><select className="form-select" value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value })}><option value="cash">Cash</option><option value="mobile">Mobile</option></select></div>
-            <div className="col-md-4"><label className="form-label">Paid Amount</label><input type="number" step="0.01" min="0" className="form-control" value={form.paid_amount} onChange={(e) => setForm({ ...form, paid_amount: e.target.value })} /></div>
-            <div className="col-md-12"><label className="form-label">Customer Note</label><textarea className="form-control" rows="2" value={form.customer_note} onChange={(e) => setForm({ ...form, customer_note: e.target.value })} /></div>
+            <div className="col-md-4"><label className="form-label">Payment Method</label><select className="form-select" value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value })}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div>
+            <div className="col-md-4"><label className="form-label">Amount Paid Now</label><input type="number" step="0.01" min="0" className="form-control" value={form.paid_amount} onChange={(e) => setForm({ ...form, paid_amount: e.target.value })} /></div>
+            <div className="col-md-12"><label className="form-label">Customer Note</label><textarea className="form-control form-note-input" rows="4" placeholder="Special requests, allergy notes, delivery clues..." value={form.customer_note} onChange={(e) => setForm({ ...form, customer_note: e.target.value })} /></div>
           </div>
 
           <hr />
+          <h5 className="mb-3">Order Items</h5>
           {form.items.map((item, idx) => (
-            <div className="row g-2 mb-2" key={idx}>
-              <div className="col-md-4"><select className="form-select" value={item.product_id} onChange={(e) => updateItem(idx, 'product_id', e.target.value)}><option value="">Custom item</option>{activeProducts.map((p) => <option key={p.id} value={p.id}>{p.group_name || p.name} / {p.name}</option>)}</select></div>
-              <div className="col-md-4"><input className="form-control" placeholder="Custom item name" value={item.custom_item_name} onChange={(e) => updateItem(idx, 'custom_item_name', e.target.value)} disabled={!!item.product_id} /></div>
-              <div className="col-md-2"><input type="number" min="1" className="form-control" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} /></div>
-              <div className="col-md-2"><input type="number" min="0" step="0.01" className="form-control" placeholder="Unit price" value={item.unit_price} onChange={(e) => updateItem(idx, 'unit_price', e.target.value)} /></div>
+            <div className="row g-2 mb-2 align-items-end" key={idx}>
+              <div className="col-md-4"><label className="form-label">Product</label><select className="form-select" value={item.product_id} onChange={(e) => updateItem(idx, 'product_id', e.target.value)}><option value="">Custom item</option>{activeProducts.map((p) => <option key={p.id} value={p.id}>{p.group_name || p.name} / {p.name}</option>)}</select></div>
+              <div className="col-md-3"><label className="form-label">Custom item name</label><input className="form-control" placeholder="Use for non-product items" value={item.custom_item_name} onChange={(e) => updateItem(idx, 'custom_item_name', e.target.value)} disabled={!!item.product_id} /></div>
+              <div className="col-md-2"><label className="form-label">Qty</label><input type="number" min="1" className="form-control" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} /></div>
+              <div className="col-md-2"><label className="form-label">Unit price</label><input type="number" min="0" step="0.01" className="form-control" placeholder="0.00" value={item.unit_price} onChange={(e) => updateItem(idx, 'unit_price', e.target.value)} /></div>
+              <div className="col-md-1 d-grid"><button type="button" className="btn btn-outline-danger" onClick={() => removeRow(idx)} disabled={form.items.length === 1}>×</button></div>
             </div>
           ))}
+
+          <div className="order-money-summary mb-3">
+            <div><strong>Order Total:</strong> ETB {calculatedTotal.toFixed(2)}</div>
+            <div><strong>Paid:</strong> ETB {calculatedPaid.toFixed(2)}</div>
+            <div><strong>Remaining:</strong> ETB {calculatedBalance.toFixed(2)}</div>
+          </div>
 
           <div className="d-flex gap-2">
             <button type="button" className="btn btn-outline-secondary" onClick={addRow}>+ Add Item Row</button>
@@ -179,9 +252,12 @@ export default function CashierOrders() {
                   <td>{order.customer_name}<div className="text-muted small">{order.customer_phone}</div></td>
                   <td><span className="badge badge-primary">{order.status}</span></td>
                   <td>{order.prep_status} ({Number(order.prep_progress || 0)}%)</td>
-                  <td><span className={`badge ${order.payment_status === 'verified' ? 'badge-success' : 'badge-warning'}`}>{order.payment_status}</span></td>
+                  <td>
+                    ETB {Number(order.total_amount || 0).toFixed(2)} total / ETB {Number(order.paid_amount || 0).toFixed(2)} paid
+                    <span className={`badge ms-1 ${order.payment_status === 'verified' ? 'badge-success' : 'badge-warning'}`}>{order.payment_status}</span>
+                  </td>
                   <td>{new Date(order.pickup_at).toLocaleString()}</td>
-                  <td><div className="d-flex gap-2 align-items-center"><button className="btn btn-sm btn-outline-primary" onClick={() => setEditingOrder({ ...order })}>Edit</button>{canDeleteOrder(order) && <button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button>}{canDeleteOrder(order) ? <span className="badge badge-warning">Delete: {minutesLeft(order)}m left</span> : <span className="badge badge-secondary">Delete locked</span>}</div></td>
+                  <td><div className="d-flex gap-2 align-items-center flex-wrap"><button className="btn btn-sm btn-outline-info" onClick={() => setNoteViewerOrder(order)}>View Note</button>{!isFinalOrderState(order) && <button className="btn btn-sm btn-outline-primary" onClick={() => setEditingOrder({ ...order })}>Edit</button>}{canDeleteOrder(order) && !isFinalOrderState(order) && <button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button>}{!isFinalOrderState(order) && (canDeleteOrder(order) ? <span className="badge badge-warning">Delete: {minutesLeft(order)}m left</span> : <span className="badge badge-secondary">Delete locked</span>)}</div></td>
                 </tr>
               ))}
               {!orders.length && <tr><td colSpan="7" className="text-center text-muted">No pre-orders</td></tr>}
@@ -198,8 +274,8 @@ export default function CashierOrders() {
               <div className="row g-2">
                 <div className="col-md-6"><label className="form-label">Customer Name</label><input className="form-control" value={editingOrder.customer_name || ''} onChange={(e) => setEditingOrder((p) => ({ ...p, customer_name: e.target.value }))} /></div>
                 <div className="col-md-6"><label className="form-label">Phone</label><input className="form-control" value={editingOrder.customer_phone || ''} onChange={(e) => setEditingOrder((p) => ({ ...p, customer_phone: e.target.value }))} /></div>
-                <div className="col-md-6"><label className="form-label">Pickup</label><input type="datetime-local" className="form-control" value={(editingOrder.pickup_at || '').slice(0,16)} onChange={(e) => setEditingOrder((p) => ({ ...p, pickup_at: e.target.value }))} /></div>
-                <div className="col-md-12"><label className="form-label">Note</label><textarea rows="4" className="form-control" value={editingOrder.customer_note || ''} onChange={(e) => setEditingOrder((p) => ({ ...p, customer_note: e.target.value }))} /></div>
+                <div className="col-md-6"><label className="form-label">Pickup</label><input type="datetime-local" className="form-control" value={(editingOrder.pickup_at || '').slice(0, 16)} onChange={(e) => setEditingOrder((p) => ({ ...p, pickup_at: e.target.value }))} /></div>
+                <div className="col-md-12"><label className="form-label">Note</label><textarea rows="5" className="form-control form-note-input" value={editingOrder.customer_note || ''} onChange={(e) => setEditingOrder((p) => ({ ...p, customer_note: e.target.value }))} /></div>
               </div>
             </div>
             <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setEditingOrder(null)}>Cancel</button><button className="btn btn-primary" onClick={updateOrder}>Save</button></div>
@@ -207,6 +283,15 @@ export default function CashierOrders() {
         </div>
       )}
 
+      {noteViewerOrder && (
+        <div className="modal-overlay" onClick={() => setNoteViewerOrder(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Customer Note</h3><button className="close-btn" onClick={() => setNoteViewerOrder(null)}>×</button></div>
+            <div className="modal-body"><p className="note-viewer-text">{noteViewerOrder.customer_note || 'No note added for this pre-order.'}</p></div>
+            <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setNoteViewerOrder(null)}>Close</button></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

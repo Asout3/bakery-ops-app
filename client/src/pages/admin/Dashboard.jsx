@@ -24,8 +24,6 @@ import './Dashboard.css';
 
 const formatMoney = (value) => `ETB ${Number(value || 0).toFixed(2)}`;
 const formatShortDate = (value) => new Date(value).toLocaleDateString();
-const boolFlag = (value) => value === true || value === 'true' || value === 't' || value === 1 || value === '1';
-
 export default function Dashboard() {
   const { selectedLocationId } = useBranch();
   const { user } = useAuth();
@@ -37,7 +35,6 @@ export default function Dashboard() {
   const [monthValue, setMonthValue] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
 
   const [report, setReport] = useState(null);
-  const [kpis, setKpis] = useState(null);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -46,7 +43,6 @@ export default function Dashboard() {
     const loadReport = async () => {
       if (user?.role === 'admin' && !selectedLocationId) {
         setReport(null);
-        setKpis(null);
         setLoading(false);
         return;
       }
@@ -67,15 +63,10 @@ export default function Dashboard() {
         setReport(reportRes.data || null);
 
         if (user?.role === 'admin') {
-          const [kpiRes, ordersRes] = await Promise.all([
-            api.get('/reports/kpis'),
-            api.get('/orders', { params: { include_completed: true } }),
-          ]);
-          setKpis(kpiRes.data || null);
+          const ordersRes = await api.get('/orders', { params: { include_completed: true } });
           setOrders(ordersRes.data || []);
         } else {
-          setKpis(null);
-          setOrders([]);
+            setOrders([]);
         }
       } catch (err) {
         setError(err?.response?.data?.error || err?.message || 'Failed to load dashboard data.');
@@ -136,36 +127,39 @@ export default function Dashboard() {
     }
 
     if (period === 'daily') {
-      const revenue = Number(report.sales?.total_sales || 0);
+      const baseRevenue = Number(report.sales?.total_sales || 0);
       const transactions = Number(report.sales?.total_transactions || 0);
       const expenses = Number(report.expenses?.total_expenses || 0);
       const staffPayments = Number(report.staff_payments?.total_staff_payments || 0);
       const batchCosts = Number(report.profit?.batch_costs || report.details?.batches?.total_batch_cost || 0);
       const totalCosts = Number(report.profit?.total_costs || expenses + staffPayments + batchCosts);
-      const netProfit = Number(report.profit?.net_profit || revenue - totalCosts);
-      return { revenue, transactions, expenses, staffPayments, batchCosts, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
+      const revenue = baseRevenue + orderPerformance.revenue;
+      const netProfit = Number(report.profit?.net_profit || baseRevenue - totalCosts) + orderPerformance.revenue;
+      return { revenue, transactions: transactions + orderPerformance.count, expenses, staffPayments, batchCosts, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
     }
 
     if (period === 'weekly') {
-      const revenue = Number(report.summary?.total_sales || 0);
+      const baseRevenue = Number(report.summary?.total_sales || 0);
       const transactions = Number(report.summary?.total_transactions || 0);
       const expenses = Number(report.summary?.total_expenses || 0);
       const staffPayments = Number(report.summary?.total_staff_payments || 0);
       const batchCosts = Number(report.summary?.total_batch_costs || report.details?.batches?.total_batch_cost || 0);
       const totalCosts = Number(report.summary?.total_costs || expenses + staffPayments + batchCosts);
-      const netProfit = Number(report.summary?.net_profit || revenue - totalCosts);
-      return { revenue, transactions, expenses, staffPayments, batchCosts, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
+      const revenue = baseRevenue + orderPerformance.revenue;
+      const netProfit = Number(report.summary?.net_profit || baseRevenue - totalCosts) + orderPerformance.revenue;
+      return { revenue, transactions: transactions + orderPerformance.count, expenses, staffPayments, batchCosts, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
     }
 
-    const revenue = Number(report.sales?.total_sales || 0);
+    const baseRevenue = Number(report.sales?.total_sales || 0);
     const transactions = Number(report.sales?.total_transactions || 0);
     const expenses = Number(report.expenses?.total_expenses || 0);
     const staffPayments = Number(report.staff_payments?.total_staff_payments || 0);
     const batchCosts = Number(report.costs?.batch_costs || report.details?.batches?.total_batch_cost || 0);
     const totalCosts = Number(report.costs?.total_costs || expenses + staffPayments + batchCosts);
-    const netProfit = Number(report.profit?.net_profit || revenue - totalCosts);
-    return { revenue, transactions, expenses, staffPayments, batchCosts, totalCosts, netProfit };
-  }, [report, period]);
+    const revenue = baseRevenue + orderPerformance.revenue;
+    const netProfit = Number(report.profit?.net_profit || baseRevenue - totalCosts) + orderPerformance.revenue;
+    return { revenue, transactions: transactions + orderPerformance.count, expenses, staffPayments, batchCosts, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
+  }, [report, period, orderPerformance]);
 
   const topProducts = report?.top_products || [];
   const paymentMethods = report?.payment_methods || [];
@@ -221,7 +215,7 @@ export default function Dashboard() {
       <div className="period-chip">{periodLabel}</div>
 
       <div className="stats-grid">
-        <StatCard icon={<DollarSign size={18} />} label={`${period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly'} Sales`} value={formatMoney(totals.revenue)} sub={`${totals.transactions} transactions`} />
+        <StatCard icon={<DollarSign size={18} />} label={`${period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly'} Revenue`} value={formatMoney(totals.revenue)} sub={`${totals.transactions} sales + picked-up orders`} />
         <StatCard icon={<Receipt size={18} />} label={`${period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly'} Expenses`} value={formatMoney(totals.expenses)} sub={`${expenseRows.length} expense entries`} />
         <StatCard icon={<Users size={18} />} label="Staff Payments" value={formatMoney(totals.staffPayments)} sub={`${staffPaymentRows.length} payments`} />
         <StatCard icon={<Wallet size={18} />} label="Net Profit" value={formatMoney(totals.netProfit)} sub="Revenue - all costs" tone={totals.netProfit >= 0 ? 'success' : 'danger'} />

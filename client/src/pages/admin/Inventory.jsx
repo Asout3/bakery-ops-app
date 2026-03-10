@@ -109,7 +109,7 @@ export default function AdminInventory() {
       product_id: Number(formData.product_id),
       location_id: Number(selectedLocationId),
       quantity: Number(formData.quantity),
-      source: formData.source,
+      source: formData.source || 'baked',
     };
 
     try {
@@ -173,6 +173,7 @@ export default function AdminInventory() {
 
   const filteredInventory = inventory.filter((item) => {
     const product = products.find((p) => Number(p.id) === Number(item.product_id));
+    if (!product || product.is_active === false) return false;
     const text = `${product?.group_name || product?.name || ''} ${product?.name || ''}`.toLowerCase();
     return text.includes(search.toLowerCase());
   });
@@ -219,19 +220,18 @@ export default function AdminInventory() {
       </div>
 
       {Object.keys(groupedInventory).sort((a, b) => a.localeCompare(b)).map((group) => (
-        <div className="card mb-3" key={group}><div className="card-header"><h4 className="mb-0">{group}</h4></div><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>ID</th><th>Variant</th><th>Quantity</th><th>Last Updated</th><th>Updated By</th><th>Source</th><th>Actions</th></tr></thead><tbody>
+        <div className="card mb-3" key={group}><div className="card-header"><h4 className="mb-0">{group}</h4></div><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>Inventory ID</th><th>Variant</th><th>Quantity</th><th>Last Updated</th><th>Source</th><th>Actions</th></tr></thead><tbody>
           {groupedInventory[group].map(({ item, product }) => (
             <tr key={item.id}>
-              <td>{item.id}</td>
+              <td>{`INV-${String(item.id).padStart(6, '0')}`}</td>
               <td>{product?.name || item.product_id}{product?.is_active === false && <span className="badge badge-warning ms-2">Archived</span>}</td>
               <td><span className={`badge ${Number(item.quantity) <= 5 ? 'badge-warning' : 'badge-success'}`}>{item.quantity}</span>{item.is_pending_sync && <span className="badge badge-info" style={{ marginLeft: '0.4rem' }}>Pending Sync</span>}</td>
               <td>{new Date(item.last_updated).toLocaleDateString()}</td>
-              <td>{item.last_updated_by_name || 'System'}</td>
               <td><span className={`badge ${item.source === 'baked' ? 'badge-info' : 'badge-secondary'}`}>{item.source}</span></td>
-              <td>
-                <button className="btn btn-sm btn-outline-primary me-2" onClick={() => { setEditingItem(item); setFormData({ product_id: item.product_id, quantity: item.quantity, source: item.source || 'baked' }); setShowForm(true); }}><Edit size={14} /></button>
+              <td><div className="btn-group" role="group">
+                <button className="btn btn-sm btn-outline-primary" onClick={() => { setEditingItem(item); setFormData({ product_id: item.product_id, quantity: item.quantity, source: item.source || 'baked' }); setShowForm(true); }}><Edit size={14} /></button>
                 <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(item.id)}><Trash2 size={14} /></button>
-              </td>
+              </div></td>
             </tr>
           ))}
         </tbody></table></div></div></div>
@@ -242,7 +242,7 @@ export default function AdminInventory() {
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header"><h3>{editingItem ? 'Edit Inventory Item' : 'Add New Inventory Item'}</h3><button className="close-btn" onClick={resetForm}>×</button></div>
             <form onSubmit={handleSubmit} className="modal-body">
-              <div className="mb-3"><label className="form-label">Product *</label><select className="form-select" value={formData.product_id} onChange={(e) => setFormData({ ...formData, product_id: e.target.value })} required><option value="">Select Product Variant</option>{availableProductsForCreate.map((product) => (<option key={product.id} value={product.id}>{`${product.group_name || product.name} / ${product.name}`}</option>))}</select></div>
+              <div className="mb-3"><label className="form-label">Product *</label><select className="form-select" value={formData.product_id} onChange={(e) => setFormData({ ...formData, product_id: e.target.value })} required disabled={!!editingItem}><option value="">Select Product Variant</option>{availableProductsForCreate.map((product) => (<option key={product.id} value={product.id}>{`${product.group_name || product.name} / ${product.name}`}</option>))}</select>{editingItem && <small className="text-muted">Product cannot be changed when editing inventory. Only quantity is editable.</small>}</div>
               <div className="mb-3"><label className="form-label">Quantity *</label><input type="number" className="form-control" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} required /></div>
               <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForm}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : editingItem ? 'Update' : 'Add'} Item</button></div>
             </form>
