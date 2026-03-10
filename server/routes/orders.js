@@ -294,7 +294,7 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager', 'cash
 
       let nextPaidAmount = paid_amount === undefined ? Number(order.paid_amount || 0) : normalizeNumber(paid_amount, Number(order.paid_amount || 0));
       if (verify_payment === true) nextPaidAmount = effectiveTotalAmount;
-      if (nextPaidAmount > effectiveTotalAmount) {
+      if ((paid_amount !== undefined || verify_payment === true) && nextPaidAmount > effectiveTotalAmount) {
         const e = new Error('Paid amount cannot be greater than order total.');
         e.status = 400;
         e.code = 'ORDER_OVERPAY_NOT_ALLOWED';

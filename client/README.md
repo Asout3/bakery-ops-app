@@ -28,4 +28,4 @@ If you are developing a production application, we recommend using TypeScript wi
 - Payment method options now include Telebirr in cashier/admin sales flows and pre-order payment selection.
 - Manager order actions now prevent restarting already-ready pre-orders, and finalized orders are protected from further edits.
 
-- Staff Payments UI now includes quick search + frequency filtering, payout-mode-aware payroll month behavior, and improved suggested-payment interactions to reduce entry errors.
+- Staff Payments UI now includes quick search + frequency filtering, a simplified pay form (removed frequency/payroll-month inputs), and improved suggested-payment readability/interactions.

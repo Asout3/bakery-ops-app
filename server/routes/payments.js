@@ -283,7 +283,7 @@ router.get('/summary', authenticateToken, authorizeRoles('admin'), async (req, r
     queryText += ' GROUP BY COALESCE(u.id, fp.id), COALESCE(u.username, fp.full_name), COALESCE(u.role, fp.role_preference) ORDER BY total_paid DESC';
 
     const result = await query(queryText, params);
-    res.json({ location_id: locationId, rows: result.rows });
+    res.json(result.rows);
   } catch (err) {
     console.error('Get payment summary error:', err);
     res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'PAYMENT_SUMMARY_FETCH_ERROR', requestId: req.requestId });
