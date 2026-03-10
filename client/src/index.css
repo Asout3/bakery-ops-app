@@ -23,6 +23,14 @@
   --radius-sm: 10px;
   --radius: 14px;
   --radius-lg: 18px;
+
+  --bg-primary: var(--card-bg);
+  --bg-secondary: var(--primary-bg);
+  --bg-tertiary: var(--surface-bg);
+  --text-light: var(--text-muted);
+  --border: var(--input-border);
+  --border-light: var(--accent-border);
+  --primary: var(--button-mid);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
@@ -32,6 +40,32 @@ body { min-height: 100vh; background: var(--primary-bg); color: var(--text-prima
 h1,h2,h3,h4,h5 { color: var(--text-primary); line-height: 1.2; }
 p,small,span,label { color: var(--text-secondary); }
 button,input,textarea,select { font: inherit; }
+
+
+[data-theme='dark'] {
+  --primary-bg: #1f1712;
+  --card-bg: #2a1f18;
+  --surface-bg: #352820;
+  --text-primary: #f7efe7;
+  --text-secondary: #dfc2aa;
+  --text-muted: #c49d7d;
+  --text-error: #ffb4a8;
+  --input-border: #7f624f;
+  --focus-border: #f4a261;
+  --focus-shadow: rgba(244,162,97,0.24);
+  --error-bg: #4b2a21;
+  --error-border: #8b4c3d;
+  --accent-border: rgba(247, 178, 120, 0.28);
+  --shadow-sm: 0 10px 24px rgba(0,0,0,0.35);
+  --shadow-md: 0 16px 36px rgba(0,0,0,0.45);
+  --bg-primary: var(--card-bg);
+  --bg-secondary: var(--primary-bg);
+  --bg-tertiary: var(--surface-bg);
+  --text-light: var(--text-muted);
+  --border: var(--input-border);
+  --border-light: var(--accent-border);
+  --primary: var(--button-mid);
+}
 
 .btn {
   border: 0;
@@ -60,6 +94,11 @@ button,input,textarea,select { font: inherit; }
 .btn-danger:hover:not(:disabled) { background: #9f3924; }
 .btn-outline-secondary { background: transparent; border: 1px solid var(--input-border); color: var(--text-secondary); }
 .btn-outline-danger { background: transparent; border: 1px solid #b7432b; color: #b7432b; }
+
+.btn-outline-primary { background: transparent; border: 1px solid var(--button-mid); color: var(--text-secondary); }
+.btn-outline-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--button-mid) 18%, transparent); }
+.btn-outline-success { background: transparent; border: 1px solid #3f8f4f; color: #3f8f4f; }
+.btn-outline-info { background: transparent; border: 1px solid #8d5a3b; color: #8d5a3b; }
 .btn-sm { min-height: 2.2rem; padding: 0.45rem .8rem; font-size: .82rem; }
 .btn-lg { min-height: 2.9rem; }
 

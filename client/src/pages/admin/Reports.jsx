@@ -20,16 +20,11 @@ import { useBranch } from '../../context/BranchContext';
 import { createPdfBlob, createXlsxBlob } from '../../utils/reportExportGenerators';
 import './Reports.css';
 import { formatCurrencyETB } from '../../utils/currency';
+import { useLanguage } from '../../context/LanguageContext';
 
 const COLORS = ['#0ea5e9', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6'];
 
-const PERIODS = [
-  { key: 'daily', label: 'Daily' },
-  { key: 'weekly', label: 'Weekly' },
-  { key: 'monthly', label: 'Monthly' },
-  { key: 'six_month', label: 'Last 6 Months' },
-  { key: 'custom', label: 'Custom Range' },
-];
+const PERIODS = ['daily', 'weekly', 'monthly', 'six_month', 'custom'];
 
 function toDate(value) {
   return new Date(value).toISOString().split('T')[0];
@@ -105,9 +100,9 @@ function healthScore(current, growthRate) {
 }
 
 function healthStatus(score) {
-  if (score >= 75) return { label: 'Healthy', className: 'healthy' };
-  if (score >= 50) return { label: 'Moderate', className: 'moderate' };
-  return { label: 'Risk', className: 'risk' };
+  if (score >= 75) return { key: 'healthy', className: 'healthy' };
+  if (score >= 50) return { key: 'moderate', className: 'moderate' };
+  return { key: 'risk', className: 'risk' };
 }
 
 function parseHour(dateTime) {
@@ -119,8 +114,45 @@ function parseHour(dateTime) {
 
 const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+const reportLocale = {
+  en: {
+    daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', six_month: 'Last 6 Months', custom: 'Custom Range',
+    reportsAdvanced: 'Advanced Reports & Insights', kpi: 'Key Performance Indicators',
+    businessHealth: 'Business Health Score', filters: 'Time Filters', revenueTrend: 'Revenue & Cost Trend',
+    profitability: 'Profitability Overview', productAnalytics: 'Product Analytics', topRevenue: 'Top Revenue Products',
+    mostProfitable: 'Most Profitable Products', slowMoving: 'Slow Moving Products', operationsRhythm: 'Operations Rhythm',
+    staffPerformance: 'Staff Performance', expenseAnalytics: 'Expense Analytics', expenseTrend: 'Expense Trend',
+    smartInsights: 'Smart Insights', downloadAs: 'Download Report As',
+    healthy: 'Healthy', moderate: 'Moderate', risk: 'Risk',
+    product: 'Product', unitsSold: 'Units Sold', revenue: 'Revenue', contribution: '% Contribution',
+    productionCost: 'Production Cost', profit: 'Profit', margin: 'Margin %', warning: 'Warning', overproductionRisk: 'Overproduction Risk',
+    staff: 'Staff', role: 'Role', sales: 'Sales', transactions: 'Transactions', avgOrder: 'Avg Order', efficiencyScore: 'Efficiency Score', rank: 'Rank',
+    topPerformer: 'Top Performer', expenseRatio: 'Expense Ratio %',
+    fullExport: 'Full Export (Executive PDF + Detailed PDF + CSV + XLSX)', executivePdf: 'Executive PDF Report',
+    detailedPdf: 'Detailed PDF Report', csvRaw: 'CSV (Raw Data)', excel: 'Excel (.xlsx)', staffPayments: 'Staff Payments', revenueVsCost: 'Revenue vs Cost Analytics', profitabilityTitle: 'Profitability', grossProfit: 'Gross Profit', netProfit: 'Net Profit', expenseToRevenue: 'Expense-to-Revenue Ratio %', revenueVsCostBreakdown: 'Revenue vs Cost Breakdown', peakSalesHour: 'Peak Sales Hour', bestSalesDay: 'Best Sales Day', lowestSalesDay: 'Lowest Sales Day', unknown: 'Unknown', other: 'Other', ingredients: 'Ingredients', utilities: 'Utilities', maintenance: 'Maintenance', taxes: 'Taxes', staffPayroll: 'Staff Payroll', breakdown: 'Breakdown', salesTrendIntel: 'Sales Trend Intelligence', bestDayOfWeek: 'Best Performing Day of Week', avgTxValue: 'Average Transaction Value', avgItemsTx: 'Average Items per Transaction', salesByHour: 'Sales by Hour (Heatmap style)', staffReport: 'Staff Performance Report', staffName: 'Staff Name', totalSales: 'Total Sales', avgOrderValue: 'Avg Order Value', na: 'N/A' 
+  },
+  am: {
+    daily: 'ዕለታዊ', weekly: 'ሳምንታዊ', monthly: 'ወርሃዊ', six_month: 'ያለፉት 6 ወራት', custom: 'የብጁ ክልል',
+    reportsAdvanced: 'የላቀ ሪፖርቶች እና ግንዛቤዎች', kpi: 'ቁልፍ የአፈጻጸም መለኪያዎች',
+    businessHealth: 'የንግድ ጤና ነጥብ', filters: 'የጊዜ ማጣሪያዎች', revenueTrend: 'የገቢ እና ወጪ አዝማሚያ',
+    profitability: 'የትርፍ አጠቃላይ', productAnalytics: 'የምርት ትንተና', topRevenue: 'ከፍተኛ ገቢ ምርቶች',
+    mostProfitable: 'ከፍተኛ ትርፍ ምርቶች', slowMoving: 'በዝግታ የሚሸጡ ምርቶች', operationsRhythm: 'የስራ እንቅስቃሴ ሪዝም',
+    staffPerformance: 'የሰራተኛ አፈጻጸም', expenseAnalytics: 'የወጪ ትንተና', expenseTrend: 'የወጪ አዝማሚያ',
+    smartInsights: 'ስማርት ግንዛቤዎች', downloadAs: 'ሪፖርት እንደ',
+    healthy: 'ጤናማ', moderate: 'መካከለኛ', risk: 'አደጋ',
+    product: 'ምርት', unitsSold: 'የተሸጠ መጠን', revenue: 'ገቢ', contribution: 'የአስተዋጽኦ %',
+    productionCost: 'የምርት ወጪ', profit: 'ትርፍ', margin: 'ማርጅን %', warning: 'ማስጠንቀቂያ', overproductionRisk: 'የከመጠን በላይ ምርት አደጋ',
+    staff: 'ሰራተኛ', role: 'ሚና', sales: 'ሽያጭ', transactions: 'ግብይቶች', avgOrder: 'አማካይ ትዕዛዝ', efficiencyScore: 'የብቃት ነጥብ', rank: 'ደረጃ',
+    topPerformer: 'ከፍተኛ አፈጻጸም', expenseRatio: 'የወጪ መጠን %',
+    fullExport: 'ሙሉ ማውጫ (Executive PDF + Detailed PDF + CSV + XLSX)', executivePdf: 'Executive PDF ሪፖርት',
+    detailedPdf: 'Detailed PDF ሪፖርት', csvRaw: 'CSV (Raw Data)', excel: 'ኤክሴል (.xlsx)', staffPayments: 'የሰራተኛ ክፍያ', revenueVsCost: 'የገቢ ከወጪ ጋር ትንተና', profitabilityTitle: 'ትርፋማነት', grossProfit: 'ጠቅላላ ትርፍ', netProfit: 'ንጹህ ትርፍ', expenseToRevenue: 'የወጪ-ወደ-ገቢ መጠን %', revenueVsCostBreakdown: 'የገቢ እና ወጪ ክፍፍል', peakSalesHour: 'ከፍተኛ የሽያጭ ሰዓት', bestSalesDay: 'ምርጥ የሽያጭ ቀን', lowestSalesDay: 'ዝቅተኛ የሽያጭ ቀን', unknown: 'ያልታወቀ', other: 'ሌሎች', ingredients: 'ግብዓቶች', utilities: 'አገልግሎቶች', maintenance: 'ጥገና', taxes: 'ታክስ', staffPayroll: 'የሰራተኛ ደመወዝ', breakdown: 'ክፍፍል', salesTrendIntel: 'የሽያጭ አዝማሚያ ግንዛቤ', bestDayOfWeek: 'ከፍተኛ አፈጻጸም ያለው የሳምንት ቀን', avgTxValue: 'አማካይ የግብይት ዋጋ', avgItemsTx: 'በእያንዳንዱ ግብይት ውስጥ አማካይ እቃ', salesByHour: 'በሰዓት የሽያጭ መጠን (Heatmap)', staffReport: 'የሰራተኛ አፈጻጸም ሪፖርት', staffName: 'የሰራተኛ ስም', totalSales: 'ጠቅላላ ሽያጭ', avgOrderValue: 'አማካይ የትዕዛዝ ዋጋ', na: 'የለም' 
+  },
+};
+
 export default function ReportsPage() {
   const { selectedLocationId } = useBranch();
+  const { language } = useLanguage();
+  const rt = (key) => reportLocale[language]?.[key] || reportLocale.en[key] || key;
   const [period, setPeriod] = useState('daily');
   const [customRange, setCustomRange] = useState(() => {
     const now = new Date();
@@ -197,7 +229,7 @@ export default function ReportsPage() {
       const profit = revenue - productionCost;
       const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
       return {
-        name: item.name || item.product_name || 'Unknown',
+        name: item.name || item.product_name || rt('unknown'),
         units: Number(item.total_sold || item.quantity || item.units_sold || 0),
         revenue,
         productionCost,
@@ -229,7 +261,7 @@ export default function ReportsPage() {
         const sales = Number(row.total_sales || 0);
         const tx = Number(row.transactions || row.total_transactions || 0);
         return {
-          name: row.cashier_name || row.username || 'Unknown',
+          name: row.cashier_name || row.username || rt('unknown'),
           role: row.role || 'staff',
           sales,
           tx,
@@ -244,14 +276,14 @@ export default function ReportsPage() {
   const expensePie = useMemo(() => {
     const entries = currentData?.sales_by_category || [];
     if (entries.length) {
-      return entries.map((entry) => ({ name: entry.category || 'Other', value: Number(entry.revenue || 0) * 0.2 }));
+      return entries.map((entry) => ({ name: entry.category || rt('other'), value: Number(entry.revenue || 0) * 0.2 }));
     }
     return [
-      { name: 'Ingredients', value: current.prod * 0.65 },
-      { name: 'Utilities', value: current.expenses * 0.2 },
-      { name: 'Maintenance', value: current.expenses * 0.1 },
-      { name: 'Taxes', value: current.expenses * 0.05 },
-      { name: 'Staff Payroll', value: current.staff },
+      { name: rt('ingredients'), value: current.prod * 0.65 },
+      { name: rt('utilities'), value: current.expenses * 0.2 },
+      { name: rt('maintenance'), value: current.expenses * 0.1 },
+      { name: rt('taxes'), value: current.expenses * 0.05 },
+      { name: rt('staffPayroll'), value: current.staff },
     ];
   }, [currentData, current]);
 
@@ -355,12 +387,12 @@ export default function ReportsPage() {
   }
 
   const kpis = [
-    { label: 'Total Revenue', value: current.sales, change: growth.sales },
-    { label: 'Total Production Cost', value: current.prod, change: growth.prod },
-    { label: 'Total Expenses', value: current.expenses, change: growth.expenses },
-    { label: 'Staff Payments', value: current.staff, change: growth.staff },
-    { label: 'Net Profit', value: current.net, change: growth.net },
-    { label: 'Net Profit Margin %', value: current.netMargin, change: growth.netMargin, isPercent: true },
+    { label: rt('revenue'), value: current.sales, change: growth.sales },
+    { label: rt('productionCost'), value: current.prod, change: growth.prod },
+    { label: rt('expenseAnalytics'), value: current.expenses, change: growth.expenses },
+    { label: rt('staffPayments'), value: current.staff, change: growth.staff },
+    { label: rt('profit'), value: current.net, change: growth.net },
+    { label: rt('margin'), value: current.netMargin, change: growth.netMargin, isPercent: true },
   ];
 
 
@@ -389,7 +421,7 @@ export default function ReportsPage() {
             );
           })}
           <div className="report-kpi-card score-card" title="Weighted formula: 45% net margin + 35% expense ratio + 20% growth rate">
-            <div className="report-kpi-label">Business Health Score</div>
+            <div className="report-kpi-label">{rt('businessHealth')}</div>
             <div className="report-kpi-value">{score}/100</div>
             <span className={`score-badge ${scoreStatus.className}`}>{scoreStatus.label}</span>
           </div>
@@ -399,9 +431,9 @@ export default function ReportsPage() {
       <section className="card report-section">
         <h3>Period Selector</h3>
         <div className="period-buttons">
-          {PERIODS.map((p) => (
-            <button key={p.key} className={`btn btn-sm ${period === p.key ? 'btn-primary' : 'btn-outline-secondary'}`} onClick={() => setPeriod(p.key)}>
-              {p.label}
+          {PERIODS.map((key) => (
+            <button key={key} className={`btn btn-sm ${period === key ? 'btn-primary' : 'btn-outline-secondary'}`} onClick={() => setPeriod(key)}>
+              {rt(key)}
             </button>
           ))}
         </div>
@@ -414,7 +446,7 @@ export default function ReportsPage() {
       </section>
 
       <section className="card report-section">
-        <h3>Revenue vs Cost Analytics</h3>
+        <h3>{rt('revenueVsCost')}</h3>
         <ResponsiveContainer width="100%" height={320}>
           <LineChart data={timelineData}>
             <CartesianGrid strokeDasharray="3 3" />
@@ -432,19 +464,19 @@ export default function ReportsPage() {
 
       <section className="card report-section two-col">
         <div>
-          <h3>Profitability</h3>
+          <h3>{rt('profitabilityTitle')}</h3>
           <div className="metric-list">
-            <div><span>Gross Profit</span><strong>{fmtMoney(current.gross)}</strong></div>
+            <div><span>{rt('grossProfit')}</span><strong>{fmtMoney(current.gross)}</strong></div>
             <div><span>Gross Margin %</span><strong>{fmtPct(current.grossMargin)}</strong></div>
-            <div><span>Net Profit</span><strong>{fmtMoney(current.net)}</strong></div>
+            <div><span>{rt('netProfit')}</span><strong>{fmtMoney(current.net)}</strong></div>
             <div><span>Net Margin %</span><strong>{fmtPct(current.netMargin)}</strong></div>
-            <div><span>Expense-to-Revenue Ratio %</span><strong>{fmtPct(current.expenseRatio)}</strong></div>
+            <div><span>{rt('expenseToRevenue')}</span><strong>{fmtPct(current.expenseRatio)}</strong></div>
           </div>
         </div>
         <div>
-          <h4>Revenue vs Cost Breakdown</h4>
+          <h4>{rt('revenueVsCostBreakdown')}</h4>
           <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={[{ name: 'Breakdown', revenue: current.sales, cost: current.prod + current.expenses + current.staff }]}>
+            <BarChart data={[{ name: rt('breakdown'), revenue: current.sales, cost: current.prod + current.expenses + current.staff }]}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis />
@@ -460,21 +492,21 @@ export default function ReportsPage() {
       <section className="card report-section">
         <h3>Product Intelligence</h3>
         <div className="period-buttons">
-          <button className={`btn btn-sm ${activeProductTab === 'revenue' ? 'btn-primary' : 'btn-outline-secondary'}`} onClick={() => setActiveProductTab('revenue')}>Top Revenue Products</button>
-          <button className={`btn btn-sm ${activeProductTab === 'profit' ? 'btn-primary' : 'btn-outline-secondary'}`} onClick={() => setActiveProductTab('profit')}>Most Profitable Products</button>
-          <button className={`btn btn-sm ${activeProductTab === 'slow' ? 'btn-primary' : 'btn-outline-secondary'}`} onClick={() => setActiveProductTab('slow')}>Slow Moving Products</button>
+          <button className={`btn btn-sm ${activeProductTab === 'revenue' ? 'btn-primary' : 'btn-outline-secondary'}`} onClick={() => setActiveProductTab('revenue')}>{rt('topRevenue')}</button>
+          <button className={`btn btn-sm ${activeProductTab === 'profit' ? 'btn-primary' : 'btn-outline-secondary'}`} onClick={() => setActiveProductTab('profit')}>{rt('mostProfitable')}</button>
+          <button className={`btn btn-sm ${activeProductTab === 'slow' ? 'btn-primary' : 'btn-outline-secondary'}`} onClick={() => setActiveProductTab('slow')}>{rt('slowMoving')}</button>
         </div>
         <div className="table-responsive">
           <table className="table table-sm">
             <thead>
-              {activeProductTab === 'revenue' && <tr><th>Product</th><th>Units Sold</th><th>Revenue</th><th>% Contribution</th></tr>}
-              {activeProductTab === 'profit' && <tr><th>Product</th><th>Revenue</th><th>Production Cost</th><th>Profit</th><th>Margin %</th></tr>}
-              {activeProductTab === 'slow' && <tr><th>Product</th><th>Units Sold</th><th>Margin %</th><th>Warning</th></tr>}
+              {activeProductTab === 'revenue' && <tr><th>{rt('product')}</th><th>{rt('unitsSold')}</th><th>{rt('revenue')}</th><th>{rt('contribution')}</th></tr>}
+              {activeProductTab === 'profit' && <tr><th>{rt('product')}</th><th>{rt('revenue')}</th><th>{rt('productionCost')}</th><th>{rt('profit')}</th><th>{rt('margin')}</th></tr>}
+              {activeProductTab === 'slow' && <tr><th>{rt('product')}</th><th>{rt('unitsSold')}</th><th>{rt('margin')}</th><th>{rt('warning')}</th></tr>}
             </thead>
             <tbody>
               {activeProductTab === 'revenue' && productRows.map((row) => <tr key={row.name}><td>{row.name}</td><td>{row.units}</td><td>{fmtMoney(row.revenue)}</td><td>{fmtPct(row.contribution)}</td></tr>)}
               {activeProductTab === 'profit' && productRows.map((row) => <tr key={row.name}><td>{row.name}</td><td>{fmtMoney(row.revenue)}</td><td>{fmtMoney(row.productionCost)}</td><td>{fmtMoney(row.profit)}</td><td>{fmtPct(row.margin)}</td></tr>)}
-              {activeProductTab === 'slow' && slowMovingRows.map((row) => <tr key={row.name}><td>{row.name}</td><td>{row.units}</td><td>{fmtPct(row.margin)}</td><td><span className="badge badge-warning">Overproduction Risk</span></td></tr>)}
+              {activeProductTab === 'slow' && slowMovingRows.map((row) => <tr key={row.name}><td>{row.name}</td><td>{row.units}</td><td>{fmtPct(row.margin)}</td><td><span className="badge badge-warning">{rt('overproductionRisk')}</span></td></tr>)}
             </tbody>
           </table>
         </div>
@@ -482,15 +514,15 @@ export default function ReportsPage() {
 
       <section className="card report-section two-col">
         <div>
-          <h3>Sales Trend Intelligence</h3>
+          <h3>{rt('salesTrendIntel')}</h3>
           <div className="metric-list">
-            <div><span>Best Performing Day of Week</span><strong>{weekdaySales.reduce((best, row) => row.sales > best.sales ? row : best, { day: '-', sales: 0 }).day}</strong></div>
-            <div><span>Peak Sales Hour</span><strong>{(() => {
+            <div><span>{rt('bestDayOfWeek')}</span><strong>{weekdaySales.reduce((best, row) => row.sales > best.sales ? row : best, { day: '-', sales: 0 }).day}</strong></div>
+            <div><span>{rt('peakSalesHour')}</span><strong>{(() => {
               const allHours = (currentData?.details?.cashier_performance || []).map((row) => parseHour(row.last_sale_at)).filter((h) => h !== null);
-              return allHours.length ? `${allHours.sort((a, b) => a - b).at(-1)}:00` : 'N/A';
+              return allHours.length ? `${allHours.sort((a, b) => a - b).at(-1)}:00` : rt('na');
             })()}</strong></div>
-            <div><span>Average Transaction Value</span><strong>{fmtMoney(currentData?.summary?.avg_transaction || 0)}</strong></div>
-            <div><span>Average Items per Transaction</span><strong>{Number((currentData?.details?.cashier_performance || []).reduce((sum, row) => sum + Number(row.items_sold || 0), 0) / Math.max(1, Number(currentData?.summary?.total_transactions || 0))).toFixed(2)}</strong></div>
+            <div><span>{rt('avgTxValue')}</span><strong>{fmtMoney(currentData?.summary?.avg_transaction || 0)}</strong></div>
+            <div><span>{rt('avgItemsTx')}</span><strong>{Number((currentData?.details?.cashier_performance || []).reduce((sum, row) => sum + Number(row.items_sold || 0), 0) / Math.max(1, Number(currentData?.summary?.total_transactions || 0))).toFixed(2)}</strong></div>
           </div>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={weekdaySales}>
@@ -503,7 +535,7 @@ export default function ReportsPage() {
           </ResponsiveContainer>
         </div>
         <div>
-          <h4>Sales by Hour (Heatmap style)</h4>
+          <h4>{rt('salesByHour')}</h4>
           <div className="hour-heatmap">
             {Array.from({ length: 24 }).map((_, hour) => {
               const strength = Math.max(0.05, Math.min(1, ((timelineData[hour % Math.max(1, timelineData.length)]?.revenue || 0) / Math.max(1, current.sales)) * 8));
@@ -514,10 +546,10 @@ export default function ReportsPage() {
       </section>
 
       <section className="card report-section">
-        <h3>Staff Performance Report</h3>
+        <h3>{rt('staffReport')}</h3>
         <div className="table-responsive">
           <table className="table table-hover">
-            <thead><tr><th>Staff Name</th><th>Role</th><th>Total Sales</th><th>Transactions</th><th>Avg Order Value</th><th>Contribution %</th><th>Efficiency Score</th><th>Rank</th></tr></thead>
+            <thead><tr><th>{rt('staffName')}</th><th>{rt('role')}</th><th>{rt('totalSales')}</th><th>{rt('transactions')}</th><th>{rt('avgOrderValue')}</th><th>{rt('contribution')}</th><th>{rt('efficiencyScore')}</th><th>{rt('rank')}</th></tr></thead>
             <tbody>
               {staffRows.map((row, idx) => (
                 <tr key={row.name}>
@@ -528,7 +560,7 @@ export default function ReportsPage() {
                   <td>{fmtMoney(row.avgOrder)}</td>
                   <td>{fmtPct(row.contribution)}</td>
                   <td>{row.efficiency.toFixed(1)}</td>
-                  <td>{idx === 0 ? <span className="badge badge-success"><Trophy size={13} /> Top Performer</span> : '—'}</td>
+                  <td>{idx === 0 ? <span className="badge badge-success"><Trophy size={13} /> {rt('topPerformer')}</span> : '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -538,7 +570,7 @@ export default function ReportsPage() {
 
       <section className="card report-section two-col">
         <div>
-          <h3>Expense Analytics</h3>
+          <h3>{rt('expenseAnalytics')}</h3>
           <ResponsiveContainer width="100%" height={260}>
             <PieChart>
               <Pie data={expensePie} dataKey="value" nameKey="name" outerRadius={90}>
@@ -548,10 +580,10 @@ export default function ReportsPage() {
               <Legend />
             </PieChart>
           </ResponsiveContainer>
-          <div className="metric-list"><div><span>Expense Ratio %</span><strong>{fmtPct(current.expenseRatio)}</strong></div></div>
+          <div className="metric-list"><div><span>{rt('expenseRatio')}</span><strong>{fmtPct(current.expenseRatio)}</strong></div></div>
         </div>
         <div>
-          <h4>Expense Trend</h4>
+          <h4>{rt('expenseTrend')}</h4>
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={timelineData}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -566,20 +598,20 @@ export default function ReportsPage() {
 
 
       <section className="card report-section">
-        <h3>Smart Insights</h3>
+        <h3>{rt('smartInsights')}</h3>
         <div className="insight-grid">
           {insights.map((insight) => <div key={insight} className="insight-card">{insight}</div>)}
         </div>
       </section>
 
       <section className="card report-section">
-        <h3>Download Report As</h3>
+        <h3>{rt('downloadAs')}</h3>
         <div className="export-row">
-          <button className="btn btn-primary" onClick={exportFull}><Download size={14} /> Full Export (Executive PDF + Detailed PDF + CSV + XLSX)</button>
-          <button className="btn btn-outline-primary" onClick={exportExecutivePdf}>Executive PDF Report</button>
-          <button className="btn btn-outline-secondary" onClick={exportDetailedPdf}>Detailed PDF Report</button>
-          <button className="btn btn-outline-success" onClick={exportCsv}>CSV (Raw Data)</button>
-          <button className="btn btn-outline-info" onClick={exportXlsx}>Excel (.xlsx)</button>
+          <button className="btn btn-primary" onClick={exportFull}><Download size={14} /> {rt('fullExport')}</button>
+          <button className="btn btn-outline-primary" onClick={exportExecutivePdf}>{rt('executivePdf')}</button>
+          <button className="btn btn-outline-secondary" onClick={exportDetailedPdf}>{rt('detailedPdf')}</button>
+          <button className="btn btn-outline-success" onClick={exportCsv}>{rt('csvRaw')}</button>
+          <button className="btn btn-outline-info" onClick={exportXlsx}>{rt('excel')}</button>
         </div>
       </section>
     </div>
