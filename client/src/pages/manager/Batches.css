@@ -1,57 +1,121 @@
+/* ================================================
+   Batches Page - Modern Dark Theme
+   ================================================ */
+
+.batches-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* ================================================
+   Batch Card / Table Container
+   ================================================ */
+
 .modern-batch-card {
-  border: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 22px rgba(2, 6, 23, 0.06);
+  overflow: hidden;
+}
+
+/* ================================================
+   Batch Table
+   ================================================ */
+
+.modern-batch-table {
+  width: 100%;
 }
 
 .modern-batch-table thead th {
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
   font-weight: 600;
   white-space: nowrap;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
 }
 
 .modern-batch-table tbody td {
+  padding: 0.875rem 1rem;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
 
 .modern-batch-table tbody tr:hover {
-  background-color: rgba(59, 130, 246, 0.04);
+  background: var(--bg-hover);
 }
 
-.table-disabled {
-  opacity: 0.6;
-  background-color: rgba(0, 0, 0, 0.02);
+.modern-batch-table tbody tr:last-child td {
+  border-bottom: none;
 }
+
+/* Disabled row state */
+.table-disabled {
+  opacity: 0.5;
+  background: var(--bg-tertiary);
+}
+
+.table-disabled:hover {
+  background: var(--bg-tertiary);
+}
+
+/* ================================================
+   Stat Box (Summary Cards)
+   ================================================ */
 
 .stat-box {
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
-  padding: 1rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
   text-align: center;
+  transition: border-color 0.2s ease;
+}
+
+.stat-box:hover {
+  border-color: var(--border-hover);
 }
 
 .stat-box-label {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   margin-bottom: 0.5rem;
 }
 
 .stat-box-value {
-  font-size: 1.25rem;
-  font-weight: 600;
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--text-primary);
 }
+
+/* ================================================
+   Detail Items
+   ================================================ */
 
 .detail-item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
 }
+
+.detail-item svg {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ================================================
+   Spinner Animation
+   ================================================ */
 
 @keyframes spin {
   from { transform: rotate(0deg); }
@@ -62,31 +126,108 @@
   animation: spin 1s linear infinite;
 }
 
+/* ================================================
+   Modal Sizes
+   ================================================ */
+
 .modal-lg {
   max-width: 800px;
 }
 
+/* ================================================
+   Badge Overrides for Dark Theme
+   ================================================ */
+
 .badge {
   font-weight: 500;
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
 }
 
 .badge.bg-warning {
-  color: #1a1a1a;
+  background: var(--warning-muted) !important;
+  color: var(--warning) !important;
 }
 
 .badge.bg-success {
-  background-color: #10b981 !important;
+  background: var(--success-muted) !important;
+  color: var(--success) !important;
 }
 
 .badge.bg-danger {
-  background-color: #ef4444 !important;
+  background: var(--danger-muted) !important;
+  color: var(--danger) !important;
 }
 
 .badge.bg-info {
-  background-color: #3b82f6 !important;
-  color: white;
+  background: var(--info-muted) !important;
+  color: var(--info) !important;
 }
 
+.badge.bg-secondary {
+  background: var(--bg-tertiary) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border);
+}
+
+/* Text color utilities */
 .text-info {
-  color: #3b82f6 !important;
+  color: var(--info) !important;
+}
+
+.text-success {
+  color: var(--success) !important;
+}
+
+.text-danger {
+  color: var(--danger) !important;
+}
+
+.text-warning {
+  color: var(--warning) !important;
+}
+
+/* ================================================
+   Batch Status Indicators
+   ================================================ */
+
+.batch-status-pending {
+  background: var(--warning-muted);
+  color: var(--warning);
+}
+
+.batch-status-active {
+  background: var(--success-muted);
+  color: var(--success);
+}
+
+.batch-status-voided {
+  background: var(--danger-muted);
+  color: var(--danger);
+}
+
+.batch-status-completed {
+  background: var(--info-muted);
+  color: var(--info);
+}
+
+/* ================================================
+   Responsive Design
+   ================================================ */
+
+@media (max-width: 768px) {
+  .stat-box {
+    padding: 1rem;
+  }
+
+  .stat-box-value {
+    font-size: 1.125rem;
+  }
+
+  .modern-batch-table thead th,
+  .modern-batch-table tbody td {
+    padding: 0.625rem 0.75rem;
+    font-size: 0.8125rem;
+  }
 }
