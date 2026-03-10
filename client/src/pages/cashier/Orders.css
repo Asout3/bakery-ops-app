@@ -1,0 +1,20 @@
+.form-note-input {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.order-money-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+
+.note-viewer-text {
+  white-space: pre-wrap;
+  margin: 0;
+  line-height: 1.5;
+}

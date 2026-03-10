@@ -3,7 +3,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
-import pool, { ensureAuthSecuritySchema, ensureProductCreatorSchema, isTransientDbError } from './db.js';
+import pool, { ensureAuthSecuritySchema, ensureOrdersSchema, ensureProductCreatorSchema, isTransientDbError } from './db.js';
 import { apiLimiter, validateEnvironment, getCorsOptions } from './middleware/security.js';
 import { attachRequestContext } from './middleware/requestContext.js';
 import { errorHandler } from './utils/errors.js';
@@ -21,6 +21,7 @@ import locationsRoutes from './routes/locations.js';
 import adminRoutes from './routes/admin.js';
 import syncRoutes from './routes/sync.js';
 import archiveRoutes from './routes/archive.js';
+import ordersRoutes from './routes/orders.js';
 import { startArchiveScheduler } from './services/archiveService.js';
 
 dotenv.config();
@@ -28,6 +29,7 @@ dotenv.config();
 validateEnvironment();
 await ensureAuthSecuritySchema();
 await ensureProductCreatorSchema();
+await ensureOrdersSchema();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -137,6 +139,7 @@ app.use('/api/locations', locationsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/archive', archiveRoutes);
+app.use('/api/orders', ordersRoutes);
 
 app.use(errorHandler);
 

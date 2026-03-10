@@ -95,7 +95,32 @@ export const adminLifecycleRepository = {
   withTransaction: async (handler) => withTransaction(async (tx) => handler(withTx(tx))),
   hardDeleteUser: async (id) => withTransaction(async (tx) => {
     await tx.query('UPDATE staff_profiles SET linked_user_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE linked_user_id = $1', [id]);
-    await tx.query('UPDATE inventory_batches SET created_by = NULL, original_actor_id = NULL, synced_by_id = NULL WHERE created_by = $1 OR original_actor_id = $1 OR synced_by_id = $1', [id]);
+    const batchColumnsResult = await tx.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_name = 'inventory_batches'
+         AND column_name = ANY($1::text[])`,
+      [['created_by', 'original_actor_id', 'synced_by_id']]
+    );
+    const availableBatchColumns = new Set(batchColumnsResult.rows.map((row) => row.column_name));
+    const updateAssignments = [];
+    const whereClauses = [];
+
+    ['created_by', 'original_actor_id', 'synced_by_id'].forEach((column) => {
+      if (availableBatchColumns.has(column)) {
+        updateAssignments.push(`${column} = NULL`);
+        whereClauses.push(`${column} = $1`);
+      }
+    });
+
+    if (updateAssignments.length && whereClauses.length) {
+      await tx.query(
+        `UPDATE inventory_batches
+         SET ${updateAssignments.join(', ')}
+         WHERE ${whereClauses.join(' OR ')}`,
+        [id]
+      );
+    }
     await tx.query('UPDATE sales SET cashier_id = NULL, voided_by = NULL WHERE cashier_id = $1 OR voided_by = $1', [id]);
     await tx.query('UPDATE expenses SET created_by = NULL WHERE created_by = $1', [id]);
     await tx.query('UPDATE staff_payments SET user_id = NULL, created_by = NULL WHERE user_id = $1 OR created_by = $1', [id]);

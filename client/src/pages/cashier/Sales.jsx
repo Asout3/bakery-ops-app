@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Plus, Minus, ShoppingCart, Trash2, Search } from 'lucide-react';
@@ -16,10 +16,40 @@ export default function Sales() {
   const [message, setMessage] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [sourceFilter, setSourceFilter] = useState('all');
-  const [orderStartedAt, setOrderStartedAt] = useState(Date.now());
+  const [groupFilter, setGroupFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [receiptData, setReceiptData] = useState(null);
+  const [variantModal, setVariantModal] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const checkoutInFlightRef = useRef(false);
+
+  const persistProductsCache = (nextProducts) => localStorage.setItem(`cashier_products_cache_${selectedLocationId || 'default'}`, JSON.stringify(nextProducts));
+
+  const applyPendingSalesToProducts = async (baseProducts) => {
+    const queue = await listQueuedOperations();
+    const pendingSales = queue.filter((op) => op.url === '/sales' && op.method === 'post' && op.status !== 'conflict');
+    if (!pendingSales.length) return baseProducts;
+    const usageByProduct = new Map();
+    pendingSales.forEach((op) => (op.data?.items || []).forEach((item) => usageByProduct.set(Number(item.product_id), (usageByProduct.get(Number(item.product_id)) || 0) + Number(item.quantity || 0))));
+    return baseProducts.map((product) => ({ ...product, stock_quantity: Math.max(0, Number(product.stock_quantity || 0) - (usageByProduct.get(Number(product.id)) || 0)) }));
+  };
+
+  const fetchProducts = async () => {
+    try {
+      const [productsRes, inventoryRes] = await Promise.all([api.get('/products'), api.get('/inventory')]);
+      const inventoryByProduct = new Map((inventoryRes.data || []).map((it) => [Number(it.product_id), Number(it.quantity) || 0]));
+      const productsWithStock = (productsRes.data || []).map((product) => ({ ...product, stock_quantity: inventoryByProduct.get(Number(product.id)) || 0 }));
+      const productsWithPendingApplied = await applyPendingSalesToProducts(productsWithStock);
+      setProducts(productsWithPendingApplied);
+      persistProductsCache(productsWithPendingApplied);
+    } catch {
+      const cached = localStorage.getItem(`cashier_products_cache_${selectedLocationId || 'default'}`);
+      if (cached) {
+        setProducts(JSON.parse(cached));
+        setMessage({ type: 'warning', text: 'Offline mode: using cached products.' });
+      }
+    }
+  };
 
   useEffect(() => {
     fetchProducts();
@@ -31,205 +61,126 @@ export default function Sales() {
       fetchProducts();
     };
     const onOffline = () => setIsOnline(false);
+
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
+
     return () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
     };
-  }, []);
+  }, [selectedLocationId]);
 
-
-  const persistProductsCache = (nextProducts) => {
-    localStorage.setItem(`cashier_products_cache_${selectedLocationId || 'default'}`, JSON.stringify(nextProducts));
-  };
-
-  const applyPendingSalesToProducts = async (baseProducts) => {
-    const queue = await listQueuedOperations();
-    const pendingSales = queue.filter((op) => op.url === '/sales' && op.method === 'post' && op.status !== 'conflict');
-    if (!pendingSales.length) {
-      return baseProducts;
-    }
-    const usageByProduct = new Map();
-    pendingSales.forEach((op) => {
-      (op.data?.items || []).forEach((item) => {
-        const id = Number(item.product_id);
-        const current = usageByProduct.get(id) || 0;
-        usageByProduct.set(id, current + Number(item.quantity || 0));
+  const groupedProducts = useMemo(() => {
+    const map = new Map();
+    products
+      .filter((product) => {
+        const groupKey = product.group_name || product.name;
+        const matchesSearch = `${groupKey} ${product.name}`.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesSource = sourceFilter === 'all' || (product.source || 'baked') === sourceFilter;
+        const matchesGroup = groupFilter === 'all' || groupKey === groupFilter;
+        const matchesCategory = categoryFilter === 'all' || String(product.category_name || 'Uncategorized') === categoryFilter;
+        return product.is_active !== false && matchesSearch && matchesSource && matchesGroup && matchesCategory;
+      })
+      .forEach((product) => {
+        const key = product.group_name || product.name;
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(product);
       });
-    });
-
-    return baseProducts.map((product) => ({
-      ...product,
-      stock_quantity: Math.max(0, Number(product.stock_quantity || 0) - (usageByProduct.get(Number(product.id)) || 0))
-    }));
-  };
-  const fetchProducts = async () => {
-    try {
-      const [productsRes, inventoryRes] = await Promise.all([api.get('/products'), api.get('/inventory')]);
-      const inventoryByProduct = new Map((inventoryRes.data || []).map((it) => [Number(it.product_id), Number(it.quantity) || 0]));
-      const inventoryProductIds = new Set(Array.from(inventoryByProduct.keys()));
-      const productsWithStock = (productsRes.data || [])
-        .filter((product) => inventoryProductIds.has(Number(product.id)))
-        .map((product) => ({
-          ...product,
-          stock_quantity: inventoryByProduct.get(Number(product.id)) || 0
-        }));
-      const productsWithPendingApplied = (await applyPendingSalesToProducts(productsWithStock))
-        .sort((a, b) => {
-          const aOut = Number(a.stock_quantity || 0) <= 0;
-          const bOut = Number(b.stock_quantity || 0) <= 0;
-          if (aOut !== bOut) {
-            return aOut ? 1 : -1;
-          }
-          return a.name.localeCompare(b.name);
-        });
-      setProducts(productsWithPendingApplied);
-      persistProductsCache(productsWithPendingApplied);
-    } catch (err) {
-      console.error('Failed to fetch products:', err);
-      const cached = localStorage.getItem(`cashier_products_cache_${selectedLocationId || 'default'}`);
-      if (cached) {
-        setProducts(JSON.parse(cached));
-        setMessage({ type: 'warning', text: 'Offline mode: using cached products.' });
-      }
-    }
-  };
-
-  const filteredProducts = products.filter((product) => {
-    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesSource = sourceFilter === 'all' || (product.source || 'baked') === sourceFilter;
-    return matchesSearch && matchesSource;
-  });
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [products, searchTerm, sourceFilter, groupFilter, categoryFilter]);
 
   const getCartQuantity = (productId) => cart.find((item) => item.product_id === productId)?.quantity || 0;
+  const getRemainingStock = (product) => Math.max(0, Number(product.stock_quantity || 0) - getCartQuantity(product.id));
 
-  const getRemainingStock = (product) => Number(product.stock_quantity || 0) - getCartQuantity(product.id);
-
-  const applySaleToLocalStock = (soldItems) => {
-    setProducts((current) => {
-      const nextProducts = current.map((product) => {
-      const soldItem = soldItems.find((item) => Number(item.product_id) === Number(product.id));
-      if (!soldItem) {
-        return product;
-      }
-      return {
-        ...product,
-        stock_quantity: Math.max(0, Number(product.stock_quantity || 0) - Number(soldItem.quantity || 0))
-      };
-    });
-      persistProductsCache(nextProducts);
-      return nextProducts;
-    });
-  };
-
-  const addToCart = (product) => {
+  const addVariantToCart = (product) => {
     if (getRemainingStock(product) <= 0) {
       setMessage({ type: 'warning', text: `${product.name} is out of stock.` });
       return;
     }
 
-    if (cart.length === 0) {
-      setOrderStartedAt(Date.now());
-    }
     const existing = cart.find((item) => item.product_id === product.id);
-    
     if (existing) {
-      setCart(cart.map((item) =>
-        item.product_id === product.id
-          ? { ...item, quantity: item.quantity + 1 }
-          : item
-      ));
+      setCart((current) => current.map((item) => (item.product_id === product.id ? { ...item, quantity: item.quantity + 1 } : item)));
     } else {
-      setCart([...cart, {
-        product_id: product.id,
-        name: product.name,
-        price: product.price,
-        quantity: 1
-      }]);
+      setCart((current) => ([...current, { product_id: product.id, name: `${product.group_name || product.name} / ${product.name}`, price: Number(product.price), quantity: 1 }]));
     }
+
+    setVariantModal(null);
   };
 
-  const setQuantity = (productId, nextQuantity) => {
-    const product = products.find((item) => item.id === productId);
-    const maxQty = Number(product?.stock_quantity || 0);
-    const qty = Number(nextQuantity || 0);
-
-    if (!Number.isFinite(qty) || qty <= 0) {
-      setCart((current) => current.filter((item) => item.product_id !== productId));
+  const handleGroupClick = (groupKey, variants) => {
+    if (variants.length === 1) {
+      addVariantToCart(variants[0]);
       return;
     }
-
-    if (qty > maxQty) {
-      setMessage({ type: 'warning', text: `${product?.name || 'Item'} has insufficient stock.` });
-      setCart((current) => current.map((item) => item.product_id === productId ? { ...item, quantity: maxQty } : item));
-      return;
-    }
-
-    setCart((current) => current.map((item) => item.product_id === productId ? { ...item, quantity: qty } : item));
+    setVariantModal({ groupKey, variants });
   };
 
   const updateQuantity = (productId, change) => {
-    const currentQty = cart.find((item) => item.product_id === productId)?.quantity || 0;
-    setQuantity(productId, currentQty + change);
+    setCart((prev) => prev.map((item) => {
+      if (item.product_id !== productId) return item;
+      const product = products.find((p) => Number(p.id) === Number(productId));
+      const maxQty = Number(product?.stock_quantity || 0);
+      const nextQty = Math.max(1, item.quantity + change);
+      if (maxQty > 0 && nextQty > maxQty) {
+        setMessage({ type: 'warning', text: `${product?.name || 'Item'} is out of stock.` });
+        return item;
+      }
+      return { ...item, quantity: nextQty };
+    }));
   };
 
-  const removeFromCart = (productId) => {
-    setCart(cart.filter((item) => item.product_id !== productId));
+  const setQuantity = (productId, nextQuantity) => {
+    const quantity = Number(nextQuantity || 0);
+    if (!Number.isFinite(quantity) || quantity <= 0) return removeFromCart(productId);
+
+    const product = products.find((p) => Number(p.id) === Number(productId));
+    const maxQty = Number(product?.stock_quantity || 0);
+    if (maxQty > 0 && quantity > maxQty) {
+      setMessage({ type: 'warning', text: `${product?.name || 'Item'} is out of stock.` });
+      return;
+    }
+
+    setCart((prev) => prev.map((item) => (item.product_id === productId ? { ...item, quantity } : item)));
   };
 
-  const calculateTotal = () => {
-    return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const removeFromCart = (productId) => setCart((prev) => prev.filter((item) => item.product_id !== productId));
+  const calculateTotal = () => cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+  const applySaleToLocalStock = (soldItems) => {
+    setProducts((current) => {
+      const nextProducts = current.map((product) => {
+        const soldItem = soldItems.find((item) => Number(item.product_id) === Number(product.id));
+        return soldItem ? { ...product, stock_quantity: Math.max(0, Number(product.stock_quantity || 0) - Number(soldItem.quantity || 0)) } : product;
+      });
+      persistProductsCache(nextProducts);
+      return nextProducts;
+    });
   };
 
   const handleCheckout = async () => {
-    if (checkoutInFlightRef.current || loading) {
-      return;
-    }
-
-    if (cart.length === 0) {
-      setMessage({ type: 'warning', text: 'Cart is empty' });
-      return;
-    }
-
-    const payload = {
-      items: cart.map(item => ({ product_id: item.product_id, quantity: item.quantity })),
-      payment_method: paymentMethod,
-      cashier_timing_ms: Date.now() - orderStartedAt
-    };
-    const idempotencyKey = `sale-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
+    if (checkoutInFlightRef.current || cart.length === 0) return;
     checkoutInFlightRef.current = true;
     setLoading(true);
-    try {
-      const response = await api.post('/sales', payload, {
-        headers: {
-          'X-Idempotency-Key': idempotencyKey,
-        },
-      });
 
-      setMessage({ type: 'success', text: `Sale completed! Receipt: ${response.data.receipt_number}` });
+    const payload = { items: cart.map((item) => ({ product_id: item.product_id, quantity: item.quantity })), payment_method: paymentMethod };
+
+    try {
+      const response = await api.post('/sales', payload);
       setReceiptData(response.data);
       applySaleToLocalStock(payload.items);
       setCart([]);
-      setPaymentMethod('cash');
-      setOrderStartedAt(Date.now());
-      fetchProducts();
-
-      setTimeout(() => setMessage(null), 5000);
+      setMessage({ type: 'success', text: 'Sale completed.' });
     } catch (err) {
       if (!err.response) {
-        await enqueueOperation({ id: idempotencyKey, url: '/sales', method: 'post', data: payload, idempotencyKey });
-        setMessage({ type: 'warning', text: 'Offline: sale queued for sync.' });
+        const idempotencyKey = `sale-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        await enqueueOperation({ url: '/sales', method: 'post', data: payload, idempotencyKey });
         applySaleToLocalStock(payload.items);
         setCart([]);
-        setPaymentMethod('cash');
-        setOrderStartedAt(Date.now());
+        setMessage({ type: 'warning', text: 'Offline: sale queued for sync.' });
       } else {
-        setMessage({
-          type: 'danger',
-          text: getErrorMessage(err, 'Failed to process sale')
-        });
+        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to complete sale.') });
       }
     } finally {
       setLoading(false);
@@ -239,177 +190,69 @@ export default function Sales() {
 
   return (
     <div className="sales-page">
-      <div className="sales-header">
-        <h2>{t('newSale')}</h2>
-        {!isOnline && <div className="alert alert-warning">You are offline. Sales will be queued and synced automatically.</div>}
-        {message && (
-          <div className={`alert alert-${message.type}`}>
-            {message.text}
-          </div>
-        )}
-      </div>
-
+      <div className="page-header"><h2>{t('newSale')}</h2></div>
+      {message && <div className={`alert alert-${message.type}`}>{message.text}</div>}
       <div className="sales-layout">
         <div className="products-section">
-          <div className="d-flex gap-2 align-items-center mb-2">
-            <label className="form-label mb-0">Type</label>
-            <select className="form-select" style={{ maxWidth: '180px' }} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
-              <option value="all">All</option>
-              <option value="baked">Baked</option>
-              <option value="purchased">Purchased</option>
-            </select>
-          </div>
-          <div className="search-bar">
-            <Search size={20} />
-            <input
-              type="text"
-              placeholder="Search products..."
-              className="input"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-
-          <div className="products-grid">
-            {filteredProducts.map((product) => (
-              (() => {
-                const remainingStock = getRemainingStock(product);
-                const isOutOfStock = remainingStock <= 0;
+          <div className="card"><div className="card-header"><h3>Product Groups</h3></div><div className="card-body">
+            <div className="filters-row" style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}><div className="search-bar" style={{ flex: 1 }}><Search size={16} /><input className="input" placeholder="Search groups or variants..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div><select className="input" style={{ maxWidth: '170px' }} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}><option value="all">All Sources</option><option value="baked">Baked</option><option value="purchased">Purchased</option></select><select className="input" style={{ maxWidth: '200px' }} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">All Groups</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.group_name || p.name))).sort().map((group) => <option key={group} value={group}>{group}</option>)}</select><select className="input" style={{ maxWidth: '200px' }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option value="all">All Categories</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.category_name || 'Uncategorized'))).sort().map((category) => <option key={category} value={category}>{category}</option>)}</select><button className="btn btn-outline-secondary" type="button" onClick={() => { setSearchTerm(''); setSourceFilter('all'); setGroupFilter('all'); setCategoryFilter('all'); }}>Reset Filters</button></div>
+            <div className="products-grid">
+              {groupedProducts.map(([groupKey, variants]) => {
+                const prices = variants.map((v) => Number(v.price || 0));
+                const min = Math.min(...prices);
+                const max = Math.max(...prices);
+                const totalStock = variants.reduce((sum, v) => sum + Math.max(0, getRemainingStock(v)), 0);
+                const isOutOfStock = totalStock <= 0;
                 return (
-              <div
-                key={product.id}
-                className={`product-card ${isOutOfStock ? 'product-card-disabled' : ''}`}
-                onClick={() => !isOutOfStock && addToCart(product)}
-              >
-                <div className="product-name">{product.name}</div>
-                <div className="product-price">${Number(product.price).toFixed(2)}</div>
-                <div className="product-category">{product.category_name}</div>
-                <div className={`product-stock ${isOutOfStock ? 'product-stock-empty' : ''}`}>
-                  {isOutOfStock ? 'Out of stock' : `${remainingStock} in stock`}
-                </div>
-              </div>
+                  <div key={groupKey} className={`product-card ${isOutOfStock ? 'product-card-disabled' : ''}`} onClick={() => handleGroupClick(groupKey, variants)}>
+                    <div className="product-name">{groupKey}</div>
+                    <div className="product-price">ETB {min === max ? min.toFixed(2) : `${min.toFixed(2)} - ${max.toFixed(2)}`}</div>
+                    <div className="product-category">{variants.length} variant{variants.length > 1 ? 's' : ''}</div>
+                    <div className={`product-stock ${isOutOfStock ? 'product-stock-empty' : ''}`}>{isOutOfStock ? 'Out of stock' : `${totalStock} in stock`}</div>
+                  </div>
                 );
-              })()
-            ))}
-          </div>
+              })}
+            </div>
+          </div></div>
         </div>
 
         <div className="cart-section">
-          <div className="card">
-            <div className="card-header">
-              <h3>
-                <ShoppingCart size={20} />
-                Cart ({cart.length})
-              </h3>
-            </div>
-
-            <div className="card-body cart-body">
-              {cart.length === 0 ? (
-                <div className="empty-cart">
-                  <ShoppingCart size={48} />
-                  <p>{t('cartEmpty')}</p>
-                </div>
-              ) : (
-                <div className="cart-items">
-                  {cart.map((item) => (
-                    <div key={item.product_id} className="cart-item">
-                      <div className="cart-item-details">
-                        <div className="cart-item-name">{item.name}</div>
-                        <div className="cart-item-price">
-                          ${Number(item.price).toFixed(2)}
-                        </div>
-                      </div>
-
-                      <div className="cart-item-actions">
-                        <button
-                          className="btn btn-sm btn-secondary"
-                          onClick={() => updateQuantity(item.product_id, -1)}
-                        >
-                          <Minus size={14} />
-                        </button>
-                        <input
-                          type="number"
-                          min="1"
-                          className="form-control form-control-sm"
-                          style={{ width: '72px', textAlign: 'center' }}
-                          value={item.quantity}
-                          onChange={(e) => setQuantity(item.product_id, Number(e.target.value))}
-                        />
-                        <button
-                          className="btn btn-sm btn-secondary"
-                          onClick={() => updateQuantity(item.product_id, 1)}
-                          disabled={item.quantity >= Number(products.find((product) => product.id === item.product_id)?.stock_quantity || 0)}
-                        >
-                          <Plus size={14} />
-                        </button>
-                        <button
-                          className="btn btn-sm btn-danger"
-                          onClick={() => removeFromCart(item.product_id)}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-
-                      <div className="cart-item-subtotal">
-                        ETB {(item.price * item.quantity).toFixed(2)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="card-footer">
-              <div className="payment-method-select">
-                <span>Payment:</span>
-                <select
-                  className="input"
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                >
-                  <option value="cash">Cash</option>
-                  <option value="mobile">Mobile Banking</option>
-                </select>
-              </div>
-              <div className="cart-total">
-                <span className="cart-total-label">Total:</span>
-                <span className="cart-total-amount">
-                  ETB {calculateTotal().toFixed(2)}
-                </span>
-              </div>
-              <button
-                className="btn btn-success btn-lg"
-                onClick={handleCheckout}
-                disabled={loading || cart.length === 0}
-                style={{ width: '100%', marginTop: '1rem' }}
-              >
-                {loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}
-              </button>
-            </div>
-          </div>
+          <div className="card"><div className="card-header"><h3><ShoppingCart size={20} />Cart ({cart.length})</h3></div><div className="card-body cart-body">
+            {cart.length === 0 ? <div className="empty-cart"><ShoppingCart size={48} /><p>{t('cartEmpty')}</p></div> : <div className="cart-items">{cart.map((item) => <div key={item.product_id} className="cart-item"><div className="cart-item-details"><div className="cart-item-name">{item.name}</div><div className="cart-item-price">ETB {Number(item.price).toFixed(2)}</div></div><div className="cart-item-actions"><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, -1)}><Minus size={14} /></button><input type="number" min="1" className="form-control form-control-sm" style={{ width: '72px', textAlign: 'center' }} value={item.quantity} onChange={(e) => setQuantity(item.product_id, Number(e.target.value))} /><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, 1)}><Plus size={14} /></button><button className="btn btn-sm btn-danger" onClick={() => removeFromCart(item.product_id)}><Trash2 size={14} /></button></div><div className="cart-item-subtotal">ETB {(item.price * item.quantity).toFixed(2)}</div></div>)}</div>}
+          </div><div className="card-footer"><div className="payment-method-select"><span>Payment:</span><select className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option></select></div><div className="cart-total"><span className="cart-total-label">Total:</span><span className="cart-total-amount">ETB {calculateTotal().toFixed(2)}</span></div><button className="btn btn-success btn-lg" onClick={handleCheckout} disabled={loading || cart.length === 0} style={{ width: '100%', marginTop: '1rem' }}>{loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}</button></div></div>
         </div>
       </div>
-      {receiptData && (
-        <div className="modal-overlay" onClick={() => setReceiptData(null)}>
-          <div className="modal-content modal-sm" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><h3>Receipt</h3><button className="close-btn" onClick={() => setReceiptData(null)}>×</button></div>
+
+      {variantModal && (
+        <div className="modal-overlay" onClick={() => setVariantModal(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Select {variantModal.groupKey} Variant</h3><button className="close-btn" onClick={() => setVariantModal(null)}>×</button></div>
             <div className="modal-body">
-              <p><strong>Receipt #:</strong> {receiptData.receipt_number}</p>
-              <p><strong>Date:</strong> {new Date(receiptData.sale_date || Date.now()).toLocaleString()}</p>
-              <p><strong>Payment Method:</strong> {receiptData.payment_method || paymentMethod}</p>
-              <p><strong>Total:</strong> ${Number(receiptData.total_amount || 0).toFixed(2)}</p>
-              <hr />
-              <div>
-                {(receiptData.items || []).map((item, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-                    <span>{item.product_name} × {item.quantity}</span>
-                    <span>ETB {Number(item.subtotal).toFixed(2)}</span>
-                  </div>
-                ))}
+              <div className="variant-grid">
+                {variantModal.variants.map((variant) => {
+                  const remaining = getRemainingStock(variant);
+                  const outOfStock = remaining <= 0;
+                  return (
+                    <button
+                      key={variant.id}
+                      type="button"
+                      className={`variant-option ${outOfStock ? 'variant-option-disabled' : ''}`}
+                      onClick={() => addVariantToCart(variant)}
+                      disabled={outOfStock}
+                    >
+                      <div className="variant-option-name">{variant.name}</div>
+                      <div className="variant-option-meta">ETB {Number(variant.price).toFixed(2)} • {outOfStock ? 'Out of stock' : `${remaining} left`}</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
         </div>
+      )}
+
+      {receiptData && (
+        <div className="modal-overlay" onClick={() => setReceiptData(null)}><div className="modal-content modal-sm" onClick={(e) => e.stopPropagation()}><div className="modal-header"><h3>Receipt</h3><button className="close-btn" onClick={() => setReceiptData(null)}>×</button></div><div className="modal-body"><p><strong>Receipt #:</strong> {receiptData.receipt_number}</p><p><strong>Date:</strong> {new Date(receiptData.sale_date || Date.now()).toLocaleString()}</p><p><strong>Payment Method:</strong> {receiptData.payment_method || paymentMethod}</p><p><strong>Total:</strong> ETB {Number(receiptData.total_amount || 0).toFixed(2)}</p></div></div></div>
       )}
     </div>
   );

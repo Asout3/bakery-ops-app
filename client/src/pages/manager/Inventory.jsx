@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { Fragment, useState, useEffect, useMemo } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Package, Send, Plus, Minus } from 'lucide-react';
@@ -12,6 +12,8 @@ export default function Inventory() {
   const [inventory, setInventory] = useState({});
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [groupFilter, setGroupFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const toast = useToast();
 
@@ -37,10 +39,8 @@ export default function Inventory() {
 
   const fetchProducts = async () => {
     try {
-      const [productsRes, inventoryRes] = await Promise.all([api.get('/products'), api.get('/inventory')]);
-      const availableIds = new Set((inventoryRes.data || []).map((it) => Number(it.product_id)));
-      const availableProducts = (productsRes.data || []).filter((product) => availableIds.has(Number(product.id)));
-      const normalizedProducts = availableProducts.map((product) => ({
+      const productsRes = await api.get('/products');
+      const normalizedProducts = (productsRes.data || []).map((product) => ({
         ...product,
         source: product.source || 'baked',
       }));
@@ -167,6 +167,20 @@ export default function Inventory() {
     );
   };
 
+
+  const groupedProducts = useMemo(() => {
+    const grouped = new Map();
+    products.filter((product) => product.is_active !== false).forEach((product) => {
+      const group = product.group_name || product.name;
+      const matchesGroup = groupFilter === 'all' || group === groupFilter;
+      const matchesCategory = categoryFilter === 'all' || String(product.category_name || 'Uncategorized') === categoryFilter;
+      if (!matchesGroup || !matchesCategory) return;
+      if (!grouped.has(group)) grouped.set(group, []);
+      grouped.get(group).push(product);
+    });
+    return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [products, groupFilter, categoryFilter]);
+
   const handleSendBatch = async () => {
     if (cart.length === 0) {
       toast.warning('Cart is empty');
@@ -216,8 +230,10 @@ export default function Inventory() {
       <div className="inventory-layout">
         <div className="products-list">
           <div className="card">
-            <div className="card-header">
-              <h3>Products</h3>
+            <div className="card-header" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0 }}>Products</h3>
+              <select className="form-select" style={{ maxWidth: '220px' }} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">All Groups</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.group_name || p.name))).sort().map((group) => <option key={group} value={group}>{group}</option>)}</select>
+              <select className="form-select" style={{ maxWidth: '220px' }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option value="all">All Categories</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.category_name || 'Uncategorized'))).sort().map((category) => <option key={category} value={category}>{category}</option>)}</select>
             </div>
             <div className="card-body">
               <div className="products-table-container">
@@ -231,42 +247,27 @@ export default function Inventory() {
                     </tr>
                   </thead>
                   <tbody>
-                    {products.map((product) => {
-                      const currentStock = inventory[product.id]?.quantity || 0;
-                      return (
-                        <tr key={product.id}>
-                          <td>
-                            <div className="product-info">
-                              <div className="product-name-table">{product.name}</div>
-                              <div className="product-category-table">
-                                {product.category_name}
-                              </div>
-                            </div>
-                          </td>
-                          <td>
-                            <span className="badge badge-primary">
-                              {currentStock} {product.unit}
-                            </span>
-                          </td>
-                          <td>
-                            <button
-                              className="btn btn-sm btn-success"
-                              onClick={() => addToCart(product)}
-                            >
-                              <Plus size={16} />
-                              Add
-                            </button>
-                          </td>
-                          <td>
-                            <span
-                              className={`badge ${product.source === 'baked' ? 'badge-success' : 'badge-secondary'}`}
-                            >
-                              {product.source}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {groupedProducts.map(([group, variants]) => (
+                      <Fragment key={group}>
+                        <tr key={`${group}-header`}><td colSpan="4" style={{ fontWeight: 700, background: 'var(--bg-secondary, #f7f7f7)' }}>{group}</td></tr>
+                        {variants.map((product) => {
+                          const currentStock = inventory[product.id]?.quantity || 0;
+                          return (
+                            <tr key={product.id}>
+                              <td>
+                                <div className="product-info">
+                                  <div className="product-name-table">{product.name}</div>
+                                  <div className="product-category-table">{product.category_name}</div>
+                                </div>
+                              </td>
+                              <td><span className="badge badge-primary">{currentStock} {product.unit}</span></td>
+                              <td><button className="btn btn-sm btn-success" onClick={() => addToCart(product)}><Plus size={16} />Add</button></td>
+                              <td><span className={`badge ${product.source === 'baked' ? 'badge-success' : 'badge-secondary'}`}>{product.source}</span></td>
+                            </tr>
+                          );
+                        })}
+                      </Fragment>
+                    ))}
                   </tbody>
                 </table>
               </div>

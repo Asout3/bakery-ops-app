@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS categories (
 CREATE TABLE IF NOT EXISTS products (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
+    group_name VARCHAR(100) NOT NULL,
     category_id INTEGER REFERENCES categories(id),
     price DECIMAL(10, 2) NOT NULL,
     cost DECIMAL(10, 2),
@@ -144,6 +145,16 @@ CREATE TABLE IF NOT EXISTS expenses (
     expense_date DATE NOT NULL,
     created_by INTEGER REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+CREATE TABLE IF NOT EXISTS expense_categories (
+    id SERIAL PRIMARY KEY,
+    location_id INTEGER REFERENCES locations(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    created_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(location_id, name)
 );
 
 -- Staff payments table

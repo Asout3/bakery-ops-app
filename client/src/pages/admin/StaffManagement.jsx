@@ -29,7 +29,6 @@ const emptyStaff = {
 
 export default function StaffManagement() {
   const [loading, setLoading] = useState(true);
-  const [locations, setLocations] = useState([]);
   const [staff, setStaff] = useState([]);
   const [staffForm, setStaffForm] = useState(emptyStaff);
   const [expenseSummary, setExpenseSummary] = useState(null);
@@ -39,19 +38,12 @@ export default function StaffManagement() {
 
   const activeStaff = useMemo(() => staff.filter((u) => u.is_active), [staff]);
   const inactiveStaff = useMemo(() => staff.filter((u) => !u.is_active), [staff]);
-  const sortedStaff = useMemo(() => [...staff].sort((a, b) => {
-    if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
-    return String(a.full_name || '').localeCompare(String(b.full_name || ''));
-  }), [staff]);
-
   const load = async () => {
     try {
-      const [locationsRes, staffRes, expenseRes] = await Promise.all([
-        api.get('/locations'),
+      const [staffRes, expenseRes] = await Promise.all([
         api.get('/admin/staff'),
         api.get('/admin/staff-expense-summary').catch(() => ({ data: null })),
       ]);
-      setLocations(locationsRes.data || []);
       setStaff(staffRes.data || []);
       setExpenseSummary(expenseRes.data || null);
     } catch (err) {
@@ -190,7 +182,7 @@ export default function StaffManagement() {
       </div></div>
 
       <div className="card"><div className="card-header"><h4>Staff Directory</h4></div><div className="card-body table-container">
-        <h5 className="mb-2">Active Staff</h5><table className="table"><thead><tr><th>Name</th><th>Role</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>{activeStaff.map((row) => <tr key={row.id}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{formatCurrencyETB(row.monthly_salary || 0)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className="badge badge-success">Active</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-secondary" onClick={()=>editStaff(row)}>Quick Save</button><button className="btn btn-sm btn-danger" onClick={()=>toggleStatus(row)}>Disable</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}{!activeStaff.length && <tr><td colSpan={6} className="text-center text-muted">No active staff.</td></tr>}</tbody></table><h5 className="mt-4 mb-2">Inactive Staff</h5><table className="table"><thead><tr><th>Name</th><th>Role</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>{inactiveStaff.map((row) => <tr key={`inactive-${row.id}`}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{formatCurrencyETB(row.monthly_salary || 0)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className="badge badge-warning">Inactive</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-success" onClick={()=>toggleStatus(row)}>Enable</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}{!inactiveStaff.length && <tr><td colSpan={6} className="text-center text-muted">No inactive staff.</td></tr>}</tbody></table>
+        <h5 className="mb-2">Active Staff</h5><table className="table"><thead><tr><th>Name</th><th>Role</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>{activeStaff.map((row) => <tr key={row.id}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{formatCurrencyETB(row.monthly_salary || 0)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className="badge badge-success">Active</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-danger" onClick={()=>toggleStatus(row)}>Disable</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}{!activeStaff.length && <tr><td colSpan={6} className="text-center text-muted">No active staff.</td></tr>}</tbody></table><h5 className="mt-4 mb-2">Inactive Staff</h5><table className="table"><thead><tr><th>Name</th><th>Role</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>{inactiveStaff.map((row) => <tr key={`inactive-${row.id}`}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{formatCurrencyETB(row.monthly_salary || 0)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className="badge badge-warning">Inactive</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-success" onClick={()=>toggleStatus(row)}>Enable</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}{!inactiveStaff.length && <tr><td colSpan={6} className="text-center text-muted">No inactive staff.</td></tr>}</tbody></table>
       </div></div>
 
       {profile && (
@@ -208,12 +200,12 @@ export default function StaffManagement() {
                 <div className="col-md-4 mb-3"><label className="form-label">Monthly Salary</label><input type="number" className="form-control" value={profile.monthly_salary || ''} onChange={(e)=>setProfile((p)=>({...p,monthly_salary:e.target.value}))} /></div>
               </div>
               <div className="row g-2">
-                <div className="col-md-9 mb-3"><label className="form-label">Salary Growth (ETB)</label><input type="number" min="0" step="0.01" className="form-control form-control-lg" value={profile.salary_growth || ''} onChange={(e)=>setProfile((p)=>({...p,salary_growth:e.target.value}))} placeholder="Increase amount" /></div>
+                <div className="col-md-9 mb-3"><label className="form-label">Salary Growth (ETB)</label><input type="number" min="0" step="0.01" className="form-control form-control-lg" style={{ minHeight: "56px", fontSize: "1.05rem" }} value={profile.salary_growth || ''} onChange={(e)=>setProfile((p)=>({...p,salary_growth:e.target.value}))} placeholder="Increase amount" /></div>
                 <div className="col-md-3 mb-3 d-flex align-items-end"><button className="btn btn-outline-primary btn-lg w-100" type="button" onClick={() => setProfile((p) => ({ ...p, monthly_salary: (Number(p.monthly_salary || 0) + Number(p.salary_growth || 0)).toFixed(2), salary_growth: '' }))}>Apply Growth</button></div>
               </div>
 
               <div className="row g-2">
-                <div className="col-md-4 mb-3"><label className="form-label">Role</label><select className="form-select" value={profile.role_preference || 'cashier'} onChange={(e)=>setProfile((p)=>({...p,role_preference:e.target.value}))}><option value="cashier">Cashier</option><option value="manager">Ground Manager</option><option value="other">Other</option></select></div>
+                <div className="col-md-4 mb-3"><label className="form-label">Role</label><input className="form-control" value={profile.role_preference === 'manager' ? 'Ground Manager' : profile.role_preference === 'other' ? 'Other' : 'Cashier'} readOnly /></div>
                 {profile.role_preference === 'other' && <div className="col-md-8 mb-3"><label className="form-label">Other Title</label><input className="form-control" value={profile.job_title || ''} onChange={(e)=>setProfile((p)=>({...p,job_title:e.target.value}))} /></div>}
               </div>
               <button className="btn btn-primary" onClick={async()=>{await editStaff(profile); setProfile(null);}}>Save Changes</button>
