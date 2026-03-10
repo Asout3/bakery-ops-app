@@ -20,16 +20,17 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (re
              COALESCE(CASE WHEN sp.notes LIKE '{%' THEN NULLIF(sp.notes::jsonb ->> 'payment_frequency', '') END, 'monthly') as payment_frequency,
              COALESCE(CASE WHEN sp.notes LIKE '{%' THEN NULLIF(sp.notes::jsonb ->> 'payout_mode', '') END, 'pay_now') as payout_mode,
              CASE WHEN sp.notes LIKE '{%' THEN NULLIF(sp.notes::jsonb ->> 'payroll_month', '') END as payroll_month,
-             ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (sp.created_at + make_interval(mins => $1::int))) as can_edit,
+             ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (sp.created_at + make_interval(mins => $2::int))) as can_edit,
              EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - sp.created_at)) / 60 as age_minutes
       FROM staff_payments sp
       LEFT JOIN users u ON sp.user_id = u.id
       LEFT JOIN staff_profiles fp ON sp.staff_profile_id = fp.id
       LEFT JOIN users uc ON sp.created_by = uc.id
-      WHERE 1=1
+      WHERE sp.location_id = $1
     `;
 
-    const params = [STAFF_PAYMENT_EDIT_WINDOW_MINUTES];
+    const locationId = await getTargetLocationId(req, query);
+    const params = [locationId, STAFF_PAYMENT_EDIT_WINDOW_MINUTES];
 
     if (startDate) {
       params.push(startDate);
@@ -47,7 +48,7 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (re
     res.json(result.rows);
   } catch (err) {
     console.error('Get staff payments error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'PAYMENT_FETCH_ERROR', requestId: req.requestId });
   }
 });
 
@@ -60,13 +61,16 @@ router.post(
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
     }
 
     const { staff_profile_id, user_id, amount, payment_date, payment_type, payment_frequency, payout_mode, payroll_month, notes } = req.body;
 
     if (!staff_profile_id && !user_id) {
-      return res.status(400).json({ error: 'Either staff_profile_id or user_id is required' });
+      return res.status(400).json({ error: 'Either staff_profile_id or user_id is required', code: 'VALIDATION_ERROR', requestId: req.requestId });
+    }
+    if (staff_profile_id && user_id) {
+      return res.status(400).json({ error: 'Provide only one of staff_profile_id or user_id', code: 'VALIDATION_ERROR', requestId: req.requestId });
     }
 
     const idempotencyKey = req.headers['x-idempotency-key'];
@@ -79,15 +83,17 @@ router.post(
       let staffName = 'Unknown';
 
       if (resolvedStaffProfileId) {
-        const staffResult = await query('SELECT full_name FROM staff_profiles WHERE id = $1', [resolvedStaffProfileId]);
-        if (staffResult.rows.length > 0) {
-          staffName = staffResult.rows[0].full_name;
+        const staffResult = await query('SELECT full_name FROM staff_profiles WHERE id = $1 AND location_id = $2', [resolvedStaffProfileId, locationId]);
+        if (!staffResult.rows.length) {
+          return res.status(400).json({ error: 'Invalid staff profile for this branch', code: 'INVALID_STAFF_PROFILE', requestId: req.requestId });
         }
+        staffName = staffResult.rows[0].full_name;
       } else if (resolvedUserId) {
-        const userResult = await query('SELECT username FROM users WHERE id = $1', [resolvedUserId]);
-        if (userResult.rows.length > 0) {
-          staffName = userResult.rows[0].username;
+        const userResult = await query('SELECT username FROM users WHERE id = $1 AND location_id = $2', [resolvedUserId, locationId]);
+        if (!userResult.rows.length) {
+          return res.status(400).json({ error: 'Invalid user for this branch', code: 'INVALID_USER', requestId: req.requestId });
         }
+        staffName = userResult.rows[0].username;
       }
 
       const result = await withTransaction(async (tx) => {
@@ -138,7 +144,7 @@ router.post(
       res.status(201).json(result);
     } catch (err) {
       console.error('Create staff payment error:', err);
-      res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: err.code || 'PAYMENT_CREATE_ERROR', requestId: req.requestId });
     }
   }
 );
@@ -152,7 +158,7 @@ router.put(
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
     }
 
     const { amount, payment_date, payment_type, payment_frequency, payout_mode, payroll_month, notes } = req.body;
@@ -165,9 +171,9 @@ router.put(
                   ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (created_at + make_interval(mins => $2::int))) as can_edit,
                   EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - created_at)) / 60 as age_minutes
            FROM staff_payments
-           WHERE id = $1
+           WHERE id = $1 AND location_id = $3
            FOR UPDATE`,
-          [req.params.id, STAFF_PAYMENT_EDIT_WINDOW_MINUTES]
+          [req.params.id, STAFF_PAYMENT_EDIT_WINDOW_MINUTES, locationId]
         );
 
         if (!existing.rows.length) {
@@ -189,11 +195,10 @@ router.put(
            SET amount = COALESCE($1, amount),
                payment_date = COALESCE($2, payment_date),
                payment_type = COALESCE($3, payment_type),
-               notes = COALESCE($4, notes),
-               location_id = COALESCE($5, location_id)
-           WHERE id = $6
+               notes = COALESCE($4, notes)
+           WHERE id = $5 AND location_id = $6
            RETURNING *`,
-          [amount || null, payment_date || null, payment_type || null, JSON.stringify({ notes: notes || '', payment_frequency: payment_frequency || 'monthly', payout_mode: payout_mode || 'pay_now', payroll_month: payroll_month || null }), locationId, req.params.id]
+          [amount || null, payment_date || null, payment_type || null, JSON.stringify({ notes: notes || '', payment_frequency: payment_frequency || 'monthly', payout_mode: payout_mode || 'pay_now', payroll_month: payroll_month || null }), req.params.id, locationId]
         );
 
         return result.rows[0];
@@ -209,15 +214,16 @@ router.put(
 
 router.delete('/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
+    const locationId = await getTargetLocationId(req, query);
     await withTransaction(async (tx) => {
       const existing = await tx.query(
         `SELECT *,
                 ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (created_at + make_interval(mins => $2::int))) as can_edit,
                 EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - created_at)) / 60 as age_minutes
          FROM staff_payments
-         WHERE id = $1
+         WHERE id = $1 AND location_id = $3
          FOR UPDATE`,
-        [req.params.id, STAFF_PAYMENT_EDIT_WINDOW_MINUTES]
+        [req.params.id, STAFF_PAYMENT_EDIT_WINDOW_MINUTES, locationId]
       );
 
       if (!existing.rows.length) {
@@ -234,7 +240,7 @@ router.delete('/:id', authenticateToken, authorizeRoles('admin'), async (req, re
         throw err;
       }
 
-      await tx.query('DELETE FROM staff_payments WHERE id = $1', [req.params.id]);
+      await tx.query('DELETE FROM staff_payments WHERE id = $1 AND location_id = $2', [req.params.id, payment.location_id]);
     });
 
     res.json({ message: 'Payment deleted successfully' });
@@ -256,10 +262,11 @@ router.get('/summary', authenticateToken, authorizeRoles('admin'), async (req, r
       FROM staff_payments sp
       LEFT JOIN users u ON sp.user_id = u.id
       LEFT JOIN staff_profiles fp ON sp.staff_profile_id = fp.id
-      WHERE 1=1
+      WHERE sp.location_id = $1
     `;
 
-    const params = [];
+    const locationId = await getTargetLocationId(req, query);
+    const params = [locationId];
     const startDate = req.query.start_date;
     const endDate = req.query.end_date;
 
@@ -279,7 +286,7 @@ router.get('/summary', authenticateToken, authorizeRoles('admin'), async (req, r
     res.json(result.rows);
   } catch (err) {
     console.error('Get payment summary error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'PAYMENT_SUMMARY_FETCH_ERROR', requestId: req.requestId });
   }
 });
 

@@ -36,6 +36,10 @@ async function createArchiveNotification(tx, locationId, title, message, type = 
 async function moveRowsToArchive(tx, config) {
   const counts = {};
 
+  await tx.query('CREATE TABLE IF NOT EXISTS customer_orders_archive (LIKE customer_orders INCLUDING ALL)');
+  await tx.query('CREATE TABLE IF NOT EXISTS order_items_archive (LIKE order_items INCLUDING ALL)');
+
+
   const batches = await tx.query(
     `WITH moved AS (
       INSERT INTO inventory_batches_archive
@@ -155,6 +159,49 @@ async function moveRowsToArchive(tx, config) {
     await tx.query('DELETE FROM expenses WHERE location_id = $1 AND expense_date < $2::date', [config.locationId, config.cutoffAt]);
   }
 
+
+  const archivedOrders = await tx.query(
+    `WITH moved AS (
+      INSERT INTO customer_orders_archive
+      SELECT * FROM customer_orders
+      WHERE location_id = $1
+        AND pickup_at < $2
+        AND status IN ('picked_up', 'delivered', 'cancelled')
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id
+    )
+    SELECT COUNT(*)::int AS count FROM moved`,
+    [config.locationId, config.cutoffAt]
+  );
+  counts.customer_orders = archivedOrders.rows[0].count;
+  if (counts.customer_orders > 0) {
+    await tx.query(
+      `INSERT INTO order_items_archive
+       SELECT oi.* FROM order_items oi
+       JOIN customer_orders_archive oa ON oa.id = oi.order_id
+       LEFT JOIN order_items_archive oia ON oia.id = oi.id
+       WHERE oa.location_id = $1 AND oia.id IS NULL`,
+      [config.locationId]
+    );
+
+    await tx.query(
+      `DELETE FROM order_items
+       WHERE order_id IN (
+         SELECT id FROM customer_orders_archive
+         WHERE location_id = $1 AND pickup_at < $2
+       )`,
+      [config.locationId, config.cutoffAt]
+    );
+
+    await tx.query(
+      `DELETE FROM customer_orders
+       WHERE location_id = $1
+         AND pickup_at < $2
+         AND status IN ('picked_up', 'delivered', 'cancelled')`,
+      [config.locationId, config.cutoffAt]
+    );
+  }
+
   const staffPayments = await tx.query(
     `WITH moved AS (
       INSERT INTO staff_payments_archive
@@ -213,7 +260,7 @@ export async function runArchiveForLocation({ locationId, userId = null, runType
         tx,
         locationId,
         'Archive run completed',
-        `History archiving finished. Batches: ${counts.inventory_batches}, Sales: ${counts.sales}, Inventory logs: ${counts.inventory_movements}, Activity logs: ${counts.activity_log}, Expenses: ${counts.expenses}, Staff payments: ${counts.staff_payments}.`,
+        `History archiving finished. Batches: ${counts.inventory_batches}, Sales: ${counts.sales}, Inventory logs: ${counts.inventory_movements}, Activity logs: ${counts.activity_log}, Expenses: ${counts.expenses}, Staff payments: ${counts.staff_payments}, Pre-orders: ${counts.customer_orders || 0}.`,
         'archive_completed'
       );
 
@@ -296,7 +343,9 @@ export async function getArchiveDashboard(locationId) {
       (SELECT COUNT(*)::int FROM inventory_movements_archive WHERE location_id = $1) AS inventory_movements,
       (SELECT COUNT(*)::int FROM activity_log_archive WHERE location_id = $1) AS activity_log,
       (SELECT COUNT(*)::int FROM expenses_archive WHERE location_id = $1) AS expenses,
-      (SELECT COUNT(*)::int FROM staff_payments_archive WHERE location_id = $1) AS staff_payments`,
+      (SELECT COUNT(*)::int FROM staff_payments_archive WHERE location_id = $1) AS staff_payments,
+      (SELECT COUNT(*)::int FROM customer_orders_archive WHERE location_id = $1) AS customer_orders,
+      (SELECT COUNT(*)::int FROM order_items_archive oia JOIN customer_orders_archive oa ON oa.id = oia.order_id WHERE oa.location_id = $1) AS order_items`,
     [locationId]
   );
 

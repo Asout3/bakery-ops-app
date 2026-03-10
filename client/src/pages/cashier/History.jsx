@@ -210,7 +210,7 @@ export default function CashierHistory() {
                       </td>
                       <td>{sale.cashier_name || t('unknown')}</td>
                       <td>
-                        <span className={`badge ${sale.payment_method === 'cash' ? 'badge-success' : sale.payment_method === 'card' ? 'badge-primary' : 'badge-info'}`}>
+                        <span className={`badge ${sale.payment_method === 'cash' ? 'badge-success' : sale.payment_method === 'card' || sale.payment_method === 'telebirr' ? 'badge-primary' : 'badge-info'}`}>
                           {sale.payment_method}
                         </span>
                       </td>

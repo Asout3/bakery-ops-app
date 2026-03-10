@@ -56,8 +56,8 @@ export default function ManagerOrders() {
                   </td>
                   <td className="d-flex gap-2 flex-wrap">
                     <button className="btn btn-sm btn-outline-info" onClick={() => setSelectedNoteOrder(order)}>View Note</button>
-                    <button className="btn btn-sm btn-outline-primary" onClick={() => updateOrder(order, { status: 'in_production', prep_status: 'preparing' })}>Start</button>
-                    <button className="btn btn-sm btn-success" onClick={() => updateOrder(order, { status: 'ready', prep_status: 'ready', prep_progress: 100 })}>Mark Ready</button>
+                    <button className="btn btn-sm btn-outline-primary" onClick={() => updateOrder(order, { status: 'in_production', prep_status: 'preparing' })} disabled={order.prep_status === 'ready' || order.status === 'ready'}>Start</button>
+                    <button className="btn btn-sm btn-success" onClick={() => updateOrder(order, { status: 'ready', prep_status: 'ready', prep_progress: 100 })} disabled={order.prep_status === 'ready' || order.status === 'ready'}>Mark Ready</button>
                   </td>
                 </tr>
               ))}

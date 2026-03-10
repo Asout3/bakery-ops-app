@@ -311,6 +311,8 @@ export async function ensureOrdersSchema() {
 
     await query('ALTER TABLE customer_orders DROP CONSTRAINT IF EXISTS customer_orders_status_check');
     await query(`ALTER TABLE customer_orders ADD CONSTRAINT customer_orders_status_check CHECK (status IN ('pending', 'confirmed', 'in_production', 'ready', 'picked_up', 'delivered', 'cancelled', 'overdue'))`);
+    await query('ALTER TABLE customer_orders DROP CONSTRAINT IF EXISTS customer_orders_payment_method_check');
+    await query(`ALTER TABLE customer_orders ADD CONSTRAINT customer_orders_payment_method_check CHECK (payment_method IN ('cash', 'mobile', 'telebirr'))`);
 
     await query('ALTER TABLE inventory_movements DROP CONSTRAINT IF EXISTS inventory_movements_source_check');
     await query(`ALTER TABLE inventory_movements ADD CONSTRAINT inventory_movements_source_check CHECK (source IN ('baked', 'purchased', 'sale', 'manual', 'order_prepared'))`);

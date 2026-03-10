@@ -181,6 +181,11 @@ Technical behavior:
 - Cashier pre-order item selection auto-fills product prices, shows live total/paid/balance values, and supports product dropdown fallback from offline cached products.
 - Admin and manager order oversight now include dedicated customer-note viewing actions with larger note editing/readability surfaces.
 - Order performance is surfaced on admin dashboard period views (daily/weekly/monthly) from picked-up orders for revenue transparency and is included in revenue/profit rollups.
+- Offline refresh session continuity preserves authenticated state when `/auth/me` cannot be reached due to offline network conditions.
+- Inventory lists now hide archived products and admin inventory identifiers are formatted for readability (e.g. `INV-000123`).
+- Expense visibility is role-aware: managers only see expenses they created, while admins retain full branch visibility.
+- Archive lifecycle now includes pre-order history (`customer_orders` and `order_items`) in 6-month archival and export datasets.
+- Staff payments flow now has stronger branch-scoped validation (`staff_profile_id`/`user_id`), standardized API error envelopes, and safer update semantics (no location reassignment on edit).
 
 ## Security and Compliance Controls
 
