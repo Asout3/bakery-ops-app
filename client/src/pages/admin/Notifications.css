@@ -1,3 +1,16 @@
+/* ================================================
+   Notifications Page - Modern Dark Theme
+   ================================================ */
+
+.notifications-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* ================================================
+   Notifications Summary
+   ================================================ */
 
 .notifications-summary {
   display: flex;
@@ -6,41 +19,91 @@
 }
 
 .summary-chip {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  padding: 0.4rem 0.85rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 0.5rem 1rem;
   font-weight: 600;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  transition: border-color 0.2s ease;
+}
+
+.summary-chip:hover {
+  border-color: var(--border-hover);
 }
 
 .summary-chip-warning {
-  background: rgba(251, 191, 36, 0.18);
-  border-color: rgba(251, 191, 36, 0.5);
+  background: var(--warning-muted);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: var(--warning);
 }
+
+.summary-chip-danger {
+  background: var(--danger-muted);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--danger);
+}
+
+/* ================================================
+   Notifications List
+   ================================================ */
 
 .notifications-list {
   display: grid;
-  gap: 0.85rem;
+  gap: 0.75rem;
 }
 
 .notification-item {
-  border: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
   border-left: 4px solid transparent;
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  transition: all 0.2s ease;
+}
+
+.notification-item:hover {
+  border-color: var(--border-hover);
 }
 
 .notification-item.unread {
   border-left-color: var(--primary);
-  background: rgba(59, 130, 246, 0.04);
+  background: var(--primary-muted);
 }
 
+.notification-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.notification-message {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.notification-time {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+}
+
+/* Unread Badge */
 .unread-badge {
   margin-left: 0.5rem;
   background: var(--danger);
   color: white;
-  font-size: 0.7rem;
-  padding: 0.12rem 0.45rem;
-  border-radius: 999px;
+  font-size: 0.6875rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  font-weight: 600;
 }
+
+/* ================================================
+   Rules Section
+   ================================================ */
 
 .rule-list {
   display: grid;
@@ -51,12 +114,45 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border: 1px solid var(--border-light);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.5rem 0.7rem;
+  padding: 0.75rem 1rem;
+  transition: border-color 0.2s ease;
+}
+
+.rule-item:hover {
+  border-color: var(--border-hover);
 }
 
 .rule-text {
   font-weight: 600;
   text-transform: capitalize;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.rule-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* ================================================
+   Notification Types
+   ================================================ */
+
+.notification-type-info {
+  border-left-color: var(--info);
+}
+
+.notification-type-warning {
+  border-left-color: var(--warning);
+}
+
+.notification-type-danger {
+  border-left-color: var(--danger);
+}
+
+.notification-type-success {
+  border-left-color: var(--success);
 }
