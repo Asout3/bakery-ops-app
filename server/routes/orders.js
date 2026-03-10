@@ -121,6 +121,7 @@ router.post('/',
   body('customer_phone').trim().notEmpty(),
   body('items').isArray({ min: 1 }),
   body('items.*.quantity').isInt({ min: 1 }),
+  body('payment_method').optional().isIn(['cash', 'mobile', 'telebirr']),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -152,6 +153,11 @@ router.post('/',
           const productId = rawItem.product_id ? Number(rawItem.product_id) : null;
           let itemName = typeof rawItem.custom_item_name === 'string' ? rawItem.custom_item_name.trim() : '';
           let unitPrice = normalizeNumber(rawItem.unit_price, 0);
+          if (unitPrice < 0) {
+            const e = new Error('unit_price cannot be negative');
+            e.status = 400;
+            throw e;
+          }
 
           if (productId) {
             const productResult = await tx.query('SELECT name, price FROM products WHERE id = $1 LIMIT 1', [productId]);
@@ -176,6 +182,13 @@ router.post('/',
         }
 
         const orderDetails = normalizedItems.map((item) => `${item.product_id ? `Product#${item.product_id}` : item.custom_item_name} x${item.quantity}`).join(', ');
+        const normalizedPaidAmount = normalizeNumber(paid_amount, 0);
+        if (normalizedPaidAmount > totalAmount) {
+          const e = new Error('Paid amount cannot be greater than the order total.');
+          e.status = 400;
+          e.code = 'ORDER_OVERPAY_NOT_ALLOWED';
+          throw e;
+        }
 
         const orderResult = await tx.query(
           `INSERT INTO customer_orders
@@ -183,7 +196,7 @@ router.post('/',
               total_amount, paid_amount, payment_method, status, prep_status, prep_progress)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', 'not_started', 0)
            RETURNING *`,
-          [locationId, req.user.id, customer_name, customer_phone, customer_note || null, orderDetails, pickup_at || new Date(Date.now() + (2 * 60 * 60 * 1000)).toISOString(), totalAmount, normalizeNumber(paid_amount, 0), payment_method || 'cash']
+          [locationId, req.user.id, customer_name, customer_phone, customer_note || null, orderDetails, pickup_at || new Date(Date.now() + (2 * 60 * 60 * 1000)).toISOString(), totalAmount, normalizedPaidAmount, payment_method || 'cash']
         );
 
         const order = orderResult.rows[0];
@@ -247,6 +260,21 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager', 'cash
         throw e;
       }
 
+      const isFinalState = ['picked_up', 'delivered', 'cancelled'].includes(order.status);
+      if (isFinalState) {
+        const e = new Error('Finalized orders cannot be edited.');
+        e.status = 403;
+        e.code = 'ORDER_FINALIZED';
+        throw e;
+      }
+
+      if (order.prep_status === 'ready' && ((prep_status && prep_status !== 'ready') || (status && status === 'in_production'))) {
+        const e = new Error('Ready orders cannot be moved back to preparing.');
+        e.status = 400;
+        e.code = 'ORDER_ALREADY_READY';
+        throw e;
+      }
+
       let nextStatus = status || order.status;
       if (nextStatus === 'delivered') nextStatus = 'picked_up';
       let nextPrepStatus = prep_status || order.prep_status;
@@ -266,6 +294,12 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager', 'cash
 
       let nextPaidAmount = paid_amount === undefined ? Number(order.paid_amount || 0) : normalizeNumber(paid_amount, Number(order.paid_amount || 0));
       if (verify_payment === true) nextPaidAmount = effectiveTotalAmount;
+      if (nextPaidAmount > effectiveTotalAmount) {
+        const e = new Error('Paid amount cannot be greater than order total.');
+        e.status = 400;
+        e.code = 'ORDER_OVERPAY_NOT_ALLOWED';
+        throw e;
+      }
 
       const shouldApplyInventory = (nextPrepStatus === 'ready' || nextStatus === 'ready') && order.inventory_applied !== true;
 

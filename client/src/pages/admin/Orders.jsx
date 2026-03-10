@@ -61,6 +61,9 @@ export default function AdminOrders() {
     setEditingOrder(null);
   };
 
+
+  const isFinalOrderState = (order) => ['picked_up', 'delivered', 'cancelled'].includes(order?.status);
+
   const patch = async (orderId, payload) => {
     try {
       await api.patch(`/orders/${orderId}`, payload);
@@ -88,10 +91,10 @@ export default function AdminOrders() {
                   <td>{order.prep_status} ({Number(order.prep_progress || 0)}%)</td>
                   <td>ETB {Number(order.total_amount || 0).toFixed(2)} total / ETB {Number(order.paid_amount || 0).toFixed(2)} paid <span className={`badge ms-1 ${order.payment_status === 'verified' ? 'badge-success' : 'badge-warning'}`}>{order.payment_status}</span></td>
                   <td className="d-flex gap-2 flex-wrap">
-                    {order.payment_status !== 'verified' && <button className="btn btn-sm btn-outline-primary" onClick={() => patch(order.id, { verify_payment: true })}>Verify Payment</button>}
-                    {order.status !== 'picked_up' && <button className="btn btn-sm btn-success" onClick={() => patch(order.id, { status: 'picked_up' })}>Mark Picked Up</button>}
+                    {order.payment_status !== 'verified' && !isFinalOrderState(order) && <button className="btn btn-sm btn-outline-primary" onClick={() => patch(order.id, { verify_payment: true })}>Verify Payment</button>}
+                    {order.status !== 'picked_up' && !isFinalOrderState(order) && <button className="btn btn-sm btn-success" onClick={() => patch(order.id, { status: 'picked_up' })}>Mark Picked Up</button>}
                     <button className="btn btn-sm btn-outline-info" onClick={() => setSelectedNoteOrder(order)}>View Note</button>
-                    <button className="btn btn-sm btn-outline-secondary" onClick={() => setEditingOrder({ ...order })}>Edit</button>
+                    {!isFinalOrderState(order) && <button className="btn btn-sm btn-outline-secondary" onClick={() => setEditingOrder({ ...order })}>Edit</button>}
                     {canDeleteOrder(order) && <button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button>}
                     {canDeleteOrder(order) ? <span className="badge badge-warning">Delete: {minutesLeft(order)}m left</span> : <span className="badge badge-secondary">Delete locked</span>}
                   </td>

@@ -105,6 +105,8 @@ export default function CashierOrders() {
   const removeRow = (idx) => setForm((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }));
   const addRow = () => setForm((prev) => ({ ...prev, items: [...prev.items, { ...emptyItem }] }));
 
+  const isFinalOrderState = (order) => ['picked_up', 'delivered', 'cancelled'].includes(order?.status);
+
   const canDeleteOrder = (order) => {
     const createdAt = order?.created_at ? new Date(order.created_at).getTime() : 0;
     if (!createdAt) return false;
@@ -170,6 +172,13 @@ export default function CashierOrders() {
       return;
     }
 
+    const totalFromItems = payload.items.reduce((sum, item) => sum + (Number(item.unit_price || 0) * Number(item.quantity || 0)), 0);
+    if (Number(payload.paid_amount || 0) > totalFromItems) {
+      setMessage({ type: 'warning', text: 'Amount paid now cannot be greater than the order total.' });
+      setLoading(false);
+      return;
+    }
+
     try {
       await api.post('/orders', payload);
       resetForm();
@@ -201,7 +210,7 @@ export default function CashierOrders() {
             <div className="col-md-4"><label className="form-label">Customer Name *</label><input className="form-control" value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} required /></div>
             <div className="col-md-4"><label className="form-label">Phone *</label><input className="form-control" value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} required /></div>
             <div className="col-md-4"><label className="form-label">Pickup Time</label><input type="datetime-local" className="form-control" value={form.pickup_at} onChange={(e) => setForm({ ...form, pickup_at: e.target.value })} /></div>
-            <div className="col-md-4"><label className="form-label">Payment Method</label><select className="form-select" value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value })}><option value="cash">Cash</option><option value="mobile">Mobile</option></select></div>
+            <div className="col-md-4"><label className="form-label">Payment Method</label><select className="form-select" value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value })}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div>
             <div className="col-md-4"><label className="form-label">Amount Paid Now</label><input type="number" step="0.01" min="0" className="form-control" value={form.paid_amount} onChange={(e) => setForm({ ...form, paid_amount: e.target.value })} /></div>
             <div className="col-md-12"><label className="form-label">Customer Note</label><textarea className="form-control form-note-input" rows="4" placeholder="Special requests, allergy notes, delivery clues..." value={form.customer_note} onChange={(e) => setForm({ ...form, customer_note: e.target.value })} /></div>
           </div>
@@ -248,7 +257,7 @@ export default function CashierOrders() {
                     <span className={`badge ms-1 ${order.payment_status === 'verified' ? 'badge-success' : 'badge-warning'}`}>{order.payment_status}</span>
                   </td>
                   <td>{new Date(order.pickup_at).toLocaleString()}</td>
-                  <td><div className="d-flex gap-2 align-items-center flex-wrap"><button className="btn btn-sm btn-outline-info" onClick={() => setNoteViewerOrder(order)}>View Note</button><button className="btn btn-sm btn-outline-primary" onClick={() => setEditingOrder({ ...order })}>Edit</button>{canDeleteOrder(order) && <button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button>}{canDeleteOrder(order) ? <span className="badge badge-warning">Delete: {minutesLeft(order)}m left</span> : <span className="badge badge-secondary">Delete locked</span>}</div></td>
+                  <td><div className="d-flex gap-2 align-items-center flex-wrap"><button className="btn btn-sm btn-outline-info" onClick={() => setNoteViewerOrder(order)}>View Note</button>{!isFinalOrderState(order) && <button className="btn btn-sm btn-outline-primary" onClick={() => setEditingOrder({ ...order })}>Edit</button>}{canDeleteOrder(order) && !isFinalOrderState(order) && <button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button>}{!isFinalOrderState(order) && (canDeleteOrder(order) ? <span className="badge badge-warning">Delete: {minutesLeft(order)}m left</span> : <span className="badge badge-secondary">Delete locked</span>)}</div></td>
                 </tr>
               ))}
               {!orders.length && <tr><td colSpan="7" className="text-center text-muted">No pre-orders</td></tr>}

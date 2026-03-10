@@ -94,7 +94,7 @@ router.get('/', authenticateToken, async (req, res) => {
          LIMIT 1
        ) latest ON true
        LEFT JOIN users u ON u.id = latest.created_by
-       WHERE i.location_id = $1
+       WHERE i.location_id = $1 AND p.is_active = true
        ORDER BY c.name, p.name`,
       [locationId]
     );

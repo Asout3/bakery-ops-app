@@ -227,7 +227,7 @@ export default function ReportsPage() {
     return rows
       .map((row) => {
         const sales = Number(row.total_sales || 0);
-        const tx = Number(row.total_transactions || 0);
+        const tx = Number(row.transactions || row.total_transactions || 0);
         return {
           name: row.cashier_name || row.username || 'Unknown',
           role: row.role || 'staff',
@@ -363,7 +363,6 @@ export default function ReportsPage() {
     { label: 'Net Profit Margin %', value: current.netMargin, change: growth.netMargin, isPercent: true },
   ];
 
-  const topStaff = staffRows[0];
 
   return (
     <div className="report-v2">
@@ -491,7 +490,7 @@ export default function ReportsPage() {
               return allHours.length ? `${allHours.sort((a, b) => a - b).at(-1)}:00` : 'N/A';
             })()}</strong></div>
             <div><span>Average Transaction Value</span><strong>{fmtMoney(currentData?.summary?.avg_transaction || 0)}</strong></div>
-            <div><span>Average Items per Transaction</span><strong>{Number((currentData?.summary?.total_transactions || 0) > 0 ? ((currentData?.summary?.total_transactions || 0) / Math.max(1, currentData?.summary?.total_transactions || 1)) : 0).toFixed(2)}</strong></div>
+            <div><span>Average Items per Transaction</span><strong>{Number((currentData?.details?.cashier_performance || []).reduce((sum, row) => sum + Number(row.items_sold || 0), 0) / Math.max(1, Number(currentData?.summary?.total_transactions || 0))).toFixed(2)}</strong></div>
           </div>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={weekdaySales}>
@@ -565,16 +564,6 @@ export default function ReportsPage() {
         </div>
       </section>
 
-      <section className="card report-section">
-        <h3>Branch Comparison</h3>
-        <p className="text-muted">Admin users can compare branches from dashboard branch selector; managers view only their branch scope.</p>
-        <div className="metric-list two-columns">
-          <div><span>Revenue</span><strong>{fmtMoney(current.sales)}</strong></div>
-          <div><span>Profit</span><strong>{fmtMoney(current.net)}</strong></div>
-          <div><span>Expense Ratio</span><strong>{fmtPct(current.expenseRatio)}</strong></div>
-          <div><span>Growth</span><strong>{fmtPct(growth.sales)}</strong></div>
-        </div>
-      </section>
 
       <section className="card report-section">
         <h3>Smart Insights</h3>

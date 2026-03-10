@@ -33,7 +33,7 @@ router.post(
   body('items').isArray({ min: 1 }),
   body('items.*.product_id').isInt({ min: 1 }),
   body('items.*.quantity').isInt({ min: 1 }),
-  body('payment_method').optional().isIn(['cash', 'card', 'mobile']),
+  body('payment_method').optional().isIn(['cash', 'card', 'mobile', 'telebirr']),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
