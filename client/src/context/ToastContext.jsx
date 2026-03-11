@@ -1,37 +1,53 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 
 const ToastContext = createContext(null);
+
+const ICONS = {
+  success: <CheckCircle size={16} />,
+  error:   <XCircle size={16} />,
+  danger:  <XCircle size={16} />,
+  warning: <AlertTriangle size={16} />,
+  info:    <Info size={16} />,
+};
 
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
 
   const removeToast = useCallback((id) => {
-    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   const pushToast = useCallback((toast) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const next = { id, type: 'info', duration: 4000, ...toast };
+    const next = { id, type: 'info', duration: 4500, ...toast };
     setToasts((prev) => [...prev, next]);
     window.setTimeout(() => removeToast(id), next.duration);
   }, [removeToast]);
 
   const value = useMemo(() => ({
     pushToast,
-    success: (message, options = {}) => pushToast({ ...options, type: 'success', message }),
-    error: (message, options = {}) => pushToast({ ...options, type: 'error', message }),
-    warning: (message, options = {}) => pushToast({ ...options, type: 'warning', message }),
-    info: (message, options = {}) => pushToast({ ...options, type: 'info', message }),
+    success: (message, opts = {}) => pushToast({ ...opts, type: 'success', message }),
+    error:   (message, opts = {}) => pushToast({ ...opts, type: 'error',   message }),
+    warning: (message, opts = {}) => pushToast({ ...opts, type: 'warning', message }),
+    info:    (message, opts = {}) => pushToast({ ...opts, type: 'info',    message }),
   }), [pushToast]);
 
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="toast-stack" role="status" aria-live="polite">
+      <div className="toast-stack" role="status" aria-live="polite" aria-atomic="false">
         {toasts.map((toast) => (
-          <div key={toast.id} className={`toast-item toast-${toast.type}`}>
-            <div>{toast.message}</div>
-            <button className="toast-close" onClick={() => removeToast(toast.id)}>×</button>
+          <div key={toast.id} className={`toast-item toast-${toast.type}`} role="alert">
+            <span style={{ flexShrink: 0, marginTop: '1px' }}>{ICONS[toast.type] || ICONS.info}</span>
+            <div style={{ flex: 1 }}>{toast.message}</div>
+            <button
+              className="toast-close"
+              onClick={() => removeToast(toast.id)}
+              aria-label="Dismiss notification"
+            >
+              <X size={14} />
+            </button>
           </div>
         ))}
       </div>
@@ -40,7 +56,7 @@ export function ToastProvider({ children }) {
 }
 
 export function useToast() {
-  const context = useContext(ToastContext);
-  if (!context) throw new Error('useToast must be used within ToastProvider');
-  return context;
+  const ctx = useContext(ToastContext);
+  if (!ctx) throw new Error('useToast must be used within ToastProvider');
+  return ctx;
 }
