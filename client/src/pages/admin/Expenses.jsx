@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import './Expenses.css';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { useAuth } from '../../context/AuthContext';

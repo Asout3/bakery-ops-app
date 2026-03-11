@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
+import './StaffPayments.css';
 import api, { getErrorMessage } from '../../api/axios';
 import { Plus, Edit, Trash2, DollarSign, Calendar, User, X, Clock, Eye } from 'lucide-react';
 import { enqueueOperation } from '../../utils/offlineQueue';

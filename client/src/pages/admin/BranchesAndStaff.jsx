@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import './BranchesAndStaff.css';
 import { UserPlus, Users, Eye, EyeOff } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';

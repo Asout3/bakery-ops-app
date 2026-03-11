@@ -180,7 +180,9 @@ export default function Dashboard() {
   if (user?.role === 'admin' && !selectedLocationId) {
     return (
       <div className="dashboard-page">
-        <div className="card"><div className="card-body">Select a branch from the top bar to load live dashboard data.</div></div>
+        <div className="card"><div className="card-body">
+          <div className="alert alert-info mb-0">Select a branch from the top bar to load live dashboard data.</div>
+        </div></div>
       </div>
     );
   }
@@ -188,38 +190,38 @@ export default function Dashboard() {
   if (error) {
     return (
       <div className="dashboard-page">
-        <div className="card"><div className="card-body text-danger">{error}</div></div>
+        <div className="alert alert-danger">{error}</div>
       </div>
     );
   }
 
   return (
     <div className="dashboard-page">
-      <div className="dashboard-header">
+      <div className="dashboard-page-header">
         <h2>{t('dashboard')}</h2>
         <p className="dashboard-date">{new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
       </div>
 
       <div className="card"><div className="card-body controls-wrap">
-        <div className="d-flex align-items-center gap-2"><Calendar size={16} /><strong>Period:</strong></div>
+        <div className="d-flex align-items-center gap-2"><Calendar size={16} style={{ color: 'var(--text-muted)' }} /><strong style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{t('periodLabel')}:</strong></div>
         <div className="btn-group">
-          <button className={`btn btn-sm ${period === 'daily' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('daily')}>Daily</button>
-          <button className={`btn btn-sm ${period === 'weekly' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('weekly')}>Weekly</button>
-          <button className={`btn btn-sm ${period === 'monthly' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('monthly')}>Monthly</button>
+          <button className={`btn btn-sm ${period === 'daily' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('daily')}>{t('daily')}</button>
+          <button className={`btn btn-sm ${period === 'weekly' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('weekly')}>{t('weekly')}</button>
+          <button className={`btn btn-sm ${period === 'monthly' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('monthly')}>{t('monthly')}</button>
         </div>
-        {period === 'daily' && <input type="date" className="form-control form-control-sm date-input" value={dailyDate} onChange={(e) => setDailyDate(e.target.value)} />}
-        {period === 'weekly' && <input type="date" className="form-control form-control-sm date-input" value={weekEndDate} onChange={(e) => setWeekEndDate(e.target.value)} />}
-        {period === 'monthly' && <input type="month" className="form-control form-control-sm date-input" value={monthValue} onChange={(e) => setMonthValue(e.target.value)} />}
+        {period === 'daily'   && <input type="date"  className="form-control date-input" value={dailyDate}   onChange={(e) => setDailyDate(e.target.value)}   />}
+        {period === 'weekly'  && <input type="date"  className="form-control date-input" value={weekEndDate} onChange={(e) => setWeekEndDate(e.target.value)} />}
+        {period === 'monthly' && <input type="month" className="form-control date-input" value={monthValue}  onChange={(e) => setMonthValue(e.target.value)}  />}
       </div></div>
 
-      <div className="period-chip">{periodLabel}</div>
+      <div className="period-chip"><Calendar size={12} />{periodLabel}</div>
 
       <div className="stats-grid">
-        <StatCard icon={<DollarSign size={18} />} label={`${period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly'} Revenue`} value={formatMoney(totals.revenue)} sub={`${totals.transactions} sales + picked-up orders`} />
-        <StatCard icon={<Receipt size={18} />} label={`${period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly'} Expenses`} value={formatMoney(totals.expenses)} sub={`${expenseRows.length} expense entries`} />
-        <StatCard icon={<Users size={18} />} label="Staff Payments" value={formatMoney(totals.staffPayments)} sub={`${staffPaymentRows.length} payments`} />
+        <StatCard icon={<DollarSign size={18} />} label={`${t(period)} Revenue`} value={formatMoney(totals.revenue)} sub={`${totals.transactions} transactions`} />
+        <StatCard icon={<Receipt size={18} />} label={`${t(period)} Expenses`} value={formatMoney(totals.expenses)} sub={`${expenseRows.length} entries`} />
+        <StatCard icon={<Users size={18} />} label={t('staffPayments')} value={formatMoney(totals.staffPayments)} sub={`${staffPaymentRows.length} payments`} />
         <StatCard icon={<Wallet size={18} />} label="Net Profit" value={formatMoney(totals.netProfit)} sub="Revenue - all costs" tone={totals.netProfit >= 0 ? 'success' : 'danger'} />
-        <StatCard icon={<Receipt size={18} />} label="Order Performance" value={formatMoney(totals.orderRevenue)} sub={`${totals.orderCount} picked-up orders`} tone="info" />
+        <StatCard icon={<Receipt size={18} />} label="Order Revenue" value={formatMoney(totals.orderRevenue)} sub={`${totals.orderCount} picked-up`} tone="info" />
       </div>
 
       <div className="details-grid">
@@ -306,14 +308,14 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ icon, label, value, sub, tone = 'primary', compact = false }) {
+function StatCard({ icon, label, value, sub, tone = 'primary' }) {
   return (
-    <div className={`stat-card card ${compact ? 'stat-card-compact' : ''}`}>
-      <div className={`stat-icon tone-${tone}`}><span>{icon}</span></div>
+    <div className="stat-card card">
+      <div className={`stat-icon tone-${tone}`}>{icon}</div>
       <div className="stat-content">
         <div className="stat-label">{label}</div>
         <div className="stat-value">{value}</div>
-        {sub ? <div className="stat-subtext">{sub}</div> : null}
+        {sub ? <div className="stat-sub">{sub}</div> : null}
       </div>
     </div>
   );

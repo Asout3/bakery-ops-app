@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import './Inventory.css';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Plus, Edit, Trash2, Package, TrendingUp, TrendingDown, Search } from 'lucide-react';

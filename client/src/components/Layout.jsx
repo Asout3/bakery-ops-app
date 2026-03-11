@@ -2,19 +2,9 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import {
-  LayoutDashboard,
-  Package,
-  ShoppingCart,
-  DollarSign,
-  Users,
-  BarChart3,
-  Bell,
-  LogOut,
-  Menu,
-  X,
-  Moon,
-  Sun,
-  ClipboardList,
+  LayoutDashboard, Package, ShoppingCart, DollarSign, Users,
+  BarChart3, Bell, LogOut, Menu, X, Moon, Sun, ClipboardList,
+  ChevronRight, Layers, History, RefreshCw,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
@@ -38,10 +28,7 @@ export default function Layout() {
   const [showLogoutWarning, setShowLogoutWarning] = useState(false);
   const [pendingLogoutCount, setPendingLogoutCount] = useState(0);
 
-  const doLogout = () => {
-    logout();
-    navigate('/login');
-  };
+  const doLogout = () => { logout(); navigate('/login'); };
 
   const handleLogout = async () => {
     const pendingCount = await getPendingCount();
@@ -64,7 +51,9 @@ export default function Layout() {
       try {
         const response = await api.get('/locations');
         const raw = response.data || [];
-        const scoped = user?.role === 'admin' ? raw : raw.filter((loc) => Number(loc.id) === Number(user?.location_id));
+        const scoped = user?.role === 'admin'
+          ? raw
+          : raw.filter((loc) => Number(loc.id) === Number(user?.location_id));
         setLocations(scoped);
         const singleLocation = user?.location_id || scoped[0]?.id;
         if (singleLocation && Number(selectedLocationId || 0) !== Number(singleLocation)) {
@@ -74,7 +63,6 @@ export default function Layout() {
         console.error('Failed to fetch locations:', err);
       }
     };
-
     fetchLocations();
   }, [user?.role, user?.location_id, selectedLocationId, setLocation]);
 
@@ -84,54 +72,64 @@ export default function Layout() {
 
   const navItems = useMemo(() => {
     const role = user?.role;
-
     if (role === 'admin') {
       return [
-        { to: '/admin/dashboard', icon: LayoutDashboard, label: t('dashboard') },
-        { to: '/admin/products', icon: Package, label: t('products') },
-        { to: '/admin/inventory', icon: Package, label: t('inventory') },
-        { to: '/admin/sales', icon: ShoppingCart, label: t('sales') },
-        { to: '/admin/expenses', icon: DollarSign, label: t('expenses') },
-        { to: '/admin/staff-payments', icon: Users, label: t('staffPayments') },
-        { to: '/admin/reports', icon: BarChart3, label: t('reports') },
-        { to: '/admin/notifications', icon: Bell, label: t('notifications'), showBadge: true },
-        { to: '/admin/sync', icon: BarChart3, label: t('syncQueue') },
-        { to: '/admin/team', icon: Users, label: t('accountManagement') },
-        { to: '/admin/staff', icon: Users, label: t('staffManagement') },
-        { to: '/admin/history-lifecycle', icon: BarChart3, label: t('historyLifecycle') },
-        { to: '/admin/orders', icon: ClipboardList, label: t('orders') },
+        { to: '/admin/dashboard',        icon: LayoutDashboard, label: t('dashboard') },
+        { to: '/admin/products',          icon: Package,         label: t('products') },
+        { to: '/admin/inventory',         icon: Layers,          label: t('inventory') },
+        { to: '/admin/sales',             icon: ShoppingCart,    label: t('sales') },
+        { to: '/admin/expenses',          icon: DollarSign,      label: t('expenses') },
+        { to: '/admin/staff-payments',    icon: Users,           label: t('staffPayments') },
+        { to: '/admin/reports',           icon: BarChart3,       label: t('reports') },
+        { to: '/admin/notifications',     icon: Bell,            label: t('notifications'), showBadge: true },
+        { to: '/admin/sync',              icon: RefreshCw,       label: t('syncQueue') },
+        { to: '/admin/team',              icon: Users,           label: t('accountManagement') },
+        { to: '/admin/staff',             icon: Users,           label: t('staffManagement') },
+        { to: '/admin/history-lifecycle', icon: History,         label: t('historyLifecycle') },
+        { to: '/admin/orders',            icon: ClipboardList,   label: t('orders') },
       ];
     }
     if (role === 'manager') {
       return [
-        { to: '/manager/inventory', icon: Package, label: t('inventory') },
-        { to: '/manager/batches', icon: Package, label: t('batches') },
-        { to: '/manager/orders', icon: ClipboardList, label: t('ordersQueue') },
-        { to: '/manager/expenses', icon: DollarSign, label: t('expenses') },
-        { to: '/manager/notifications', icon: Bell, label: t('notifications'), showBadge: true },
+        { to: '/manager/inventory',    icon: Layers,        label: t('inventory') },
+        { to: '/manager/batches',      icon: Package,       label: t('batches') },
+        { to: '/manager/orders',       icon: ClipboardList, label: t('ordersQueue') },
+        { to: '/manager/expenses',     icon: DollarSign,    label: t('expenses') },
+        { to: '/manager/notifications',icon: Bell,          label: t('notifications'), showBadge: true },
       ];
     }
     if (role === 'cashier') {
       return [
-        { to: '/cashier/sales', icon: ShoppingCart, label: t('newSale') },
-        { to: '/cashier/orders', icon: ClipboardList, label: t('preOrders') },
-        { to: '/cashier/history', icon: BarChart3, label: t('salesHistory') },
+        { to: '/cashier/sales',   icon: ShoppingCart, label: t('newSale') },
+        { to: '/cashier/orders',  icon: ClipboardList,label: t('preOrders') },
+        { to: '/cashier/history', icon: History,      label: t('salesHistory') },
       ];
     }
     return [];
   }, [user?.role, t]);
 
+  const selectedLocationName = useMemo(() => {
+    if (!selectedLocationId) return null;
+    return locations.find((l) => Number(l.id) === Number(selectedLocationId))?.name || null;
+  }, [locations, selectedLocationId]);
+
   return (
     <div className="layout">
-      <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
+      {/* ── Sidebar ───────────────────────────── */}
+      <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`} aria-label="Sidebar navigation">
         <div className="sidebar-header">
-          <h2>{t('appTitle')}</h2>
-          <button className="sidebar-close" onClick={() => setSidebarOpen(false)}>
-            <X size={20} />
+          <div className="sidebar-brand">
+            <div className="sidebar-brand-icon">
+              <ShoppingCart size={14} />
+            </div>
+            <span className="sidebar-brand-name">{t('appTitle')}</span>
+          </div>
+          <button className="sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close sidebar">
+            <X size={18} />
           </button>
         </div>
 
-        <nav className="sidebar-nav">
+        <nav className="sidebar-nav" aria-label="Main navigation">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
@@ -139,56 +137,108 @@ export default function Layout() {
               className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
               onClick={() => setSidebarOpen(false)}
             >
-              <item.icon size={20} />
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-                {item.label}
-                {item.showBadge && unreadCount > 0 && (
-                  <span className="badge badge-danger" style={{ fontSize: '0.68rem' }}>{unreadCount}</span>
-                )}
-              </span>
+              <item.icon size={18} strokeWidth={2} />
+              <span style={{ flex: 1 }}>{item.label}</span>
+              {item.showBadge && unreadCount > 0 && (
+                <span className="nav-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+              )}
             </NavLink>
           ))}
         </nav>
 
         <div className="sidebar-footer">
           <div className="user-info">
-            <div className="user-avatar">{user?.username?.charAt(0).toUpperCase()}</div>
+            <div className="user-avatar" aria-hidden="true">
+              {user?.username?.charAt(0).toUpperCase()}
+            </div>
             <div className="user-details">
               <div className="user-name">{user?.username}</div>
               <div className="user-role">{user?.role}</div>
             </div>
           </div>
-          <button className="btn btn-secondary btn-sm" onClick={handleLogout}>
-            <LogOut size={16} /> {t('logout')}
+          <button className="btn btn-secondary btn-sm" onClick={handleLogout} style={{ width: '100%' }}>
+            <LogOut size={14} /> {t('logout')}
           </button>
         </div>
       </aside>
 
+      {/* ── Main area ─────────────────────────── */}
       <div className="main-content">
-        <header className="top-bar">
-          <button className="menu-toggle" onClick={() => setSidebarOpen(true)}>
-            <Menu size={24} />
+        <header className="top-bar" role="banner">
+          <button className="menu-toggle" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">
+            <Menu size={20} />
           </button>
-          <div className="top-bar-content" style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-            <h1 className="page-title">{t('appTitle')}</h1>
-            <button className="btn btn-sm btn-secondary" onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}>
-              {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />} {t(theme === 'light' ? 'dark' : 'light')}
-            </button>
-            <select className="form-select" style={{ maxWidth: '140px' }} value={language} onChange={(e) => setLang(e.target.value)}>
+
+          {/* App title (mobile) / location breadcrumb */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+            <span className="top-bar-title">{t('appTitle')}</span>
+            {selectedLocationName && (
+              <>
+                <ChevronRight size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                <span className="top-bar-location">{selectedLocationName}</span>
+              </>
+            )}
+          </div>
+
+          <div className="top-bar-right">
+            {/* Location selector — admin only */}
+            {user?.role === 'admin' && locations.length > 1 && (
+              <select
+                className="form-select"
+                value={selectedLocationId || ''}
+                onChange={(e) => setLocation(e.target.value)}
+                aria-label="Select location"
+              >
+                <option value="">All Locations</option>
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                ))}
+              </select>
+            )}
+
+            <div className="top-bar-divider" />
+
+            {/* Language toggle */}
+            <select
+              className="form-select"
+              value={language}
+              onChange={(e) => setLang(e.target.value)}
+              aria-label="Select language"
+              style={{ maxWidth: '130px' }}
+            >
               <option value="en">English</option>
               <option value="am">አማርኛ</option>
             </select>
+
+            {/* Theme toggle */}
+            <button
+              className="btn btn-secondary btn-sm btn-icon"
+              onClick={() => setTheme((p) => (p === 'light' ? 'dark' : 'light'))}
+              aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+              title={theme === 'light' ? t('dark') : t('light')}
+            >
+              {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+            </button>
           </div>
         </header>
 
-        <main className="content">
+        <main className="content" id="main-content">
           <Outlet />
         </main>
       </div>
 
-      {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
+      {/* ── Mobile overlay ────────────────────── */}
+      {sidebarOpen && (
+        <div
+          className="sidebar-overlay"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       <OfflineIndicator />
 
+      {/* ── Pending-logout warning modal ──────── */}
       {showLogoutWarning && (
         <div className="modal-overlay" onClick={() => setShowLogoutWarning(false)}>
           <div className="modal-content modal-sm" onClick={(e) => e.stopPropagation()}>
@@ -197,14 +247,19 @@ export default function Layout() {
               <button className="close-btn" onClick={() => setShowLogoutWarning(false)}>×</button>
             </div>
             <div className="modal-body">
-              <p>
-                {t('pendingOfflineDetails')} <strong>{pendingLogoutCount}</strong>
+              <p className="alert alert-warning mb-0">
+                {t('pendingOfflineDetails')} <strong>({pendingLogoutCount})</strong>
               </p>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowLogoutWarning(false)}>{t('cancel')}</button>
-              <button className="btn btn-danger" onClick={() => { setShowLogoutWarning(false); doLogout(); }}>
-                {t('logoutAnyway')}
+              <button className="btn btn-secondary" onClick={() => setShowLogoutWarning(false)}>
+                {t('cancel')}
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={() => { setShowLogoutWarning(false); doLogout(); }}
+              >
+                <LogOut size={14} /> {t('logoutAnyway')}
               </button>
             </div>
           </div>
