@@ -1,9 +1,18 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import api from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { Eye, DollarSign, CreditCard, Calendar, Search, RotateCcw } from 'lucide-react';
+import { Eye, DollarSign, CreditCard, Calendar, Search, RotateCcw, Filter, ShoppingBag, Package } from 'lucide-react';
 import { formatAddisDateTime } from '../../utils/time';
-import './Sales.css';
+import { useLanguage } from '../../context/LanguageContext';
+import { useToast } from '../../context/ToastContext';
+import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { Table, THead, TBody, TR, TH, TD } from '../../components/ui/Table';
+import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
+import { Select } from '../../components/ui/Select';
+import { Badge } from '../../components/ui/Badge';
+import { Modal } from '../../components/ui/Modal';
+import { Skeleton } from '../../components/ui/Skeleton';
 
 const initialFilters = {
   startDate: '',
@@ -15,6 +24,9 @@ const initialFilters = {
 
 export default function SalesPage() {
   const { selectedLocationId } = useBranch();
+  const { t } = useLanguage();
+  const toast = useToast();
+
   const [activeView, setActiveView] = useState('sales');
   const [sales, setSales] = useState([]);
   const [batches, setBatches] = useState([]);
@@ -23,12 +35,7 @@ export default function SalesPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [filters, setFilters] = useState(initialFilters);
 
-  useEffect(() => {
-    fetchData();
-  }, [selectedLocationId]);
-
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [salesRes, batchRes] = await Promise.all([
@@ -38,13 +45,17 @@ export default function SalesPage() {
       setSales(salesRes.data || []);
       setBatches(batchRes.data?.batches || []);
     } catch (err) {
-      console.error('Failed to fetch sales/batches:', err);
+      toast.error('Failed to fetch sales/batches');
       setSales([]);
       setBatches([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData, selectedLocationId]);
 
   const openSaleDetails = async (sale) => {
     setDetailLoading(true);
@@ -92,95 +103,295 @@ export default function SalesPage() {
 
   const totalAmount = filteredSales.reduce((sum, sale) => sum + Number(sale.total_amount || 0), 0);
 
-  if (loading) {
-    return <div className="loading-container"><div className="spinner"></div></div>;
-  }
+  if (loading) return (
+    <div className="animate-fade-in">
+       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
+         <Skeleton width="240px" height="2.5rem" />
+         <Skeleton width="200px" height="2.5rem" />
+       </div>
+       <Skeleton height="120px" style={{ marginBottom: '2rem' }} />
+       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem', marginBottom: '2rem' }}>
+          {[1, 2, 3].map(i => <Skeleton key={i} height="100px" />)}
+       </div>
+       <Skeleton height="400px" />
+    </div>
+  );
 
   return (
-    <div className="sales-page">
-      <div className="page-header" style={{ gap: '1rem', flexWrap: 'wrap' }}>
-        <h2>{activeView === 'sales' ? 'Sales Records' : 'Batch Performance'}</h2>
-        <div className="view-toggle">
-          <button className={`view-toggle-btn ${activeView === 'sales' ? 'active' : ''}`} onClick={() => setActiveView('sales')}>Sales</button>
-          <button className={`view-toggle-btn ${activeView === 'batches' ? 'active' : ''}`} onClick={() => setActiveView('batches')}>Batch Performance</button>
+    <div className="sales-page animate-fade-in">
+      <div className="page-header" style={{ marginBottom: '2rem' }}>
+        <h1 style={{ fontSize: '1.75rem' }}>{activeView === 'sales' ? 'Sales Records' : 'Batch Performance'}</h1>
+        <div style={{ display: 'flex', background: 'var(--surface-bg)', padding: '0.25rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--accent-border)' }}>
+          <button
+            onClick={() => setActiveView('sales')}
+            style={{
+              padding: '0.5rem 1.25rem',
+              borderRadius: 'calc(var(--radius-sm) - 2px)',
+              border: 'none',
+              background: activeView === 'sales' ? 'var(--button-mid)' : 'transparent',
+              color: activeView === 'sales' ? '#fff' : 'var(--text-secondary)',
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+          >
+            Sales
+          </button>
+          <button
+            onClick={() => setActiveView('batches')}
+            style={{
+              padding: '0.5rem 1.25rem',
+              borderRadius: 'calc(var(--radius-sm) - 2px)',
+              border: 'none',
+              background: activeView === 'batches' ? 'var(--button-mid)' : 'transparent',
+              color: activeView === 'batches' ? '#fff' : 'var(--text-secondary)',
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+          >
+            Batches
+          </button>
         </div>
       </div>
 
-      <div className="card mb-4">
-        <div className="card-body">
-          <div className="d-flex justify-content-between align-items-center mb-3" style={{ gap: '0.75rem', flexWrap: 'wrap' }}>
-            <h5 className="mb-0">Filters</h5>
-            <button className="btn btn-outline-secondary btn-sm" onClick={() => setFilters(initialFilters)}>
-              <RotateCcw size={14} className="me-1" /> Clear Filters
-            </button>
+      <Card style={{ marginBottom: '2rem' }}>
+        <CardBody>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+              <Filter size={18} /> Filters
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => setFilters(initialFilters)}>
+              <RotateCcw size={14} style={{ marginRight: '0.375rem' }} /> Clear
+            </Button>
           </div>
-          <div className="row g-3">
-            <div className="col-md-3">
-              <label className="form-label">Start Date</label>
-              <input type="date" className="form-control" value={filters.startDate} onChange={(e) => setFilters({ ...filters, startDate: e.target.value })} />
-            </div>
-            <div className="col-md-3">
-              <label className="form-label">End Date</label>
-              <input type="date" className="form-control" value={filters.endDate} onChange={(e) => setFilters({ ...filters, endDate: e.target.value })} />
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+            <Input type="date" label="Start Date" value={filters.startDate} onChange={(e) => setFilters({ ...filters, startDate: e.target.value })} />
+            <Input type="date" label="End Date" value={filters.endDate} onChange={(e) => setFilters({ ...filters, endDate: e.target.value })} />
             {activeView === 'sales' && (
-              <div className="col-md-3">
-                <label className="form-label">Payment Method</label>
-                <select className="form-select" value={filters.paymentMethod} onChange={(e) => setFilters({ ...filters, paymentMethod: e.target.value })}>
-                  <option value="">All Methods</option>
-                  <option value="cash">Cash</option>
-                  <option value="card">Card</option>
-                  <option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option>
-                </select>
-              </div>
+              <Select
+                label="Payment Method"
+                value={filters.paymentMethod}
+                onChange={(e) => setFilters({ ...filters, paymentMethod: e.target.value })}
+                options={[
+                  { label: 'All Methods', value: '' },
+                  { label: 'Cash', value: 'cash' },
+                  { label: 'Card', value: 'card' },
+                  { label: 'Mobile Banking', value: 'mobile' },
+                  { label: 'Telebirr', value: 'telebirr' }
+                ]}
+              />
             )}
-            <div className="col-md-3">
-              <label className="form-label">Status</label>
-              <select className="form-select" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
-                <option value="">All Statuses</option>
-                <option value="completed">Completed</option>
-                <option value="voided">Voided</option>
-                <option value="sent">Sent</option>
-                <option value="edited">Edited</option>
-              </select>
-            </div>
-            <div className="col-md-3">
-              <label className="form-label">Search</label>
-              <div className="input-group">
-                <input type="text" className="form-control" placeholder={activeView === 'sales' ? 'Receipt #, cashier, amount' : 'Batch #, creator'} value={filters.searchTerm} onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })} />
-                <span className="input-group-text"><Search size={16} /></span>
-              </div>
-            </div>
+            <Select
+              label="Status"
+              value={filters.status}
+              onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+              options={[
+                { label: 'All Statuses', value: '' },
+                { label: 'Completed', value: 'completed' },
+                { label: 'Voided', value: 'voided' },
+                { label: 'Sent', value: 'sent' },
+                { label: 'Edited', value: 'edited' }
+              ]}
+            />
+            <Input
+              label="Search"
+              placeholder={activeView === 'sales' ? 'Receipt, cashier...' : 'Batch #, creator...'}
+              value={filters.searchTerm}
+              onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
+              icon={<Search size={16} />}
+            />
           </div>
-        </div>
-      </div>
-
-      {detailLoading && <div className="alert alert-info mb-3">Loading sale details...</div>}
+        </CardBody>
+      </Card>
 
       {activeView === 'sales' ? (
         <>
-          <div className="stats-grid mb-4">
-            <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><DollarSign size={24} /></div><div className="stat-content"><h3>ETB {totalAmount.toFixed(2)}</h3><p>Total Sales</p></div></div>
-            <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><CreditCard size={24} /></div><div className="stat-content"><h3>{filteredSales.length}</h3><p>Total Transactions</p></div></div>
-            <div className="stat-card card bg-light"><div className="stat-icon bg-info text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {filteredSales.length > 0 ? (totalAmount / filteredSales.length).toFixed(2) : '0.00'}</h3><p>Avg. Transaction</p></div></div>
+          <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+            <StatCard label="Total Revenue" value={`ETB ${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`} icon={<DollarSign size={24} />} variant="success" />
+            <StatCard label="Transactions" value={filteredSales.length} icon={<CreditCard size={24} />} />
+            <StatCard label="Avg. Order" value={`ETB ${filteredSales.length > 0 ? (totalAmount / filteredSales.length).toFixed(2) : '0.00'}`} icon={<Calendar size={24} />} variant="info" />
           </div>
-          <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>Receipt #</th><th>Date & Time</th><th>Amount</th><th>Payment Method</th><th>Status</th><th>Void Details</th><th>Cashier</th><th>Actions</th></tr></thead><tbody>
-            {filteredSales.length === 0 ? <tr><td colSpan="8" className="text-center text-muted py-4">No sales found</td></tr> : filteredSales.map((sale) => (
-              <tr key={sale.id}><td>{sale.receipt_number}</td><td>{formatAddisDateTime(sale.sale_date, { hour12: true })}</td><td>ETB {Number(sale.total_amount).toFixed(2)}</td><td><span className={`badge ${sale.payment_method === 'cash' ? 'badge-success' : sale.payment_method === 'card' || sale.payment_method === 'telebirr' ? 'badge-primary' : 'badge-info'}`}>{sale.payment_method}</span></td><td>{sale.is_offline ? <span className="badge badge-warning">Offline</span> : <span className="badge badge-success">Online</span>}</td><td>{sale.status === 'voided' ? <div><small className="text-muted d-block">{formatAddisDateTime(sale.voided_at, { hour12: true })}</small><small className="text-danger">{sale.void_reason || 'No reason provided'}</small></div> : <span className="text-muted">-</span>}</td><td>{sale.cashier_name || sale.cashier_id}</td><td><button className="btn btn-sm btn-outline-primary" onClick={() => openSaleDetails(sale)}><Eye size={14} /> View</button></td></tr>
-            ))}
-          </tbody></table></div></div></div>
+          <Card>
+            <CardBody style={{ padding: 0 }}>
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>Receipt #</TH>
+                    <TH>Date & Time</TH>
+                    <TH>Amount</TH>
+                    <TH>Payment</TH>
+                    <TH>Status</TH>
+                    <TH>Cashier</TH>
+                    <TH style={{ textAlign: 'right' }}>Actions</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {filteredSales.map((sale) => (
+                    <TR key={sale.id}>
+                      <TD style={{ fontWeight: 700, fontSize: '0.875rem' }}>{sale.receipt_number}</TD>
+                      <TD style={{ fontSize: '0.8125rem' }}>{formatAddisDateTime(sale.sale_date, { hour12: true })}</TD>
+                      <TD style={{ fontWeight: 800 }}>ETB {Number(sale.total_amount).toFixed(2)}</TD>
+                      <TD>
+                        <Badge variant={sale.payment_method === 'cash' ? 'success' : 'info'}>
+                          {sale.payment_method}
+                        </Badge>
+                      </TD>
+                      <TD>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                           <Badge variant={sale.is_offline ? 'warning' : 'success'}>
+                             {sale.is_offline ? 'Offline' : 'Online'}
+                           </Badge>
+                           {sale.status === 'voided' && (
+                             <span style={{ fontSize: '0.6875rem', color: 'var(--text-error)', fontWeight: 700 }}>VOIDED</span>
+                           )}
+                        </div>
+                      </TD>
+                      <TD style={{ fontSize: '0.875rem' }}>{sale.cashier_name || sale.cashier_id}</TD>
+                      <TD style={{ textAlign: 'right' }}>
+                        <Button variant="secondary" size="sm" onClick={() => openSaleDetails(sale)}>
+                          <Eye size={14} style={{ marginRight: '0.25rem' }} /> View
+                        </Button>
+                      </TD>
+                    </TR>
+                  ))}
+                  {filteredSales.length === 0 && (
+                    <TR><TD colSpan={7} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>No sales records found</TD></TR>
+                  )}
+                </TBody>
+              </Table>
+            </CardBody>
+          </Card>
         </>
       ) : (
-        <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>Batch #</th><th>Created At</th><th>Created By</th><th>Status</th><th>Items</th><th>Total Cost</th><th>Sync</th></tr></thead><tbody>
-          {filteredBatches.length === 0 ? <tr><td colSpan="7" className="text-center text-muted py-4">No batches found</td></tr> : filteredBatches.map((batch) => (
-            <tr key={batch.id}><td>#{batch.id}</td><td>{formatAddisDateTime(batch.created_at, { hour12: true })}</td><td>{batch.display_creator_name || batch.created_by_name}</td><td><span className={`badge ${batch.status === 'voided' ? 'badge-danger' : batch.status === 'edited' ? 'badge-warning' : 'badge-success'}`}>{batch.status || 'sent'}</span></td><td>{Number(batch.items_count || 0)}</td><td>ETB {Number(batch.total_cost || 0).toFixed(2)}</td><td>{batch.was_synced ? 'Synced' : batch.is_offline ? 'Offline' : 'Online'}</td></tr>
-          ))}
-        </tbody></table></div></div></div>
+        <Card>
+          <CardBody style={{ padding: 0 }}>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Batch #</TH>
+                  <TH>Created At</TH>
+                  <TH>Created By</TH>
+                  <TH>Status</TH>
+                  <TH>Items</TH>
+                  <TH>Total Cost</TH>
+                  <TH>Sync</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {filteredBatches.map((batch) => (
+                  <TR key={batch.id}>
+                    <TD style={{ fontWeight: 700 }}>#{batch.id}</TD>
+                    <TD style={{ fontSize: '0.8125rem' }}>{formatAddisDateTime(batch.created_at, { hour12: true })}</TD>
+                    <TD>{batch.display_creator_name || batch.created_by_name}</TD>
+                    <TD>
+                      <Badge variant={batch.status === 'voided' ? 'danger' : batch.status === 'edited' ? 'warning' : 'success'}>
+                        {batch.status || 'sent'}
+                      </Badge>
+                    </TD>
+                    <TD>{Number(batch.items_count || 0)}</TD>
+                    <TD style={{ fontWeight: 700 }}>ETB {Number(batch.total_cost || 0).toFixed(2)}</TD>
+                    <TD>
+                      <Badge variant={batch.was_synced ? 'success' : 'info'}>
+                        {batch.was_synced ? 'Synced' : batch.is_offline ? 'Offline' : 'Online'}
+                      </Badge>
+                    </TD>
+                  </TR>
+                ))}
+                {filteredBatches.length === 0 && (
+                  <TR><TD colSpan={7} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>No batch records found</TD></TR>
+                )}
+              </TBody>
+            </Table>
+          </CardBody>
+        </Card>
       )}
 
-      {selectedSale && (
-        <div className="modal-overlay" onClick={() => setSelectedSale(null)}><div className="modal-content" onClick={(e) => e.stopPropagation()}><div className="modal-header"><h3>Sale Details - {selectedSale.receipt_number}</h3><button className="close-btn" onClick={() => setSelectedSale(null)}>×</button></div><div className="modal-body"><div className="row"><div className="col-md-6"><h5>Transaction Info</h5><p><strong>Date & Time:</strong> {formatAddisDateTime(selectedSale.sale_date, { hour12: true })}</p><p><strong>Amount:</strong> ETB {Number(selectedSale.total_amount).toFixed(2)}</p><p><strong>Payment Method:</strong> {selectedSale.payment_method}</p></div><div className="col-md-6"><h5>Staff</h5><p><strong>Cashier:</strong> {selectedSale.cashier_name || selectedSale.cashier_id}</p><p><strong>Sync Status:</strong> {selectedSale.is_offline ? 'Offline' : 'Online'}</p>{selectedSale.status === 'voided' && <p><strong>Void:</strong> {formatAddisDateTime(selectedSale.voided_at, { hour12: true })} — {selectedSale.void_reason || 'No reason provided'}</p>}</div></div><hr /><h5>Items Sold</h5><div className="table-responsive"><table className="table table-sm"><thead><tr><th>Product</th><th>Qty</th><th>Unit Price</th><th>Subtotal</th></tr></thead><tbody>{(selectedSale.items || []).length === 0 ? <tr><td colSpan="4" className="text-muted text-center">No item details</td></tr> : selectedSale.items.map((item) => <tr key={item.id || `${item.product_id}-${item.product_name}`}><td>{item.product_name || item.product_id}</td><td>{item.quantity}</td><td>ETB {Number(item.unit_price || 0).toFixed(2)}</td><td>ETB {Number(item.subtotal || 0).toFixed(2)}</td></tr>)}</tbody></table></div></div><div className="modal-footer"><button className="btn btn-secondary" onClick={() => setSelectedSale(null)}>Close</button></div></div></div>
-      )}
+      <Modal
+        isOpen={!!selectedSale}
+        onClose={() => setSelectedSale(null)}
+        title={`Sale Details - ${selectedSale?.receipt_number}`}
+        size="lg"
+      >
+        {selectedSale && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+               <div style={{ background: 'var(--surface-bg)', padding: '1.25rem', borderRadius: 'var(--radius)', border: '1px solid var(--accent-border)' }}>
+                 <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><DollarSign size={18} /> Transaction</h4>
+                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Date:</span> <strong>{formatAddisDateTime(selectedSale.sale_date, { hour12: true })}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Amount:</span> <strong style={{ fontSize: '1.125rem' }}>ETB {Number(selectedSale.total_amount).toFixed(2)}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Method:</span> <Badge variant="info">{selectedSale.payment_method}</Badge></div>
+                 </div>
+               </div>
+               <div style={{ background: 'var(--surface-bg)', padding: '1.25rem', borderRadius: 'var(--radius)', border: '1px solid var(--accent-border)' }}>
+                 <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Package size={18} /> Staff & Status</h4>
+                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Cashier:</span> <strong>{selectedSale.cashier_name || selectedSale.cashier_id}</strong></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Sync:</span> <Badge variant={selectedSale.is_offline ? 'warning' : 'success'}>{selectedSale.is_offline ? 'Offline' : 'Online'}</Badge></div>
+                    {selectedSale.status === 'voided' && (
+                      <div style={{ padding: '0.75rem', background: 'var(--error-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--error-border)', marginTop: '0.25rem' }}>
+                         <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-error)', marginBottom: '0.25rem' }}>VOIDED AT {formatAddisDateTime(selectedSale.voided_at)}</div>
+                         <div style={{ fontSize: '0.8125rem' }}>{selectedSale.void_reason || 'No reason provided'}</div>
+                      </div>
+                    )}
+                 </div>
+               </div>
+            </div>
+
+            <div>
+              <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><ShoppingBag size={18} /> Items Sold</h4>
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>Product</TH>
+                    <TH>Qty</TH>
+                    <TH>Unit Price</TH>
+                    <TH style={{ textAlign: 'right' }}>Subtotal</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {(selectedSale.items || []).map((item, i) => (
+                    <TR key={i}>
+                      <TD style={{ fontWeight: 600 }}>{item.product_name || item.product_id}</TD>
+                      <TD>{item.quantity}</TD>
+                      <TD>ETB {Number(item.unit_price || 0).toFixed(2)}</TD>
+                      <TD style={{ textAlign: 'right', fontWeight: 700 }}>ETB {Number(item.subtotal || 0).toFixed(2)}</TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button variant="secondary" onClick={() => setSelectedSale(null)}>Close</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
+  );
+}
+
+function StatCard({ label, value, icon, variant = 'primary' }) {
+  const colors = {
+    primary: { bg: 'rgba(244, 162, 97, 0.1)', color: 'var(--button-end)' },
+    success: { bg: 'var(--success-bg)', color: 'var(--success-text)' },
+    info: { bg: 'rgba(37, 99, 235, 0.1)', color: '#2563eb' },
+  };
+  const current = colors[variant] || colors.primary;
+
+  return (
+    <Card>
+      <CardBody style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: current.bg, color: current.color, display: 'grid', placeItems: 'center' }}>
+          {icon}
+        </div>
+        <div>
+          <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{label}</div>
+          <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>{value}</div>
+        </div>
+      </CardBody>
+    </Card>
   );
 }

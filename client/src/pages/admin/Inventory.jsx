@@ -1,32 +1,41 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { Plus, Edit, Trash2, Package, TrendingUp, TrendingDown, Search } from 'lucide-react';
+import { Plus, Edit, Trash2, Package, TrendingUp, TrendingDown, Search, RotateCcw, AlertCircle } from 'lucide-react';
 import { enqueueOperation, listQueuedOperations } from '../../utils/offlineQueue';
+import { useToast } from '../../context/ToastContext';
+import { useConfirm } from '../../context/ConfirmContext';
+import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
+import { Modal } from '../../components/ui/Modal';
+import { Badge } from '../../components/ui/Badge';
+import { Select } from '../../components/ui/Select';
+import { Table, THead, TBody, TR, TH, TD } from '../../components/ui/Table';
+import { Skeleton } from '../../components/ui/Skeleton';
+import { Alert } from '../../components/ui/Alert';
 
 export default function AdminInventory() {
   const { selectedLocationId } = useBranch();
+  const toast = useToast();
+  const { confirm } = useConfirm();
+
   const [inventory, setInventory] = useState([]);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
-  const [message, setMessage] = useState(null);
   const [search, setSearch] = useState('');
   const [formData, setFormData] = useState({
     product_id: '',
-    quantity: ''
+    quantity: '',
+    source: 'baked'
   });
 
-  useEffect(() => {
-    fetchData();
-  }, [selectedLocationId]);
-
-
-  const persistInventoryCache = (payload) => {
+  const persistInventoryCache = useCallback((payload) => {
     localStorage.setItem(`admin_inventory_cache_${selectedLocationId || 'default'}`, JSON.stringify(payload));
-  };
+  }, [selectedLocationId]);
 
   const applyPendingInventoryOps = async (baseInventory) => {
     const queue = await listQueuedOperations();
@@ -68,7 +77,8 @@ export default function AdminInventory() {
     return nextInventory;
   };
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    setLoading(true);
     try {
       const [inventoryRes, productsRes] = await Promise.all([
         api.get('/inventory'),
@@ -85,14 +95,18 @@ export default function AdminInventory() {
         const parsed = JSON.parse(cached);
         setInventory(parsed.inventory || []);
         setProducts(parsed.products || []);
-        setMessage({ type: 'warning', text: 'Offline mode: using cached inventory.' });
+        toast.info('Offline mode: using cached inventory.');
       } else {
-        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to fetch inventory data.') });
+        toast.error(getErrorMessage(err, 'Failed to fetch inventory data.'));
       }
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedLocationId, persistInventoryCache, toast]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const resetForm = () => {
     setShowForm(false);
@@ -120,7 +134,7 @@ export default function AdminInventory() {
       }
       await fetchData();
       resetForm();
-      setMessage({ type: 'success', text: editingItem ? 'Inventory updated.' : 'Inventory added.' });
+      toast.success(editingItem ? 'Inventory updated.' : 'Inventory added.');
     } catch (err) {
       if (!err.response) {
         const idempotencyKey = `inventory-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -130,9 +144,9 @@ export default function AdminInventory() {
         await enqueueOperation(op);
         await fetchData();
         resetForm();
-        setMessage({ type: 'warning', text: 'Offline: inventory change queued for sync.' });
+        toast.warning('Offline: inventory change queued for sync.');
       } else {
-        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to save inventory item.') });
+        toast.error(getErrorMessage(err, 'Failed to save inventory item.'));
       }
     } finally {
       setSaving(false);
@@ -140,12 +154,18 @@ export default function AdminInventory() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this inventory item?')) return;
+    const isConfirmed = await confirm({
+      title: 'Delete Inventory Item?',
+      message: 'Are you sure you want to delete this item from inventory? This action cannot be undone.',
+      variant: 'danger'
+    });
+
+    if (!isConfirmed) return;
 
     try {
       await api.delete(`/inventory/${id}`);
       await fetchData();
-      setMessage({ type: 'success', text: 'Inventory item deleted.' });
+      toast.success('Inventory item deleted.');
     } catch (err) {
       if (!err.response) {
         const idempotencyKey = `inventory-delete-${id}-${Date.now()}`;
@@ -155,9 +175,9 @@ export default function AdminInventory() {
           persistInventoryCache({ inventory: nextInventory, products });
           return nextInventory;
         });
-        setMessage({ type: 'warning', text: 'Offline: delete queued for sync.' });
+        toast.warning('Offline: delete queued for sync.');
       } else {
-        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to delete inventory item.') });
+        toast.error(getErrorMessage(err, 'Failed to delete inventory item.'));
       }
     }
   };
@@ -186,69 +206,220 @@ export default function AdminInventory() {
     return acc;
   }, {});
 
-  if (loading) {
-    return <div className="loading-container"><div className="spinner"></div></div>;
-  }
+  const stats = useMemo(() => {
+    const totalItems = inventory.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const inStock = inventory.filter((item) => Number(item.quantity || 0) > 10).length;
+    const lowStock = inventory.filter((item) => Number(item.quantity || 0) <= 5).length;
+    return { totalItems, inStock, lowStock };
+  }, [inventory]);
+
+  if (loading) return (
+    <div className="animate-fade-in">
+       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
+         <Skeleton width="240px" height="2.5rem" />
+         <Skeleton width="140px" height="2.5rem" />
+       </div>
+       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
+          {[1, 2, 3].map(i => <Skeleton key={i} height="120px" />)}
+       </div>
+       <Skeleton height="80px" style={{ marginBottom: '2rem' }} />
+       {[1, 2].map(i => <Skeleton key={i} height="300px" style={{ marginBottom: '1.5rem' }} />)}
+    </div>
+  );
 
   return (
-    <div className="inventory-page">
-      <div className="page-header">
-        <h2>Inventory Management</h2>
-        <button
-          className="btn btn-primary"
+    <div className="inventory-page animate-fade-in">
+      <div className="page-header" style={{ marginBottom: '2rem' }}>
+        <h1 style={{ fontSize: '1.75rem' }}>Inventory Management</h1>
+        <Button
+          variant="primary"
           onClick={() => {
             setEditingItem(null);
-            setFormData({ product_id: '', quantity: '' });
+            setFormData({ product_id: '', quantity: '', source: 'baked' });
             setShowForm(true);
           }}
         >
           <Plus size={18} /> Add Item
-        </button>
+        </Button>
       </div>
 
-      {message && <div className={`alert alert-${message.type} mb-3`}>{message.text}</div>}
-
-      <div className="card mb-3"><div className="card-body">
-        <div className="search-bar" style={{ maxWidth: '320px' }}><Search size={16}/><input className="input" placeholder="Search inventory by product..." value={search} onChange={(e)=>setSearch(e.target.value)} /></div>
-      </div></div>
-
-
-      <div className="stats-grid mb-4">
-        <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><Package size={24} /></div><div className="stat-content"><h3>{inventory.reduce((sum, item) => sum + Number(item.quantity || 0), 0)}</h3><p>Total Items</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><TrendingUp size={24} /></div><div className="stat-content"><h3>{inventory.filter((item) => Number(item.quantity || 0) > 10).length}</h3><p>In Stock</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><TrendingDown size={24} /></div><div className="stat-content"><h3>{inventory.filter((item) => Number(item.quantity || 0) <= 5).length}</h3><p>Low Stock</p></div></div>
-      </div>
-
-      {Object.keys(groupedInventory).sort((a, b) => a.localeCompare(b)).map((group) => (
-        <div className="card mb-3" key={group}><div className="card-header"><h4 className="mb-0">{group}</h4></div><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>Inventory ID</th><th>Variant</th><th>Quantity</th><th>Last Updated</th><th>Source</th><th>Actions</th></tr></thead><tbody>
-          {groupedInventory[group].map(({ item, product }) => (
-            <tr key={item.id}>
-              <td>{`INV-${String(item.id).padStart(6, '0')}`}</td>
-              <td>{product?.name || item.product_id}{product?.is_active === false && <span className="badge badge-warning ms-2">Archived</span>}</td>
-              <td><span className={`badge ${Number(item.quantity) <= 5 ? 'badge-warning' : 'badge-success'}`}>{item.quantity}</span>{item.is_pending_sync && <span className="badge badge-info" style={{ marginLeft: '0.4rem' }}>Pending Sync</span>}</td>
-              <td>{new Date(item.last_updated).toLocaleDateString()}</td>
-              <td><span className={`badge ${item.source === 'baked' ? 'badge-info' : 'badge-secondary'}`}>{item.source}</span></td>
-              <td><div className="btn-group" role="group">
-                <button className="btn btn-sm btn-outline-primary" onClick={() => { setEditingItem(item); setFormData({ product_id: item.product_id, quantity: item.quantity, source: item.source || 'baked' }); setShowForm(true); }}><Edit size={14} /></button>
-                <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(item.id)}><Trash2 size={14} /></button>
-              </div></td>
-            </tr>
-          ))}
-        </tbody></table></div></div></div>
-      ))}
-
-      {showForm && (
-        <div className="modal-overlay" onClick={resetForm}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><h3>{editingItem ? 'Edit Inventory Item' : 'Add New Inventory Item'}</h3><button className="close-btn" onClick={resetForm}>×</button></div>
-            <form onSubmit={handleSubmit} className="modal-body">
-              <div className="mb-3"><label className="form-label">Product *</label><select className="form-select" value={formData.product_id} onChange={(e) => setFormData({ ...formData, product_id: e.target.value })} required disabled={!!editingItem}><option value="">Select Product Variant</option>{availableProductsForCreate.map((product) => (<option key={product.id} value={product.id}>{`${product.group_name || product.name} / ${product.name}`}</option>))}</select>{editingItem && <small className="text-muted">Product cannot be changed when editing inventory. Only quantity is editable.</small>}</div>
-              <div className="mb-3"><label className="form-label">Quantity *</label><input type="number" className="form-control" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} required /></div>
-              <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForm}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : editingItem ? 'Update' : 'Add'} Item</button></div>
-            </form>
+      <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+        <div style={{ padding: '1.5rem', background: 'var(--card-bg)', border: '1px solid var(--accent-border)', borderRadius: 'var(--radius)', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(244, 162, 97, 0.1)', color: 'var(--button-end)', display: 'grid', placeItems: 'center' }}>
+            <Package size={24} />
+          </div>
+          <div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{stats.totalItems}</div>
+            <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', fontWeight: 600 }}>Total Units</div>
           </div>
         </div>
-      )}
+        <div style={{ padding: '1.5rem', background: 'var(--card-bg)', border: '1px solid var(--accent-border)', borderRadius: 'var(--radius)', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'var(--success-bg)', color: 'var(--success-text)', display: 'grid', placeItems: 'center' }}>
+            <TrendingUp size={24} />
+          </div>
+          <div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{stats.inStock}</div>
+            <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', fontWeight: 600 }}>Healthy Stock</div>
+          </div>
+        </div>
+        <div style={{ padding: '1.5rem', background: 'var(--card-bg)', border: '1px solid var(--accent-border)', borderRadius: 'var(--radius)', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'var(--error-bg)', color: 'var(--text-error)', display: 'grid', placeItems: 'center' }}>
+            <TrendingDown size={24} />
+          </div>
+          <div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{stats.lowStock}</div>
+            <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', fontWeight: 600 }}>Low Stock Items</div>
+          </div>
+        </div>
+      </div>
+
+      <Card style={{ marginBottom: '2rem' }}>
+        <CardBody style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+            <Search size={18} style={{ position: 'absolute', left: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <Input
+              placeholder="Search by product name..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ paddingLeft: '2.75rem' }}
+            />
+          </div>
+          <Button variant="secondary" onClick={() => { setSearch(''); fetchData(); }}>
+            <RotateCcw size={18} />
+          </Button>
+        </CardBody>
+      </Card>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        {Object.keys(groupedInventory).sort((a, b) => a.localeCompare(b)).map((group) => (
+          <Card key={group}>
+            <CardHeader style={{ background: 'rgba(95, 58, 36, 0.02)', padding: '1rem 1.5rem' }}>
+              <h3 style={{ fontSize: '1.125rem', margin: 0 }}>{group}</h3>
+            </CardHeader>
+            <CardBody style={{ padding: 0 }}>
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>Inventory ID</TH>
+                    <TH>Variant</TH>
+                    <TH>Quantity</TH>
+                    <TH>Last Updated</TH>
+                    <TH>Source</TH>
+                    <TH style={{ textAlign: 'right' }}>Actions</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {groupedInventory[group].map(({ item, product }) => (
+                    <TR key={item.id}>
+                      <TD style={{ fontSize: '0.8125rem', fontFamily: 'monospace', color: 'var(--text-muted)' }}>
+                        {`INV-${String(item.id).padStart(6, '0')}`}
+                      </TD>
+                      <TD>
+                         <div style={{ fontWeight: 600 }}>{product?.name || item.product_id}</div>
+                         {product?.is_active === false && <Badge variant="warning">Archived Product</Badge>}
+                      </TD>
+                      <TD>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                           <Badge variant={Number(item.quantity) <= 5 ? 'danger' : Number(item.quantity) <= 10 ? 'warning' : 'success'}>
+                             {item.quantity}
+                           </Badge>
+                           {item.is_pending_sync && (
+                             <Badge variant="info" title="Offline change pending sync">Syncing...</Badge>
+                           )}
+                        </div>
+                      </TD>
+                      <TD style={{ fontSize: '0.875rem' }}>{new Date(item.last_updated).toLocaleDateString()}</TD>
+                      <TD>
+                        <Badge variant={item.source === 'baked' ? 'info' : 'secondary'}>
+                          {item.source}
+                        </Badge>
+                      </TD>
+                      <TD style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>
+                           <Button
+                             variant="secondary"
+                             size="sm"
+                             onClick={() => {
+                               setEditingItem(item);
+                               setFormData({ product_id: item.product_id, quantity: item.quantity, source: item.source || 'baked' });
+                               setShowForm(true);
+                             }}
+                           >
+                             <Edit size={14} />
+                           </Button>
+                           <Button variant="danger" size="sm" onClick={() => handleDelete(item.id)}>
+                             <Trash2 size={14} />
+                           </Button>
+                        </div>
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            </CardBody>
+          </Card>
+        ))}
+        {Object.keys(groupedInventory).length === 0 && (
+          <Card style={{ textAlign: 'center', padding: '4rem' }}>
+             <Package size={48} style={{ color: 'var(--text-muted)', marginBottom: '1rem', opacity: 0.2 }} />
+             <h3 style={{ color: 'var(--text-muted)' }}>No inventory found</h3>
+             <p>Try searching for a different product or add new inventory.</p>
+          </Card>
+        )}
+      </div>
+
+      <Modal
+        isOpen={showForm}
+        onClose={resetForm}
+        title={editingItem ? 'Edit Inventory Item' : 'Add New Inventory Item'}
+        size="sm"
+      >
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <Select
+            label="Product Variant *"
+            value={formData.product_id}
+            onChange={(e) => setFormData({ ...formData, product_id: e.target.value })}
+            required
+            disabled={!!editingItem}
+            options={[
+              { label: 'Select Product Variant', value: '' },
+              ...availableProductsForCreate.map((p) => ({
+                label: `${p.group_name || p.name} / ${p.name}`,
+                value: p.id
+              }))
+            ]}
+          />
+          {editingItem && (
+            <Alert variant="info" style={{ fontSize: '0.8125rem' }}>
+              Product cannot be changed when editing. Only quantity and source are editable.
+            </Alert>
+          )}
+
+          <Input
+            label="Quantity *"
+            type="number"
+            value={formData.quantity}
+            onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+            required
+            min="0"
+          />
+
+          <Select
+            label="Source"
+            value={formData.source}
+            onChange={(e) => setFormData({ ...formData, source: e.target.value })}
+            options={[
+              { label: 'Baked', value: 'baked' },
+              { label: 'Purchased', value: 'purchased' }
+            ]}
+          />
+
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+            <Button variant="secondary" onClick={resetForm} type="button">Cancel</Button>
+            <Button type="submit" isLoading={saving}>{editingItem ? 'Update' : 'Add'} Item</Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

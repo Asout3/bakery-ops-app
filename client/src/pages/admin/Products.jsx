@@ -1,27 +1,39 @@
 import { useState, useEffect, useMemo } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
-import { Plus, Edit, Trash2, Search, Pencil } from 'lucide-react';
+import { Plus, Edit, Trash2, Search, Pencil, Archive, CheckCircle2, Package } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { useToast } from '../../context/ToastContext';
+import { useConfirm } from '../../context/ConfirmContext';
+import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { Table, THead, TBody, TR, TH, TD } from '../../components/ui/Table';
+import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
+import { Modal } from '../../components/ui/Modal';
+import { Badge } from '../../components/ui/Badge';
+import { Select } from '../../components/ui/Select';
+import { Alert } from '../../components/ui/Alert';
 
-const UNIT_OPTIONS = ['piece', 'kg', 'gram', 'liter', 'pack', 'tray'];
+const UNIT_OPTIONS = [
+  { label: 'Piece', value: 'piece' },
+  { label: 'KG', value: 'kg' },
+  { label: 'Gram', value: 'gram' },
+  { label: 'Liter', value: 'liter' },
+  { label: 'Pack', value: 'pack' },
+  { label: 'Tray', value: 'tray' },
+];
+
 const emptyVariant = { name: '', price: '', cost: '', unit: 'piece', source: 'baked', category_id: '' };
+
 const formatProductDisplayId = (product) => {
   const group = (product.group_name || product.name || 'PRD').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) || 'PRD';
   return `${group}-${String(product.id).padStart(4, '0')}`;
 };
 
-
-const productsControlsCardStyle = { border: '1px solid var(--border-light)' };
-
-const productsControlsRowStyle = {
-  display: 'grid',
-  gridTemplateColumns: 'minmax(280px, 1fr) minmax(320px, auto)',
-  gap: '0.75rem',
-  alignItems: 'center',
-};
-
 export default function ProductsPage() {
   const { t } = useLanguage();
+  const toast = useToast();
+  const { confirm } = useConfirm();
+
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -30,40 +42,39 @@ export default function ProductsPage() {
   const [showGroupForm, setShowGroupForm] = useState(false);
   const [showVariantForm, setShowVariantForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [message, setMessage] = useState(null);
   const [search, setSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [groupRename, setGroupRename] = useState({ name: '', next: '' });
+
   const [groupData, setGroupData] = useState({ group_name: '', variants: [{ ...emptyVariant }] });
   const [variantData, setVariantData] = useState({ ...emptyVariant, group_name: '' });
   const [formData, setFormData] = useState({ name: '', group_name: '', category_id: '', price: '', cost: '', unit: 'piece', source: 'baked', is_active: true });
 
-  useEffect(() => {
-    fetchProducts();
-    fetchCategories();
-  }, []);
-
-
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
       const response = await api.get('/products/categories');
       setCategories(response.data || []);
-    } catch (err) {
-      setMessage({ type: 'warning', text: getErrorMessage(err, 'Failed to load categories.') });
+    } catch {
+      toast.error('Failed to load categories.');
     }
-  };
+  }, [toast]);
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
       const response = await api.get('/products');
       setProducts(response.data || []);
-    } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to fetch products.') });
+    } catch {
+      toast.error('Failed to fetch products.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    fetchProducts();
+    fetchCategories();
+  }, [fetchProducts, fetchCategories]);
 
   const resetForms = () => {
     setShowGroupForm(false);
@@ -80,9 +91,9 @@ export default function ProductsPage() {
       const response = await api.post('/products/categories', { name: newCategoryName.trim() });
       setCategories((current) => [...current, response.data].sort((a, b) => a.name.localeCompare(b.name)));
       setNewCategoryName('');
-      setMessage({ type: 'success', text: t('categoryAdded') });
+      toast.success(t('categoryAdded'));
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to add category.') });
+      toast.error(getErrorMessage(err, 'Failed to add category.'));
     }
   };
 
@@ -93,7 +104,7 @@ export default function ProductsPage() {
     try {
       const validVariants = groupData.variants.filter((variant) => variant.name && variant.price !== '');
       if (!validVariants.length) {
-        setMessage({ type: 'warning', text: 'Add at least one variant.' });
+        toast.warning('Add at least one variant.');
         setSaving(false);
         return;
       }
@@ -110,9 +121,9 @@ export default function ProductsPage() {
       }
       await fetchProducts();
       resetForms();
-      setMessage({ type: 'success', text: 'Product group created.' });
+      toast.success('Product group created.');
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to create product group.') });
+      toast.error(getErrorMessage(err, 'Failed to create product group.'));
     } finally {
       setSaving(false);
     }
@@ -134,9 +145,9 @@ export default function ProductsPage() {
       });
       await fetchProducts();
       resetForms();
-      setMessage({ type: 'success', text: 'Variant added to group.' });
+      toast.success('Variant added to group.');
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to add variant.') });
+      toast.error(getErrorMessage(err, 'Failed to add variant.'));
     } finally {
       setSaving(false);
     }
@@ -150,27 +161,34 @@ export default function ProductsPage() {
       await api.put(`/products/${editingProduct.id}`, formData);
       await fetchProducts();
       resetForms();
-      setMessage({ type: 'success', text: 'Variant updated.' });
+      toast.success('Variant updated.');
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to save product.') });
+      toast.error(getErrorMessage(err, 'Failed to save product.'));
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm(t('deleteVariantConfirm'))) return;
+    const isConfirmed = await confirm({
+      title: 'Delete Variant?',
+      message: t('deleteVariantConfirm'),
+      variant: 'danger'
+    });
+
+    if (!isConfirmed) return;
+
     try {
       await api.delete(`/products/${id}`);
       await fetchProducts();
-      setMessage({ type: 'success', text: 'Variant deleted.' });
+      toast.success('Variant deleted.');
     } catch (err) {
       if (err?.response?.data?.code === 'PRODUCT_DELETE_BLOCKED') {
         await api.put(`/products/${id}`, { is_active: false });
         await fetchProducts();
-        setMessage({ type: 'warning', text: 'Variant archived because it has linked history.' });
+        toast.warning('Variant archived because it has linked history.');
       } else {
-        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to delete variant.') });
+        toast.error(getErrorMessage(err, 'Failed to delete variant.'));
       }
     }
   };
@@ -191,9 +209,9 @@ export default function ProductsPage() {
       await Promise.all(variants.map((variant) => api.put(`/products/${variant.id}`, { group_name: nextName })));
       await fetchProducts();
       setGroupRename({ name: '', next: '' });
-      setMessage({ type: 'success', text: `Group renamed to ${nextName}.` });
+      toast.success(`Group renamed to ${nextName}.`);
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to rename group.') });
+      toast.error(getErrorMessage(err, 'Failed to rename group.'));
     } finally {
       setSaving(false);
     }
@@ -214,106 +232,387 @@ export default function ProductsPage() {
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [products, search, showArchived]);
 
-  if (loading) return <div className="loading-container"><div className="spinner"></div></div>;
+  if (loading) return (
+    <div className="animate-fade-in">
+       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
+         <Skeleton width="200px" height="2.5rem" />
+         <div style={{ display: 'flex', gap: '1rem' }}>
+           <Skeleton width="120px" height="2.5rem" />
+           <Skeleton width="160px" height="2.5rem" />
+         </div>
+       </div>
+       <Skeleton height="100px" style={{ marginBottom: '2rem' }} />
+       {[1, 2, 3].map(i => <Skeleton key={i} height="300px" style={{ marginBottom: '1.5rem' }} />)}
+    </div>
+  );
 
   return (
-    <div className="products-page">
-      <div className="page-header" style={{ gap: '0.75rem', flexWrap: 'wrap' }}>
-        <h2>{t('products')}</h2>
-        <div className="d-flex gap-2">
-          <button className="btn btn-secondary" onClick={() => setShowArchived((p) => !p)}>{showArchived ? t('hideArchived') : t('seeArchivedProducts')}</button>
-          <button className="btn btn-primary" onClick={() => { resetForms(); setShowGroupForm(true); }}><Plus size={18} /> {t('addProductGroup')}</button>
+    <div className="products-page animate-fade-in">
+      <div className="page-header" style={{ marginBottom: '2rem' }}>
+        <h1 style={{ fontSize: '1.75rem' }}>{t('products')}</h1>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <Button variant="secondary" onClick={() => setShowArchived((p) => !p)}>
+            {showArchived ? <Archive size={18} /> : <Archive size={18} />}
+            {showArchived ? t('hideArchived') : t('seeArchivedProducts')}
+          </Button>
+          <Button variant="primary" onClick={() => { resetForms(); setShowGroupForm(true); }}>
+            <Plus size={18} /> {t('addProductGroup')}
+          </Button>
         </div>
       </div>
 
-      <div className="card mb-3" style={productsControlsCardStyle}>
-        <div className="card-body" style={productsControlsRowStyle}>
+      <Card style={{ marginBottom: '2rem', border: '1px solid var(--accent-border)' }}>
+        <CardBody style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', alignItems: 'flex-end' }}>
           <div>
-            <label className="form-label mb-1">{t('searchProducts')}</label>
-            <div className="search-bar" style={{ maxWidth: '100%' }}>
-              <Search size={16} />
-              <input className="input" placeholder={t('searchGroupsOrVariants')} value={search} onChange={(e) => setSearch(e.target.value)} />
+            <label className="form-label" style={{ marginBottom: '0.5rem' }}>{t('searchProducts')}</label>
+            <div style={{ position: 'relative' }}>
+               <Search size={18} style={{ position: 'absolute', left: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+               <Input
+                 placeholder={t('searchGroupsOrVariants')}
+                 value={search}
+                 onChange={(e) => setSearch(e.target.value)}
+                 style={{ paddingLeft: '2.75rem' }}
+               />
             </div>
           </div>
           <div>
-            <label className="form-label mb-1">{t('addCategory')}</label>
-            <div className="d-flex gap-2" style={{ minWidth: '320px' }}>
-              <input className="form-control" placeholder="New category" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
-              <button className="btn btn-outline-primary" onClick={handleCreateCategory}>{t('addCategory')}</button>
+            <label className="form-label" style={{ marginBottom: '0.5rem' }}>{t('addCategory')}</label>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <Input
+                placeholder="Category name..."
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+              />
+              <Button variant="outline" onClick={handleCreateCategory} style={{ whiteSpace: 'nowrap' }}>
+                <Plus size={18} /> {t('addCategory')}
+              </Button>
             </div>
           </div>
-        </div>
-      </div>
-
-      {message && <div className={`alert alert-${message.type} mb-3`}>{message.text}</div>}
+        </CardBody>
+      </Card>
 
       {groupedProducts.map(([groupName, variants]) => (
-        <div className="card mb-3" key={groupName}>
-          <div className="card-header d-flex justify-content-between align-items-center" style={{ gap: '0.75rem', flexWrap: 'wrap' }}>
+        <Card style={{ marginBottom: '2rem' }} key={groupName}>
+          <CardHeader style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.25rem 1.5rem' }}>
             {groupRename.name === groupName ? (
-              <div className="d-flex gap-2" style={{ flex: 1, maxWidth: '520px' }}>
-                <input className="form-control form-control-sm" value={groupRename.next} onChange={(e) => setGroupRename((prev) => ({ ...prev, next: e.target.value }))} />
-                <button className="btn btn-sm btn-primary" onClick={() => handleRenameGroup(groupName)} disabled={saving}>Save</button>
-                <button className="btn btn-sm btn-secondary" onClick={() => setGroupRename({ name: '', next: '' })}>Cancel</button>
+              <div style={{ display: 'flex', gap: '0.75rem', flex: 1, maxWidth: '500px' }}>
+                <Input
+                  value={groupRename.next}
+                  onChange={(e) => setGroupRename((prev) => ({ ...prev, next: e.target.value }))}
+                  style={{ minHeight: '2.25rem' }}
+                />
+                <Button size="sm" onClick={() => handleRenameGroup(groupName)} isLoading={saving}>Save</Button>
+                <Button size="sm" variant="secondary" onClick={() => setGroupRename({ name: '', next: '' })}>Cancel</Button>
               </div>
             ) : (
-              <h4 className="mb-0">{groupName}</h4>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(244, 162, 97, 0.1)', color: 'var(--button-end)', display: 'grid', placeItems: 'center' }}>
+                  <Package size={20} />
+                </div>
+                <h3 style={{ fontSize: '1.25rem', margin: 0 }}>{groupName}</h3>
+              </div>
             )}
-            <div className="d-flex gap-2">
-              <button className="btn btn-sm btn-outline-secondary" onClick={() => setGroupRename({ name: groupName, next: groupName })}><Pencil size={14} /> Rename Group</button>
-              <button className="btn btn-sm btn-outline-primary" onClick={() => { setVariantData({ ...emptyVariant, group_name: groupName, category_id: variants[0]?.category_id || '' }); setShowVariantForm(true); }}>+ Add Variant</button>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <Button variant="secondary" size="sm" onClick={() => setGroupRename({ name: groupName, next: groupName })}>
+                <Pencil size={14} /> Rename
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { setVariantData({ ...emptyVariant, group_name: groupName, category_id: variants[0]?.category_id || '' }); setShowVariantForm(true); }}>
+                <Plus size={14} /> Add Variant
+              </Button>
             </div>
-          </div>
-          <div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>ID</th><th>Variant</th><th>Category</th><th>Source</th><th>Price</th><th>Cost</th><th>Unit</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-            {variants.map((product) => (
-              <tr key={product.id}>
-                <td>{formatProductDisplayId(product)}</td>
-                <td>{product.name}</td>
-                <td>{product.category_name || categories.find((c) => Number(c.id) === Number(product.category_id))?.name || '-'}</td>
-                <td><span className={`badge ${product.source === 'purchased' ? 'badge-warning' : 'badge-info'}`}>{product.source || 'baked'}</span></td>
-                <td>ETB {Number(product.price || 0).toFixed(2)}</td>
-                <td>ETB {Number(product.cost || 0).toFixed(2)}</td>
-                <td>{product.unit}</td>
-                <td><span className={`badge ${product.is_active === false ? 'badge-danger' : 'badge-success'}`}>{product.is_active === false ? 'Inactive' : 'Active'}</span></td>
-                <td>
-                  <button className="btn btn-sm btn-outline-primary me-2" onClick={() => { setEditingProduct(product); setFormData({ name: product.name, group_name: product.group_name || groupName, category_id: product.category_id || '', price: product.price, cost: product.cost || '', unit: product.unit || 'piece', source: product.source || 'baked', is_active: Boolean(product.is_active) }); }}><Edit size={14} /></button>
-                  <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(product.id)} title="Delete or Archive"><Trash2 size={14} /></button>
-                </td>
-              </tr>
-            ))}
-          </tbody></table></div></div>
-        </div>
+          </CardHeader>
+          <CardBody style={{ padding: 0 }}>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>ID</TH>
+                  <TH>Variant</TH>
+                  <TH>Category</TH>
+                  <TH>Source</TH>
+                  <TH>Price</TH>
+                  <TH>Cost</TH>
+                  <TH>Unit</TH>
+                  <TH>Status</TH>
+                  <TH style={{ textAlign: 'right' }}>Actions</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {variants.map((product) => (
+                  <TR key={product.id}>
+                    <TD style={{ fontSize: '0.8125rem', fontFamily: 'monospace', fontWeight: 600, color: 'var(--text-muted)' }}>
+                      {formatProductDisplayId(product)}
+                    </TD>
+                    <TD style={{ fontWeight: 600 }}>{product.name}</TD>
+                    <TD>
+                      {product.category_name || categories.find((c) => Number(c.id) === Number(product.category_id))?.name || (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>None</span>
+                      )}
+                    </TD>
+                    <TD>
+                      <Badge variant={product.source === 'purchased' ? 'warning' : 'info'}>
+                        {product.source || 'baked'}
+                      </Badge>
+                    </TD>
+                    <TD style={{ fontWeight: 700 }}>ETB {Number(product.price || 0).toFixed(2)}</TD>
+                    <TD style={{ color: 'var(--text-muted)' }}>ETB {Number(product.cost || 0).toFixed(2)}</TD>
+                    <TD style={{ textTransform: 'capitalize' }}>{product.unit}</TD>
+                    <TD>
+                      <Badge variant={product.is_active === false ? 'danger' : 'success'}>
+                        {product.is_active === false ? 'Inactive' : 'Active'}
+                      </Badge>
+                    </TD>
+                    <TD style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          style={{ padding: '0.4rem' }}
+                          onClick={() => {
+                            setEditingProduct(product);
+                            setFormData({
+                              name: product.name,
+                              group_name: product.group_name || groupName,
+                              category_id: product.category_id || '',
+                              price: product.price,
+                              cost: product.cost || '',
+                              unit: product.unit || 'piece',
+                              source: product.source || 'baked',
+                              is_active: Boolean(product.is_active)
+                            });
+                          }}
+                        >
+                          <Edit size={14} />
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          style={{ padding: '0.4rem' }}
+                          onClick={() => handleDelete(product.id)}
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </CardBody>
+        </Card>
       ))}
 
-      {(showGroupForm || showVariantForm || editingProduct) && (
-        <div className="modal-overlay" onClick={resetForms}>
-          <div className="modal-content" style={{ maxWidth: '1200px', width: '95vw' }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><h3>{showGroupForm ? 'Create Product Group' : showVariantForm ? `Add Variant to ${variantData.group_name}` : 'Edit Variant'}</h3><button className="close-btn" onClick={resetForms}>×</button></div>
-            {showGroupForm && (
-              <form onSubmit={handleCreateGroup} className="modal-body">
-                <div className="mb-3"><label className="form-label">Group Name *</label><input className="form-control" value={groupData.group_name} onChange={(e) => setGroupData({ ...groupData, group_name: e.target.value })} required /></div>
-                {groupData.variants.map((variant, index) => (
-                  <div className="card mb-2" key={index}><div className="card-body"><div className="row g-2"><div className="col-md-4"><label className="form-label">Variant Name *</label><input className="form-control" value={variant.name} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, name: e.target.value } : row) }))} required /></div><div className="col-md-2"><label className="form-label">Price *</label><input type="number" min="0" step="0.01" className="form-control" value={variant.price} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, price: e.target.value } : row) }))} required /></div><div className="col-md-2"><label className="form-label">Cost</label><input type="number" min="0" step="0.01" className="form-control" value={variant.cost} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, cost: e.target.value } : row) }))} /></div><div className="col-md-2"><label className="form-label">Unit</label><select className="form-select" value={variant.unit} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, unit: e.target.value } : row) }))}>{UNIT_OPTIONS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></div><div className="col-md-2"><label className="form-label">Source</label><select className="form-select" value={variant.source} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, source: e.target.value } : row) }))}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-4"><label className="form-label">Category</label><select className="form-select" value={variant.category_id} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, category_id: e.target.value } : row) }))}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div></div></div></div>
-                ))}
-                <div className="d-flex gap-2"><button type="button" className="btn btn-outline-secondary" onClick={() => setGroupData((prev) => ({ ...prev, variants: [...prev.variants, { ...emptyVariant }] }))}>+ Add Variant Row</button>{groupData.variants.length > 1 && <button type="button" className="btn btn-outline-danger" onClick={() => setGroupData((prev) => ({ ...prev, variants: prev.variants.slice(0, -1) }))}>Remove Last</button>}</div>
-                <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForms}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Create Group'}</button></div>
-              </form>
-            )}
-            {showVariantForm && (
-              <form onSubmit={handleCreateVariant} className="modal-body">
-                <div className="row g-2"><div className="col-md-4"><label className="form-label">Variant Name *</label><input className="form-control" value={variantData.name} onChange={(e) => setVariantData({ ...variantData, name: e.target.value })} required /></div><div className="col-md-2"><label className="form-label">Price *</label><input type="number" className="form-control" min="0" step="0.01" value={variantData.price} onChange={(e) => setVariantData({ ...variantData, price: e.target.value })} required /></div><div className="col-md-2"><label className="form-label">Cost</label><input type="number" className="form-control" min="0" step="0.01" value={variantData.cost} onChange={(e) => setVariantData({ ...variantData, cost: e.target.value })} /></div><div className="col-md-2"><label className="form-label">Unit</label><select className="form-select" value={variantData.unit} onChange={(e) => setVariantData({ ...variantData, unit: e.target.value })}>{UNIT_OPTIONS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></div><div className="col-md-2"><label className="form-label">Source</label><select className="form-select" value={variantData.source} onChange={(e) => setVariantData({ ...variantData, source: e.target.value })}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-4"><label className="form-label">Category</label><select className="form-select" value={variantData.category_id} onChange={(e) => setVariantData({ ...variantData, category_id: e.target.value })}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div></div>
-                <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForms}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Add Variant'}</button></div>
-              </form>
-            )}
-            {editingProduct && (
-              <form onSubmit={handleEditSubmit} className="modal-body">
-                <div className="row g-2"><div className="col-md-6"><label className="form-label">Group *</label><input className="form-control" value={formData.group_name} onChange={(e) => setFormData({ ...formData, group_name: e.target.value })} required /></div><div className="col-md-6"><label className="form-label">Variant Name *</label><input className="form-control" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required /></div><div className="col-md-3"><label className="form-label">Price *</label><input type="number" className="form-control" min="0" step="0.01" value={formData.price} onChange={(e) => setFormData({ ...formData, price: e.target.value })} required /></div><div className="col-md-3"><label className="form-label">Cost</label><input type="number" className="form-control" min="0" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} /></div><div className="col-md-3"><label className="form-label">Unit *</label><select className="form-select" value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value })} required>{UNIT_OPTIONS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></div><div className="col-md-3"><label className="form-label">Source *</label><select className="form-select" value={formData.source} onChange={(e) => setFormData({ ...formData, source: e.target.value })}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-6"><label className="form-label">Category</label><select className="form-select" value={formData.category_id} onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div></div><div className="row g-2 mt-1"><div className="col-md-6"><label className="form-label">Status</label><select className="form-select" value={formData.is_active ? 'active' : 'inactive'} onChange={(e) => setFormData({ ...formData, is_active: e.target.value === 'active' })}><option value="active">Active</option><option value="inactive">Inactive</option></select></div></div>
-                <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForms}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Update Variant'}</button></div>
-              </form>
-            )}
+      <Modal
+        isOpen={showGroupForm}
+        onClose={resetForms}
+        title="Create Product Group"
+        size="lg"
+      >
+        <form onSubmit={handleCreateGroup}>
+          <div style={{ marginBottom: '2rem' }}>
+            <Input
+              label="Group Name *"
+              value={groupData.group_name}
+              onChange={(e) => setGroupData({ ...groupData, group_name: e.target.value })}
+              required
+              placeholder="e.g. Whole Cakes"
+            />
           </div>
-        </div>
-      )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
+            <h4 style={{ fontSize: '1rem', borderBottom: '1px solid var(--accent-border)', paddingBottom: '0.5rem' }}>Variants</h4>
+            {groupData.variants.map((variant, index) => (
+              <div key={index} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr auto', gap: '0.75rem', alignItems: 'flex-end', background: 'var(--surface-bg)', padding: '1rem', borderRadius: 'var(--radius)', border: '1px solid var(--accent-border)' }}>
+                <Input
+                  label="Name *"
+                  value={variant.name}
+                  onChange={(e) => setGroupData(prev => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, name: e.target.value } : row) }))}
+                  required
+                />
+                <Input
+                  label="Price *"
+                  type="number"
+                  step="0.01"
+                  value={variant.price}
+                  onChange={(e) => setGroupData(prev => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, price: e.target.value } : row) }))}
+                  required
+                />
+                <Input
+                  label="Cost"
+                  type="number"
+                  step="0.01"
+                  value={variant.cost}
+                  onChange={(e) => setGroupData(prev => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, cost: e.target.value } : row) }))}
+                />
+                <Select
+                  label="Unit"
+                  value={variant.unit}
+                  options={UNIT_OPTIONS}
+                  onChange={(e) => setGroupData(prev => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, unit: e.target.value } : row) }))}
+                />
+                <Select
+                  label="Source"
+                  value={variant.source}
+                  options={[{ label: 'Baked', value: 'baked' }, { label: 'Purchased', value: 'purchased' }]}
+                  onChange={(e) => setGroupData(prev => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, source: e.target.value } : row) }))}
+                />
+                <Select
+                  label="Category"
+                  value={variant.category_id}
+                  options={[{ label: 'None', value: '' }, ...categories.map(c => ({ label: c.name, value: c.id }))]}
+                  onChange={(e) => setGroupData(prev => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, category_id: e.target.value } : row) }))}
+                />
+                {groupData.variants.length > 1 && (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    type="button"
+                    style={{ padding: '0.5rem' }}
+                    onClick={() => setGroupData(prev => ({ ...prev, variants: prev.variants.filter((_, i) => i !== index) }))}
+                  >
+                    <Trash2 size={16} />
+                  </Button>
+                )}
+              </div>
+            ))}
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => setGroupData(prev => ({ ...prev, variants: [...prev.variants, { ...emptyVariant }] }))}
+              style={{ alignSelf: 'flex-start' }}
+            >
+              <Plus size={18} /> Add Another Variant
+            </Button>
+          </div>
+
+          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', paddingTop: '1rem', borderTop: '1px solid var(--accent-border)' }}>
+            <Button variant="secondary" onClick={resetForms} type="button">Cancel</Button>
+            <Button type="submit" isLoading={saving}>Create Product Group</Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={showVariantForm}
+        onClose={resetForms}
+        title={`Add Variant to ${variantData.group_name}`}
+        size="lg"
+      >
+        <form onSubmit={handleCreateVariant}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
+            <Input
+              label="Variant Name *"
+              value={variantData.name}
+              onChange={(e) => setVariantData({ ...variantData, name: e.target.value })}
+              required
+              placeholder="e.g. Small"
+            />
+            <Input
+              label="Price *"
+              type="number"
+              step="0.01"
+              value={variantData.price}
+              onChange={(e) => setVariantData({ ...variantData, price: e.target.value })}
+              required
+            />
+            <Input
+              label="Cost"
+              type="number"
+              step="0.01"
+              value={variantData.cost}
+              onChange={(e) => setVariantData({ ...variantData, cost: e.target.value })}
+            />
+            <Select
+              label="Unit"
+              value={variantData.unit}
+              options={UNIT_OPTIONS}
+              onChange={(e) => setVariantData({ ...variantData, unit: e.target.value })}
+            />
+            <Select
+              label="Source"
+              value={variantData.source}
+              options={[{ label: 'Baked', value: 'baked' }, { label: 'Purchased', value: 'purchased' }]}
+              onChange={(e) => setVariantData({ ...variantData, source: e.target.value })}
+            />
+            <Select
+              label="Category"
+              value={variantData.category_id}
+              options={[{ label: 'None', value: '' }, ...categories.map(c => ({ label: c.name, value: c.id }))]}
+              onChange={(e) => setVariantData({ ...variantData, category_id: e.target.value })}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', paddingTop: '1rem', borderTop: '1px solid var(--accent-border)' }}>
+            <Button variant="secondary" onClick={resetForms} type="button">Cancel</Button>
+            <Button type="submit" isLoading={saving}>Add Variant</Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={!!editingProduct}
+        onClose={resetForms}
+        title="Edit Variant"
+        size="lg"
+      >
+        <form onSubmit={handleEditSubmit}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
+            <Input
+              label="Group Name *"
+              value={formData.group_name}
+              onChange={(e) => setFormData({ ...formData, group_name: e.target.value })}
+              required
+            />
+            <Input
+              label="Variant Name *"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              required
+            />
+            <Input
+              label="Price *"
+              type="number"
+              step="0.01"
+              value={formData.price}
+              onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+              required
+            />
+            <Input
+              label="Cost"
+              type="number"
+              step="0.01"
+              value={formData.cost}
+              onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
+            />
+            <Select
+              label="Unit"
+              value={formData.unit}
+              options={UNIT_OPTIONS}
+              onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+            />
+            <Select
+              label="Source"
+              value={formData.source}
+              options={[{ label: 'Baked', value: 'baked' }, { label: 'Purchased', value: 'purchased' }]}
+              onChange={(e) => setFormData({ ...formData, source: e.target.value })}
+            />
+            <Select
+              label="Category"
+              value={formData.category_id}
+              options={[{ label: 'None', value: '' }, ...categories.map(c => ({ label: c.name, value: c.id }))]}
+              onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}
+            />
+            <Select
+              label="Status"
+              value={formData.is_active ? 'active' : 'inactive'}
+              options={[{ label: 'Active', value: 'active' }, { label: 'Inactive', value: 'inactive' }]}
+              onChange={(e) => setFormData({ ...formData, is_active: e.target.value === 'active' })}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', paddingTop: '1rem', borderTop: '1px solid var(--accent-border)' }}>
+            <Button variant="secondary" onClick={resetForms} type="button">Cancel</Button>
+            <Button type="submit" isLoading={saving}>Update Variant</Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

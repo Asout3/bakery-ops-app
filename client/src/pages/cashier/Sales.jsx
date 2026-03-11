@@ -1,19 +1,28 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { Plus, Minus, ShoppingCart, Trash2, Search } from 'lucide-react';
-import './Sales.css';
+import { Plus, Minus, ShoppingCart, Trash2, Search, Filter, RotateCcw, ChevronRight } from 'lucide-react';
 import { enqueueOperation, listQueuedOperations } from '../../utils/offlineQueue';
 import { useLanguage } from '../../context/LanguageContext';
+import { useToast } from '../../context/ToastContext';
+import { Card, CardHeader, CardBody, CardFooter } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
+import { Modal } from '../../components/ui/Modal';
+import { Badge } from '../../components/ui/Badge';
+import { Skeleton } from '../../components/ui/Skeleton';
+import './Sales.css';
 
 export default function Sales() {
   const { selectedLocationId } = useBranch();
   const { t } = useLanguage();
+  const toast = useToast();
+
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
+  const [fetching, setFetching] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [groupFilter, setGroupFilter] = useState('all');
@@ -34,7 +43,8 @@ export default function Sales() {
     return baseProducts.map((product) => ({ ...product, stock_quantity: Math.max(0, Number(product.stock_quantity || 0) - (usageByProduct.get(Number(product.id)) || 0)) }));
   };
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
+    setFetching(true);
     try {
       const [productsRes, inventoryRes] = await Promise.all([api.get('/products'), api.get('/inventory')]);
       const inventoryByProduct = new Map((inventoryRes.data || []).map((it) => [Number(it.product_id), Number(it.quantity) || 0]));
@@ -46,14 +56,18 @@ export default function Sales() {
       const cached = localStorage.getItem(`cashier_products_cache_${selectedLocationId || 'default'}`);
       if (cached) {
         setProducts(JSON.parse(cached));
-        setMessage({ type: 'warning', text: 'Offline mode: using cached products.' });
+        toast.info('Offline mode: using cached products.');
+      } else {
+        toast.error('Failed to load products.');
       }
+    } finally {
+      setFetching(false);
     }
-  };
+  }, [selectedLocationId, toast]);
 
   useEffect(() => {
     fetchProducts();
-  }, [selectedLocationId]);
+  }, [fetchProducts]);
 
   useEffect(() => {
     const onOnline = () => {
@@ -95,7 +109,7 @@ export default function Sales() {
 
   const addVariantToCart = (product) => {
     if (getRemainingStock(product) <= 0) {
-      setMessage({ type: 'warning', text: `${product.name} is out of stock.` });
+      toast.warning(`${product.name} is out of stock.`);
       return;
     }
 
@@ -107,6 +121,7 @@ export default function Sales() {
     }
 
     setVariantModal(null);
+    toast.success(`${product.name} added to cart.`);
   };
 
   const handleGroupClick = (groupKey, variants) => {
@@ -124,7 +139,7 @@ export default function Sales() {
       const maxQty = Number(product?.stock_quantity || 0);
       const nextQty = Math.max(1, item.quantity + change);
       if (maxQty > 0 && nextQty > maxQty) {
-        setMessage({ type: 'warning', text: `${product?.name || 'Item'} is out of stock.` });
+        toast.warning(`${product?.name || 'Item'} is out of stock.`);
         return item;
       }
       return { ...item, quantity: nextQty };
@@ -138,14 +153,19 @@ export default function Sales() {
     const product = products.find((p) => Number(p.id) === Number(productId));
     const maxQty = Number(product?.stock_quantity || 0);
     if (maxQty > 0 && quantity > maxQty) {
-      setMessage({ type: 'warning', text: `${product?.name || 'Item'} is out of stock.` });
+      toast.warning(`${product?.name || 'Item'} is out of stock.`);
       return;
     }
 
     setCart((prev) => prev.map((item) => (item.product_id === productId ? { ...item, quantity } : item)));
   };
 
-  const removeFromCart = (productId) => setCart((prev) => prev.filter((item) => item.product_id !== productId));
+  const removeFromCart = (productId) => {
+    const item = cart.find(i => i.product_id === productId);
+    setCart((prev) => prev.filter((item) => item.product_id !== productId));
+    if (item) toast.info(`${item.name} removed from cart.`);
+  };
+
   const calculateTotal = () => cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
   const applySaleToLocalStock = (soldItems) => {
@@ -171,16 +191,16 @@ export default function Sales() {
       setReceiptData(response.data);
       applySaleToLocalStock(payload.items);
       setCart([]);
-      setMessage({ type: 'success', text: 'Sale completed.' });
+      toast.success('Sale completed successfully.');
     } catch (err) {
       if (!err.response) {
         const idempotencyKey = `sale-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         await enqueueOperation({ url: '/sales', method: 'post', data: payload, idempotencyKey });
         applySaleToLocalStock(payload.items);
         setCart([]);
-        setMessage({ type: 'warning', text: 'Offline: sale queued for sync.' });
+        toast.warning('Offline: sale queued for sync.');
       } else {
-        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to complete sale.') });
+        toast.error(getErrorMessage(err, 'Failed to complete sale.'));
       }
     } finally {
       setLoading(false);
@@ -189,71 +209,311 @@ export default function Sales() {
   };
 
   return (
-    <div className="sales-page">
-      <div className="page-header"><h2>{t('newSale')}</h2></div>
-      {message && <div className={`alert alert-${message.type}`}>{message.text}</div>}
-      <div className="sales-layout">
-        <div className="products-section">
-          <div className="card"><div className="card-header"><h3>Product Groups</h3></div><div className="card-body">
-            <div className="filters-row" style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}><div className="search-bar" style={{ flex: 1 }}><Search size={16} /><input className="input" placeholder="Search groups or variants..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div><select className="input" style={{ maxWidth: '170px' }} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}><option value="all">All Sources</option><option value="baked">Baked</option><option value="purchased">Purchased</option></select><select className="input" style={{ maxWidth: '200px' }} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">All Groups</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.group_name || p.name))).sort().map((group) => <option key={group} value={group}>{group}</option>)}</select><select className="input" style={{ maxWidth: '200px' }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option value="all">All Categories</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.category_name || 'Uncategorized'))).sort().map((category) => <option key={category} value={category}>{category}</option>)}</select><button className="btn btn-outline-secondary" type="button" onClick={() => { setSearchTerm(''); setSourceFilter('all'); setGroupFilter('all'); setCategoryFilter('all'); }}>Reset Filters</button></div>
-            <div className="products-grid">
-              {groupedProducts.map(([groupKey, variants]) => {
-                const prices = variants.map((v) => Number(v.price || 0));
-                const min = Math.min(...prices);
-                const max = Math.max(...prices);
-                const totalStock = variants.reduce((sum, v) => sum + Math.max(0, getRemainingStock(v)), 0);
-                const isOutOfStock = totalStock <= 0;
-                return (
-                  <div key={groupKey} className={`product-card ${isOutOfStock ? 'product-card-disabled' : ''}`} onClick={() => handleGroupClick(groupKey, variants)}>
-                    <div className="product-name">{groupKey}</div>
-                    <div className="product-price">ETB {min === max ? min.toFixed(2) : `${min.toFixed(2)} - ${max.toFixed(2)}`}</div>
-                    <div className="product-category">{variants.length} variant{variants.length > 1 ? 's' : ''}</div>
-                    <div className={`product-stock ${isOutOfStock ? 'product-stock-empty' : ''}`}>{isOutOfStock ? 'Out of stock' : `${totalStock} in stock`}</div>
-                  </div>
-                );
-              })}
-            </div>
-          </div></div>
-        </div>
-
-        <div className="cart-section">
-          <div className="card"><div className="card-header"><h3><ShoppingCart size={20} />Cart ({cart.length})</h3></div><div className="card-body cart-body">
-            {cart.length === 0 ? <div className="empty-cart"><ShoppingCart size={48} /><p>{t('cartEmpty')}</p></div> : <div className="cart-items">{cart.map((item) => <div key={item.product_id} className="cart-item"><div className="cart-item-details"><div className="cart-item-name">{item.name}</div><div className="cart-item-price">ETB {Number(item.price).toFixed(2)}</div></div><div className="cart-item-actions"><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, -1)}><Minus size={14} /></button><input type="number" min="1" className="form-control form-control-sm" style={{ width: '72px', textAlign: 'center' }} value={item.quantity} onChange={(e) => setQuantity(item.product_id, Number(e.target.value))} /><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, 1)}><Plus size={14} /></button><button className="btn btn-sm btn-danger" onClick={() => removeFromCart(item.product_id)}><Trash2 size={14} /></button></div><div className="cart-item-subtotal">ETB {(item.price * item.quantity).toFixed(2)}</div></div>)}</div>}
-          </div><div className="card-footer"><div className="payment-method-select"><span>Payment:</span><select className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div><div className="cart-total"><span className="cart-total-label">Total:</span><span className="cart-total-amount">ETB {calculateTotal().toFixed(2)}</span></div><button className="btn btn-success btn-lg" onClick={handleCheckout} disabled={loading || cart.length === 0} style={{ width: '100%', marginTop: '1rem' }}>{loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}</button></div></div>
+    <div className="sales-page animate-fade-in">
+      <div className="page-header" style={{ marginBottom: '1.5rem' }}>
+        <h1 style={{ fontSize: '1.75rem' }}>{t('newSale')}</h1>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+           <Badge variant={isOnline ? 'success' : 'warning'}>
+             {isOnline ? 'Online' : 'Offline Mode'}
+           </Badge>
         </div>
       </div>
 
-      {variantModal && (
-        <div className="modal-overlay" onClick={() => setVariantModal(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><h3>Select {variantModal.groupKey} Variant</h3><button className="close-btn" onClick={() => setVariantModal(null)}>×</button></div>
-            <div className="modal-body">
-              <div className="variant-grid">
-                {variantModal.variants.map((variant) => {
-                  const remaining = getRemainingStock(variant);
-                  const outOfStock = remaining <= 0;
-                  return (
-                    <button
-                      key={variant.id}
-                      type="button"
-                      className={`variant-option ${outOfStock ? 'variant-option-disabled' : ''}`}
-                      onClick={() => addVariantToCart(variant)}
-                      disabled={outOfStock}
-                    >
-                      <div className="variant-option-name">{variant.name}</div>
-                      <div className="variant-option-meta">ETB {Number(variant.price).toFixed(2)} • {outOfStock ? 'Out of stock' : `${remaining} left`}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <div className="sales-layout" style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '1.5rem', alignItems: 'start' }}>
+        <div className="products-section">
+          <Card>
+            <CardHeader style={{ padding: '1rem 1.5rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: '240px', position: 'relative' }}>
+                    <Search size={18} style={{ position: 'absolute', left: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                    <input
+                      className="input-field"
+                      placeholder="Search items..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      style={{ paddingLeft: '2.75rem' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <select className="input-field" style={{ width: '140px' }} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+                      <option value="all">All Sources</option>
+                      <option value="baked">Baked</option>
+                      <option value="purchased">Purchased</option>
+                    </select>
+                    <Button variant="secondary" onClick={() => { setSearchTerm(''); setSourceFilter('all'); setGroupFilter('all'); setCategoryFilter('all'); }}>
+                      <RotateCcw size={18} />
+                    </Button>
+                  </div>
+                </div>
 
-      {receiptData && (
-        <div className="modal-overlay" onClick={() => setReceiptData(null)}><div className="modal-content modal-sm" onClick={(e) => e.stopPropagation()}><div className="modal-header"><h3>Receipt</h3><button className="close-btn" onClick={() => setReceiptData(null)}>×</button></div><div className="modal-body"><p><strong>Receipt #:</strong> {receiptData.receipt_number}</p><p><strong>Date:</strong> {new Date(receiptData.sale_date || Date.now()).toLocaleString()}</p><p><strong>Payment Method:</strong> {receiptData.payment_method || paymentMethod}</p><p><strong>Total:</strong> ETB {Number(receiptData.total_amount || 0).toFixed(2)}</p></div></div></div>
-      )}
+                <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.5rem', whiteSpace: 'nowrap' }}>
+                   <button
+                     onClick={() => setCategoryFilter('all')}
+                     style={{
+                       padding: '0.5rem 1rem',
+                       borderRadius: '999px',
+                       border: '1px solid',
+                       borderColor: categoryFilter === 'all' ? 'var(--button-end)' : 'var(--input-border)',
+                       background: categoryFilter === 'all' ? 'rgba(244, 162, 97, 0.1)' : 'transparent',
+                       color: categoryFilter === 'all' ? 'var(--button-end)' : 'var(--text-secondary)',
+                       fontWeight: 600,
+                       fontSize: '0.8125rem',
+                       cursor: 'pointer'
+                     }}
+                   >
+                     All Categories
+                   </button>
+                   {Array.from(new Set(products.filter(p => p.is_active !== false).map(p => p.category_name || 'Uncategorized'))).sort().map(cat => (
+                     <button
+                       key={cat}
+                       onClick={() => setCategoryFilter(cat)}
+                       style={{
+                         padding: '0.5rem 1rem',
+                         borderRadius: '999px',
+                         border: '1px solid',
+                         borderColor: categoryFilter === cat ? 'var(--button-end)' : 'var(--input-border)',
+                         background: categoryFilter === cat ? 'rgba(244, 162, 97, 0.1)' : 'transparent',
+                         color: categoryFilter === cat ? 'var(--button-end)' : 'var(--text-secondary)',
+                         fontWeight: 600,
+                         fontSize: '0.8125rem',
+                         cursor: 'pointer'
+                       }}
+                     >
+                       {cat}
+                     </button>
+                   ))}
+                </div>
+              </div>
+            </CardHeader>
+            <CardBody style={{ minHeight: '60vh', padding: '1.5rem' }}>
+              {fetching ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1.25rem' }}>
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map(i => <Skeleton key={i} height="140px" />)}
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1.25rem' }}>
+                  {groupedProducts.map(([groupKey, variants]) => {
+                    const prices = variants.map((v) => Number(v.price || 0));
+                    const min = Math.min(...prices);
+                    const max = Math.max(...prices);
+                    const totalStock = variants.reduce((sum, v) => sum + Math.max(0, getRemainingStock(v)), 0);
+                    const isOutOfStock = totalStock <= 0;
+
+                    return (
+                      <div
+                        key={groupKey}
+                        onClick={() => !isOutOfStock && handleGroupClick(groupKey, variants)}
+                        className={`product-card ${isOutOfStock ? 'disabled' : ''}`}
+                        style={{
+                          background: 'var(--surface-bg)',
+                          border: '1px solid var(--accent-border)',
+                          borderRadius: 'var(--radius)',
+                          padding: '1.25rem',
+                          cursor: isOutOfStock ? 'not-allowed' : 'pointer',
+                          transition: 'all 0.2s',
+                          opacity: isOutOfStock ? 0.6 : 1,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.5rem',
+                          position: 'relative',
+                          boxShadow: 'var(--shadow-sm)'
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)', minHeight: '2.5rem' }}>{groupKey}</div>
+                        <div style={{ fontWeight: 800, fontSize: '1.125rem', color: 'var(--button-end)' }}>
+                          ETB {min === max ? min.toFixed(2) : `${min.toFixed(2)}+`}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{variants.length} types</span>
+                          <Badge variant={isOutOfStock ? 'danger' : totalStock < 10 ? 'warning' : 'success'}>
+                            {isOutOfStock ? 'Sold Out' : `${totalStock} in stock`}
+                          </Badge>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {groupedProducts.length === 0 && (
+                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '4rem' }}>
+                       <Search size={48} style={{ color: 'var(--text-muted)', marginBottom: '1rem' }} />
+                       <h3 style={{ color: 'var(--text-muted)' }}>No products found</h3>
+                       <p>Try adjusting your search or filters.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardBody>
+          </Card>
+        </div>
+
+        <div className="cart-section" style={{ position: 'sticky', top: '90px' }}>
+          <Card style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-md)' }}>
+            <CardHeader style={{ padding: '1.25rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.125rem' }}>
+                <ShoppingCart size={20} />
+                {t('cartEmpty').replace('is empty', '')} ({cart.length})
+              </h3>
+              {cart.length > 0 && <Button variant="ghost" size="sm" onClick={() => setCart([])}><Trash2 size={16} /></Button>}
+            </CardHeader>
+            <CardBody style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.5rem' }}>
+              {cart.length === 0 ? (
+                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: 'var(--text-muted)', gap: '1rem' }}>
+                  <ShoppingCart size={64} style={{ opacity: 0.2 }} />
+                  <p>{t('cartEmpty')}</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {cart.map((item) => (
+                    <div key={item.product_id} style={{ paddingBottom: '1rem', borderBottom: '1px solid var(--accent-border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                         <div style={{ fontWeight: 600, fontSize: '0.9375rem', flex: 1, paddingRight: '0.5rem' }}>{item.name}</div>
+                         <div style={{ fontWeight: 800 }}>ETB {(item.price * item.quantity).toFixed(2)}</div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', background: 'var(--surface-bg)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--input-border)', padding: '0.25rem' }}>
+                          <button onClick={() => updateQuantity(item.product_id, -1)} style={{ background: 'transparent', border: 'none', padding: '0.25rem', cursor: 'pointer' }}><Minus size={14} /></button>
+                          <input
+                            type="number"
+                            value={item.quantity}
+                            onChange={(e) => setQuantity(item.product_id, Number(e.target.value))}
+                            style={{ width: '40px', border: 'none', background: 'transparent', textAlign: 'center', fontWeight: 700, fontSize: '0.875rem' }}
+                          />
+                          <button onClick={() => updateQuantity(item.product_id, 1)} style={{ background: 'transparent', border: 'none', padding: '0.25rem', cursor: 'pointer' }}><Plus size={14} /></button>
+                        </div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>@ ETB {item.price.toFixed(2)}</span>
+                        <button onClick={() => removeFromCart(item.product_id)} style={{ marginLeft: 'auto', color: 'var(--text-error)', background: 'transparent', border: 'none', cursor: 'pointer' }}><Trash2 size={16} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardBody>
+            <CardFooter style={{ padding: '1.5rem', background: 'rgba(95, 58, 36, 0.02)' }}>
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label className="form-label">Payment Method</label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  {['cash', 'mobile', 'telebirr'].map(method => (
+                    <button
+                      key={method}
+                      onClick={() => setPaymentMethod(method)}
+                      style={{
+                        flex: 1,
+                        padding: '0.5rem',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid',
+                        borderColor: paymentMethod === method ? 'var(--button-end)' : 'var(--input-border)',
+                        background: paymentMethod === method ? 'rgba(244, 162, 97, 0.1)' : 'var(--card-bg)',
+                        color: paymentMethod === method ? 'var(--button-end)' : 'var(--text-secondary)',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        textTransform: 'capitalize',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {method}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <span style={{ fontSize: '1.125rem', fontWeight: 600 }}>Total</span>
+                <span style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--text-primary)' }}>ETB {calculateTotal().toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              </div>
+
+              <Button
+                variant="primary"
+                size="lg"
+                style={{ width: '100%', height: '3.5rem', fontSize: '1.125rem' }}
+                onClick={handleCheckout}
+                isLoading={loading}
+                disabled={cart.length === 0}
+              >
+                {!isOnline && <ShoppingCart size={20} style={{ marginRight: '0.5rem' }} />}
+                {loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}
+              </Button>
+            </CardFooter>
+          </Card>
+        </div>
+      </div>
+
+      <Modal
+        isOpen={!!variantModal}
+        onClose={() => setVariantModal(null)}
+        title={`Select ${variantModal?.groupKey} Variant`}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          {variantModal?.variants.map((variant) => {
+            const remaining = getRemainingStock(variant);
+            const outOfStock = remaining <= 0;
+            return (
+              <button
+                key={variant.id}
+                onClick={() => addVariantToCart(variant)}
+                disabled={outOfStock}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '1.25rem',
+                  borderRadius: 'var(--radius)',
+                  border: '1px solid var(--input-border)',
+                  background: 'var(--surface-bg)',
+                  cursor: outOfStock ? 'not-allowed' : 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.2s',
+                  opacity: outOfStock ? 0.5 : 1
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.25rem' }}>{variant.name}</div>
+                  <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>{outOfStock ? 'Out of stock' : `${remaining} available`}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                   <div style={{ fontWeight: 800, color: 'var(--button-end)' }}>ETB {Number(variant.price).toFixed(2)}</div>
+                   <ChevronRight size={18} style={{ color: 'var(--text-muted)' }} />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={!!receiptData}
+        onClose={() => setReceiptData(null)}
+        title="Sale Completed"
+        size="sm"
+      >
+        <div style={{ textAlign: 'center', padding: '1rem 0' }}>
+           <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'var(--success-bg)', color: 'var(--success-text)', display: 'grid', placeItems: 'center', margin: '0 auto 1.5rem' }}>
+             <ShoppingCart size={32} />
+           </div>
+           <h3 style={{ marginBottom: '1.5rem' }}>Receipt Info</h3>
+           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'left', background: 'var(--surface-bg)', padding: '1.5rem', borderRadius: 'var(--radius)', border: '1px dashed var(--input-border)' }}>
+             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+               <span style={{ color: 'var(--text-muted)' }}>Receipt #:</span>
+               <span style={{ fontWeight: 700 }}>{receiptData?.receipt_number}</span>
+             </div>
+             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+               <span style={{ color: 'var(--text-muted)' }}>Date:</span>
+               <span style={{ fontWeight: 600 }}>{new Date(receiptData?.sale_date || Date.now()).toLocaleString()}</span>
+             </div>
+             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+               <span style={{ color: 'var(--text-muted)' }}>Payment:</span>
+               <span style={{ fontWeight: 600, textTransform: 'capitalize' }}>{receiptData?.payment_method || paymentMethod}</span>
+             </div>
+             <div style={{ height: '1px', background: 'var(--accent-border)', margin: '0.5rem 0' }}></div>
+             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.25rem' }}>
+               <span style={{ fontWeight: 700 }}>Total:</span>
+               <span style={{ fontWeight: 900, color: 'var(--button-end)' }}>ETB {Number(receiptData?.total_amount || 0).toFixed(2)}</span>
+             </div>
+           </div>
+           <Button variant="primary" style={{ width: '100%', marginTop: '2rem' }} onClick={() => setReceiptData(null)}>
+             Done
+           </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

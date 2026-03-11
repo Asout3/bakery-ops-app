@@ -15,6 +15,7 @@ import {
   Moon,
   Sun,
   ClipboardList,
+  Globe,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
@@ -23,6 +24,10 @@ import { useLanguage } from '../context/LanguageContext';
 import OfflineIndicator from './OfflineIndicator';
 import { useOfflineSync } from '../hooks/useOfflineSync';
 import { getPendingCount } from '../utils/offlineQueue';
+import { Button } from './ui/Button';
+import { Modal } from './ui/Modal';
+import { Select } from './ui/Select';
+import { Badge } from './ui/Badge';
 import './Layout.css';
 
 export default function Layout() {
@@ -126,8 +131,8 @@ export default function Layout() {
       <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
         <div className="sidebar-header">
           <h2>{t('appTitle')}</h2>
-          <button className="sidebar-close" onClick={() => setSidebarOpen(false)}>
-            <X size={20} />
+          <button className="menu-toggle" onClick={() => setSidebarOpen(false)}>
+            <X size={24} />
           </button>
         </div>
 
@@ -140,10 +145,10 @@ export default function Layout() {
               onClick={() => setSidebarOpen(false)}
             >
               <item.icon size={20} />
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
                 {item.label}
                 {item.showBadge && unreadCount > 0 && (
-                  <span className="badge badge-danger" style={{ fontSize: '0.68rem' }}>{unreadCount}</span>
+                  <Badge variant="danger" style={{ marginLeft: 'auto', padding: '0.125rem 0.375rem', fontSize: '0.65rem' }}>{unreadCount}</Badge>
                 )}
               </span>
             </NavLink>
@@ -158,26 +163,46 @@ export default function Layout() {
               <div className="user-role">{user?.role}</div>
             </div>
           </div>
-          <button className="btn btn-secondary btn-sm" onClick={handleLogout}>
+          <Button variant="secondary" size="sm" onClick={handleLogout} style={{ width: '100%' }}>
             <LogOut size={16} /> {t('logout')}
-          </button>
+          </Button>
         </div>
       </aside>
 
       <div className="main-content">
         <header className="top-bar">
-          <button className="menu-toggle" onClick={() => setSidebarOpen(true)}>
-            <Menu size={24} />
-          </button>
-          <div className="top-bar-content" style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-            <h1 className="page-title">{t('appTitle')}</h1>
-            <button className="btn btn-sm btn-secondary" onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}>
-              {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />} {t(theme === 'light' ? 'dark' : 'light')}
+          <div className="top-bar-left">
+            <button className="menu-toggle" onClick={() => setSidebarOpen(true)}>
+              <Menu size={24} />
             </button>
-            <select className="form-select" style={{ maxWidth: '140px' }} value={language} onChange={(e) => setLang(e.target.value)}>
-              <option value="en">English</option>
-              <option value="am">አማርኛ</option>
-            </select>
+            {user?.role === 'admin' && locations.length > 0 && (
+              <Select
+                value={selectedLocationId || ''}
+                onChange={(e) => setLocation(e.target.value)}
+                options={locations.map(loc => ({ label: loc.name, value: loc.id }))}
+                style={{ minHeight: '2.25rem', padding: '0.4rem 2rem 0.4rem 0.75rem', fontSize: '0.875rem' }}
+              />
+            )}
+          </div>
+
+          <div className="top-bar-right">
+            <Button variant="secondary" size="sm" onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}>
+              {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+              <span>{t(theme === 'light' ? 'dark' : 'light')}</span>
+            </Button>
+
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <Globe size={16} style={{ position: 'absolute', left: '0.75rem', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+              <select
+                className="input-field"
+                style={{ width: '120px', minHeight: '2.25rem', padding: '0.4rem 0.75rem 0.4rem 2.25rem', fontSize: '0.875rem' }}
+                value={language}
+                onChange={(e) => setLang(e.target.value)}
+              >
+                <option value="en">English</option>
+                <option value="am">አማርኛ</option>
+              </select>
+            </div>
           </div>
         </header>
 
@@ -189,27 +214,22 @@ export default function Layout() {
       {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
       <OfflineIndicator />
 
-      {showLogoutWarning && (
-        <div className="modal-overlay" onClick={() => setShowLogoutWarning(false)}>
-          <div className="modal-content modal-sm" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>{t('pendingOfflineActions')}</h3>
-              <button className="close-btn" onClick={() => setShowLogoutWarning(false)}>×</button>
-            </div>
-            <div className="modal-body">
-              <p>
-                {t('pendingOfflineDetails')} <strong>{pendingLogoutCount}</strong>
-              </p>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowLogoutWarning(false)}>{t('cancel')}</button>
-              <button className="btn btn-danger" onClick={() => { setShowLogoutWarning(false); doLogout(); }}>
-                {t('logoutAnyway')}
-              </button>
-            </div>
-          </div>
+      <Modal
+        isOpen={showLogoutWarning}
+        onClose={() => setShowLogoutWarning(false)}
+        title={t('pendingOfflineActions')}
+        size="sm"
+      >
+        <p style={{ marginBottom: '1.5rem' }}>
+          {t('pendingOfflineDetails')} <strong>{pendingLogoutCount}</strong>
+        </p>
+        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+          <Button variant="secondary" onClick={() => setShowLogoutWarning(false)}>{t('cancel')}</Button>
+          <Button variant="danger" onClick={() => { setShowLogoutWarning(false); doLogout(); }}>
+            {t('logoutAnyway')}
+          </Button>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

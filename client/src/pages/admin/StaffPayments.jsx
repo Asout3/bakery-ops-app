@@ -1,7 +1,20 @@
 import { useMemo, useState, useEffect } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
-import { Plus, Edit, Trash2, DollarSign, Calendar, User, X, Clock, Eye } from 'lucide-react';
+import { Plus, Edit, Trash2, DollarSign, Calendar, Clock, Eye, RotateCcw, Search } from 'lucide-react';
 import { enqueueOperation } from '../../utils/offlineQueue';
+import { useLanguage } from '../../context/LanguageContext';
+import { useToast } from '../../context/ToastContext';
+import { useConfirm } from '../../context/ConfirmContext';
+import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
+import { Modal } from '../../components/ui/Modal';
+import { Badge } from '../../components/ui/Badge';
+import { Select } from '../../components/ui/Select';
+import { Table, THead, TBody, TR, TH, TD } from '../../components/ui/Table';
+import { Textarea } from '../../components/ui/Textarea';
+import { Alert } from '../../components/ui/Alert';
+import { Skeleton } from '../../components/ui/Skeleton';
 
 const PAYMENT_EDIT_WINDOW_MINUTES = 20;
 
@@ -16,27 +29,24 @@ const initialForm = {
   notes: '',
 };
 
-const FREQUENCY_OPTIONS = ['daily', 'weekly', 'monthly'];
-
 export default function StaffPaymentsPage() {
+  const { t } = useLanguage();
+  const toast = useToast();
+  const { confirm } = useConfirm();
+
   const [payments, setPayments] = useState([]);
   const [staffMembers, setStaffMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingPayment, setEditingPayment] = useState(null);
   const [formData, setFormData] = useState(initialForm);
-  const [feedback, setFeedback] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
   const [notePreview, setNotePreview] = useState(null);
   const [suggestedPayment, setSuggestedPayment] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [frequencyFilter, setFrequencyFilter] = useState('all');
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    setLoading(true);
     try {
       const [paymentsRes, staffRes] = await Promise.all([
         api.get('/payments'),
@@ -45,11 +55,15 @@ export default function StaffPaymentsPage() {
       setPayments(paymentsRes.data || []);
       setStaffMembers((staffRes.data || []).filter((staff) => staff.is_active));
     } catch (err) {
-      setFeedback({ type: 'danger', message: getErrorMessage(err, 'Failed to load payments data.') });
+      toast.error(getErrorMessage(err, 'Failed to load payments data.'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleStaffSelect = (staffId) => {
     const selected = staffMembers.find((s) => Number(s.id) === Number(staffId));
@@ -84,7 +98,6 @@ export default function StaffPaymentsPage() {
     }));
   };
 
-
   const isPaymentEditable = (payment) => {
     if (typeof payment.can_edit === 'boolean') return payment.can_edit;
     const createdAt = payment.created_at ? new Date(payment.created_at) : null;
@@ -101,13 +114,11 @@ export default function StaffPaymentsPage() {
     return Math.max(0, Math.ceil(PAYMENT_EDIT_WINDOW_MINUTES - ((Date.now() - createdAt.getTime()) / 60000)));
   };
 
-
   const getReadableNote = (noteValue) => {
     if (!noteValue) return 'No notes provided.';
     if (typeof noteValue !== 'string') return String(noteValue);
     const trimmed = noteValue.trim();
     if (!trimmed.startsWith('{')) return trimmed;
-
     try {
       const parsed = JSON.parse(trimmed);
       if (typeof parsed?.notes === 'string' && parsed.notes.trim()) return parsed.notes.trim();
@@ -126,7 +137,7 @@ export default function StaffPaymentsPage() {
 
   const openEditModal = (payment) => {
     if (!isPaymentEditable(payment)) {
-      setFeedback({ type: 'warning', message: 'This payment is locked after 20 minutes and cannot be edited.' });
+      toast.warning('This payment is locked after 20 minutes and cannot be edited.');
       return;
     }
     setEditingPayment(payment);
@@ -159,16 +170,16 @@ export default function StaffPaymentsPage() {
     };
 
     if (payload.amount < 0) {
-      setFeedback({ type: 'warning', message: 'Amount cannot be negative.' });
+      toast.warning('Amount cannot be negative.');
       return;
     }
     try {
       if (editingPayment) {
         await api.put(`/payments/${editingPayment.id}`, payload);
-        setFeedback({ type: 'success', message: 'Payment updated successfully.' });
+        toast.success('Payment updated successfully.');
       } else {
         await api.post('/payments', payload);
-        setFeedback({ type: 'success', message: 'Payment created successfully.' });
+        toast.success('Payment created successfully.');
       }
       await fetchData();
       setShowForm(false);
@@ -178,42 +189,47 @@ export default function StaffPaymentsPage() {
       if (!editingPayment && !err.response) {
         const idempotencyKey = `payment-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         await enqueueOperation({ id: idempotencyKey, url: '/payments', method: 'post', data: payload, idempotencyKey });
-        setFeedback({ type: 'warning', message: 'Offline: payment queued for sync.' });
+        toast.warning('Offline: payment queued for sync.');
         setShowForm(false);
         setFormData(initialForm);
       } else {
-        setFeedback({ type: 'danger', message: getErrorMessage(err, 'Failed to save payment.') });
+        toast.error(getErrorMessage(err, 'Failed to save payment.'));
       }
     }
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    if (!isPaymentEditable(deleteTarget)) {
-      setDeleteTarget(null);
-      setFeedback({ type: 'warning', message: 'This payment is locked after 20 minutes and cannot be deleted.' });
+  const handleDelete = async (payment) => {
+    if (!isPaymentEditable(payment)) {
+      toast.warning('This payment is locked and cannot be deleted.');
       return;
     }
+
+    const isConfirmed = await confirm({
+      title: 'Delete Payment?',
+      message: `Are you sure you want to delete payment ${payment.payment_code || payment.id}?`,
+      variant: 'danger'
+    });
+
+    if (!isConfirmed) return;
+
     try {
-      await api.delete(`/payments/${deleteTarget.id}`);
-      setPayments((current) => current.filter((item) => item.id !== deleteTarget.id));
-      setFeedback({ type: 'success', message: 'Payment deleted successfully.' });
+      await api.delete(`/payments/${payment.id}`);
+      setPayments((current) => current.filter((item) => item.id !== payment.id));
+      toast.success('Payment deleted successfully.');
     } catch (err) {
-      setFeedback({ type: 'danger', message: getErrorMessage(err, 'Failed to delete payment.') });
-    } finally {
-      setDeleteTarget(null);
+      toast.error(getErrorMessage(err, 'Failed to delete payment.'));
     }
   };
 
   const summary = useMemo(() => {
     const total = payments.reduce((acc, payment) => acc + Number(payment.amount || 0), 0);
-    const byFrequency = FREQUENCY_OPTIONS.reduce((acc, key) => {
-      acc[key] = payments.filter((p) => (p.payment_frequency || 'monthly') === key).reduce((sum, p) => sum + Number(p.amount || 0), 0);
-      return acc;
-    }, {});
+    const byFrequency = { daily: 0, weekly: 0, monthly: 0 };
+    payments.forEach(p => {
+      const freq = p.payment_frequency || 'monthly';
+      if (byFrequency[freq] !== undefined) byFrequency[freq] += Number(p.amount || 0);
+    });
     return { total, byFrequency };
   }, [payments]);
-
 
   const filteredPayments = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
@@ -226,108 +242,238 @@ export default function StaffPaymentsPage() {
     });
   }, [payments, searchTerm, frequencyFilter]);
 
-  if (loading) {
-    return <div className="loading-container"><div className="spinner"></div></div>;
-  }
+  if (loading) return (
+    <div className="animate-fade-in">
+       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
+         <Skeleton width="220px" height="2.5rem" />
+         <Skeleton width="140px" height="2.5rem" />
+       </div>
+       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem', marginBottom: '2rem' }}>
+          {[1, 2, 3, 4].map(i => <Skeleton key={i} height="100px" />)}
+       </div>
+       <Skeleton height="80px" style={{ marginBottom: '2rem' }} />
+       <Skeleton height="400px" />
+    </div>
+  );
 
   return (
-    <div className="staff-payments-page">
-      <div className="page-header" style={{ gap: '0.75rem', flexWrap: 'wrap' }}>
-        <h2>Staff Payments</h2>
-        <button className="btn btn-primary" onClick={openCreateModal}><Plus size={18} /> Pay Staff</button>
+    <div className="staff-payments-page animate-fade-in">
+      <div className="page-header" style={{ marginBottom: '2rem' }}>
+        <h1 style={{ fontSize: '1.75rem' }}>{t('staffPayments')}</h1>
+        <Button variant="primary" onClick={openCreateModal}>
+          <Plus size={18} /> Pay Staff
+        </Button>
       </div>
 
-      {feedback && <div className={`alert alert-${feedback.type} mb-3`}>{feedback.message}</div>}
+      <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+        <StatCard label="Total Paid" value={`ETB ${summary.total.toFixed(2)}`} icon={<DollarSign size={24} />} variant="success" />
+        <StatCard label="Daily Paid" value={`ETB ${summary.byFrequency.daily.toFixed(2)}`} icon={<Calendar size={24} />} />
+        <StatCard label="Weekly Paid" value={`ETB ${summary.byFrequency.weekly.toFixed(2)}`} icon={<Calendar size={24} />} variant="info" />
+        <StatCard label="Monthly Paid" value={`ETB ${summary.byFrequency.monthly.toFixed(2)}`} icon={<Calendar size={24} />} variant="warning" />
+      </div>
 
-
-      <div className="card mb-3">
-        <div className="card-body">
-          <div className="row g-2">
-            <div className="col-md-8"><input className="form-control" placeholder="Search by payment ID, staff name, creator..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
-            <div className="col-md-4"><select className="form-select" value={frequencyFilter} onChange={(e) => setFrequencyFilter(e.target.value)}><option value="all">All Frequencies</option>{FREQUENCY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+      <Card style={{ marginBottom: '2rem' }}>
+        <CardBody style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: 1 }}>
+            <Search size={18} style={{ position: 'absolute', left: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <Input
+              placeholder="Search by ID, staff name..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{ paddingLeft: '2.75rem' }}
+            />
           </div>
-        </div>
-      </div>
+          <Select
+            value={frequencyFilter}
+            onChange={(e) => setFrequencyFilter(e.target.value)}
+            style={{ width: '180px' }}
+            options={[
+              { label: 'All Frequencies', value: 'all' },
+              { label: 'Daily', value: 'daily' },
+              { label: 'Weekly', value: 'weekly' },
+              { label: 'Monthly', value: 'monthly' }
+            ]}
+          />
+          <Button variant="secondary" onClick={() => { setSearchTerm(''); setFrequencyFilter('all'); fetchData(); }}>
+            <RotateCcw size={18} />
+          </Button>
+        </CardBody>
+      </Card>
 
-      <div className="stats-grid mb-4">
-        <div className="stat-card card"><div className="stat-icon bg-success text-white"><DollarSign size={24} /></div><div className="stat-content"><h3>ETB {summary.total.toFixed(2)}</h3><p>Total Paid</p></div></div>
-        <div className="stat-card card"><div className="stat-icon bg-primary text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.byFrequency.daily?.toFixed(2) || '0.00'}</h3><p>Daily Paid</p></div></div>
-        <div className="stat-card card"><div className="stat-icon bg-info text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.byFrequency.weekly?.toFixed(2) || '0.00'}</h3><p>Weekly Paid</p></div></div>
-        <div className="stat-card card"><div className="stat-icon bg-warning text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.byFrequency.monthly?.toFixed(2) || '0.00'}</h3><p>Monthly Paid</p></div></div>
-      </div>
-
-      <div className="card">
-        <div className="card-body table-responsive">
-          <table className="table table-hover">
-            <thead>
-              <tr>
-                <th>Payment ID</th>
-                <th>Staff</th>
-                <th>Amount</th>
-                <th>Date</th>
-                <th>Edit Window</th>
-                <th>Notes</th><th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+      <Card>
+        <CardBody style={{ padding: 0 }}>
+          <Table>
+            <THead>
+              <TR>
+                <TH>Payment ID</TH>
+                <TH>Staff</TH>
+                <TH>Amount</TH>
+                <TH>Date</TH>
+                <TH>Status</TH>
+                <TH>Notes</TH>
+                <TH style={{ textAlign: 'right' }}>Actions</TH>
+              </TR>
+            </THead>
+            <TBody>
               {filteredPayments.map((payment) => (
-                <tr key={payment.id}>
-                  <td>{payment.payment_code || `PAY-${String(payment.id).padStart(6, '0')}`}</td>
-                  <td>{payment.staff_name || 'Unknown'}</td>
-                  <td>ETB {Number(payment.amount || 0).toFixed(2)}</td>
-                  <td>{new Date(payment.payment_date).toLocaleDateString()}</td>
-                  <td>{isPaymentEditable(payment) ? <span className="badge badge-warning"><Clock size={12} className="me-1" />{minutesRemaining(payment)}m left</span> : <span className="badge badge-secondary">Locked</span>}</td>
-                  <td><button className="btn btn-sm btn-outline-secondary" onClick={() => setNotePreview(getReadableNote(payment.notes)) }><Eye size={14} /> View</button></td><td>
-                    <button className="btn btn-sm btn-outline-primary me-2" onClick={() => openEditModal(payment)} disabled={!isPaymentEditable(payment)}><Edit size={14} /></button>
-                    <button className="btn btn-sm btn-outline-danger" onClick={() => setDeleteTarget(payment)} disabled={!isPaymentEditable(payment)}><Trash2 size={14} /></button>
-                  </td>
-                </tr>
+                <TR key={payment.id}>
+                  <TD style={{ fontSize: '0.8125rem', fontFamily: 'monospace', fontWeight: 600 }}>
+                    {payment.payment_code || `PAY-${String(payment.id).padStart(6, '0')}`}
+                  </TD>
+                  <TD style={{ fontWeight: 600 }}>{payment.staff_name || 'Unknown'}</TD>
+                  <TD style={{ fontWeight: 700, color: 'var(--success-text)' }}>ETB {Number(payment.amount || 0).toFixed(2)}</TD>
+                  <TD>{new Date(payment.payment_date).toLocaleDateString()}</TD>
+                  <TD>
+                    {isPaymentEditable(payment) ? (
+                      <Badge variant="warning">
+                        <Clock size={12} style={{ marginRight: '0.25rem' }} /> {minutesRemaining(payment)}m left
+                      </Badge>
+                    ) : (
+                      <Badge variant="info">Locked</Badge>
+                    )}
+                  </TD>
+                  <TD>
+                    <Button variant="outline" size="sm" onClick={() => setNotePreview(getReadableNote(payment.notes))}>
+                      <Eye size={14} /> View
+                    </Button>
+                  </TD>
+                  <TD style={{ textAlign: 'right' }}>
+                    <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => openEditModal(payment)}
+                        disabled={!isPaymentEditable(payment)}
+                      >
+                        <Edit size={14} />
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() => handleDelete(payment)}
+                        disabled={!isPaymentEditable(payment)}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  </TD>
+                </TR>
               ))}
-              {!filteredPayments.length && <tr><td colSpan="7" className="text-center text-muted">No payments match the current filters.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              {!filteredPayments.length && (
+                <TR>
+                  <TD colSpan={7} style={{ textAlign: 'center', padding: '3rem' }}>
+                    <div style={{ color: 'var(--text-muted)' }}>No payments match the current filters.</div>
+                  </TD>
+                </TR>
+              )}
+            </TBody>
+          </Table>
+        </CardBody>
+      </Card>
 
-      {showForm && (
-        <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <div className="modal-content" style={{ maxWidth: '1200px', width: '96vw' }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><h3>{editingPayment ? 'Edit Payment' : 'Create Payment'}</h3><button className="close-btn" onClick={() => setShowForm(false)}><X size={18} /></button></div>
-            <form className="modal-body" onSubmit={handleSubmit}>
-              <div className="row g-3">
-                {suggestedPayment && <div className="col-12"><div className="alert alert-info" style={{ display: 'grid', gap: '0.75rem' }}><div style={{ fontSize: '1rem', lineHeight: 1.6 }}>Worked days since last payment: <strong>{suggestedPayment.workedDays}</strong> • Daily rate: <strong>ETB {suggestedPayment.dailyRate.toFixed(2)}</strong> • Suggested payout: <strong>ETB {suggestedPayment.recommendedAmount.toFixed(2)}</strong></div><button type="button" className="btn btn-primary" style={{ width: '100%' }} onClick={() => setFormData((prev) => ({ ...prev, amount: suggestedPayment.recommendedAmount.toFixed(2) }))}>Use Suggested Amount</button></div></div>}
-
-                <div className="col-md-6"><label className="form-label">Staff *</label><select className="form-select" value={formData.staff_profile_id} onChange={(e) => handleStaffSelect(e.target.value)} required><option value="">Select staff</option>{staffMembers.map((staff) => <option key={staff.id} value={staff.id}>{staff.full_name}</option>)}</select></div>
-                <div className="col-md-6"><label className="form-label">Amount *</label><input type="number" min="0" step="0.01" className="form-control" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required /></div>
-                <div className="col-md-4"><label className="form-label">Payment Date *</label><input type="date" className="form-control" value={formData.payment_date} onChange={(e) => { const nextDate = e.target.value; setFormData({ ...formData, payment_date: nextDate }); if (formData.staff_profile_id) { const selected = staffMembers.find((st) => Number(st.id) === Number(formData.staff_profile_id)); if (selected) { const staffPayments = payments.filter((payment) => Number(payment.staff_profile_id) === Number(formData.staff_profile_id)).sort((a, b) => new Date(b.payment_date || b.created_at || 0).getTime() - new Date(a.payment_date || a.created_at || 0).getTime()); const lastPaymentDate = staffPayments[0]?.payment_date ? new Date(staffPayments[0].payment_date) : null; const targetDate = nextDate ? new Date(nextDate) : new Date(); const workedDays = lastPaymentDate ? Math.max(1, Math.ceil((targetDate - lastPaymentDate) / (1000 * 60 * 60 * 24))) : 30; const monthlySalary = Number(selected.monthly_salary || 0); const dailyRate = monthlySalary > 0 ? (monthlySalary / 30) : 0; const recommendedAmount = Math.max(0, dailyRate * workedDays); setSuggestedPayment({ workedDays, dailyRate, recommendedAmount, lastPaymentDate }); } } }} required /></div>
-                <div className="col-12"><label className="form-label">Notes</label><textarea rows="5" className="form-control" style={{ minHeight: "160px", fontSize: "0.98rem" }} value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} /></div>
+      <Modal
+        isOpen={showForm}
+        onClose={() => setShowForm(false)}
+        title={editingPayment ? 'Edit Staff Payment' : 'Process Staff Payment'}
+        size="md"
+      >
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {suggestedPayment && (
+            <Alert variant="info" title="Payment Suggestion">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                 <div>Days worked: <strong>{suggestedPayment.workedDays}</strong> • Rate: <strong>ETB {suggestedPayment.dailyRate.toFixed(2)}/day</strong></div>
+                 <Button size="sm" onClick={() => setFormData(prev => ({ ...prev, amount: suggestedPayment.recommendedAmount.toFixed(2) }))} type="button">
+                   Use Suggested: ETB {suggestedPayment.recommendedAmount.toFixed(2)}
+                 </Button>
               </div>
-              <div className="modal-footer mt-3"><button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancel</button><button type="submit" className="btn btn-primary">{editingPayment ? 'Update Payment' : 'Pay Now'}</button></div>
-            </form>
+            </Alert>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+            <Select
+              label="Staff Member *"
+              value={formData.staff_profile_id}
+              onChange={(e) => handleStaffSelect(e.target.value)}
+              required
+              options={[
+                { label: 'Select staff member', value: '' },
+                ...staffMembers.map(s => ({ label: s.full_name, value: s.id }))
+              ]}
+            />
+            <Input
+              label="Amount (ETB) *"
+              type="number"
+              step="0.01"
+              value={formData.amount}
+              onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+              required
+              min="0"
+            />
+          </div>
+
+          <Input
+            label="Payment Date *"
+            type="date"
+            value={formData.payment_date}
+            onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })}
+            required
+          />
+
+          <Textarea
+            label="Notes"
+            placeholder="Add any details about this payment..."
+            value={formData.notes}
+            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+          />
+
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+            <Button variant="secondary" onClick={() => setShowForm(false)} type="button">Cancel</Button>
+            <Button type="submit">
+              {editingPayment ? 'Update Payment' : 'Process Payment'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={notePreview !== null}
+        onClose={() => setNotePreview(null)}
+        title="Payment Notes"
+        size="sm"
+      >
+        <div style={{ padding: '0.5rem' }}>
+          <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'var(--text-primary)' }}>
+            {notePreview || 'No notes provided.'}
+          </p>
+          <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
+             <Button variant="secondary" onClick={() => setNotePreview(null)}>Close</Button>
           </div>
         </div>
-      )}
-
-
-      {notePreview !== null && (
-        <div className="modal-overlay" onClick={() => setNotePreview(null)}>
-          <div className="modal-content" style={{ maxWidth: "760px", width: "92vw" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><h3>Payment Note</h3><button className="close-btn" onClick={() => setNotePreview(null)}><X size={18} /></button></div>
-            <div className="modal-body"><p style={{ whiteSpace: 'pre-wrap' }}>{notePreview || 'No notes provided.'}</p></div>
-            <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setNotePreview(null)}>Close</button></div>
-          </div>
-        </div>
-      )}
-
-      {deleteTarget && (
-        <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
-          <div className="modal-content modal-sm" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><h3>Delete Payment</h3><button className="close-btn" onClick={() => setDeleteTarget(null)}><X size={18} /></button></div>
-            <div className="modal-body"><p>Delete payment {deleteTarget.payment_code || `PAY-${String(deleteTarget.id).padStart(6, '0')}`}?</p></div>
-            <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button><button className="btn btn-danger" onClick={handleDelete}>Delete</button></div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
+  );
+}
+
+function StatCard({ label, value, icon, variant = 'primary' }) {
+  const colors = {
+    primary: { bg: 'rgba(244, 162, 97, 0.1)', color: 'var(--button-end)' },
+    success: { bg: 'var(--success-bg)', color: 'var(--success-text)' },
+    info: { bg: 'rgba(37, 99, 235, 0.1)', color: '#2563eb' },
+    warning: { bg: 'rgba(255, 152, 0, 0.1)', color: '#f57c00' },
+  };
+  const current = colors[variant] || colors.primary;
+
+  return (
+    <Card>
+      <CardBody style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: current.bg, color: current.color, display: 'grid', placeItems: 'center' }}>
+          {icon}
+        </div>
+        <div>
+          <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+          <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>{value}</div>
+        </div>
+      </CardBody>
+    </Card>
   );
 }
