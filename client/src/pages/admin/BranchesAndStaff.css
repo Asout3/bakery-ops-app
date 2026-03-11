@@ -1,0 +1,25 @@
+/* BranchesAndStaff.css */
+.branches-staff-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Credential form section */
+.credentials-card .card-header {
+  background: var(--text-primary);
+  color: var(--card-bg);
+  border-bottom-color: transparent;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+}
+.credentials-card .card-header h4 {
+  color: var(--card-bg);
+  font-size: 0.95rem;
+}
+
+/* Inline action cells */
+.accounts-table-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}

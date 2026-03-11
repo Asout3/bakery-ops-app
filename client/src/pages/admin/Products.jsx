@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import './Products.css';
 import api, { getErrorMessage } from '../../api/axios';
 import { Plus, Edit, Trash2, Search, Pencil } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';

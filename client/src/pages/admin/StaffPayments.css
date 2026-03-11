@@ -1,0 +1,6 @@
+/* StaffPayments.css */
+.staff-payments-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}

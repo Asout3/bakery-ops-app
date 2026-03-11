@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import './History.css';
 import { useBranch } from '../../context/BranchContext';
 import { Search, Clock, Receipt, AlertTriangle, X } from 'lucide-react';
 import { formatAddisDateTime } from '../../utils/time';
