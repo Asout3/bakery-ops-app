@@ -69,7 +69,7 @@ export default function Dashboard() {
             setOrders([]);
         }
       } catch (err) {
-        setError(err?.response?.data?.error || err?.message || 'Failed to load dashboard data.');
+        setError(err?.response?.data?.error || err?.message || t('noData'));
       } finally {
         setLoading(false);
       }
@@ -180,7 +180,7 @@ export default function Dashboard() {
   if (user?.role === 'admin' && !selectedLocationId) {
     return (
       <div className="dashboard-page">
-        <div className="card"><div className="card-body">Select a branch from the top bar to load live dashboard data.</div></div>
+        <div className="card"><div className="card-body">{t('branchRequired')}</div></div>
       </div>
     );
   }
@@ -201,11 +201,11 @@ export default function Dashboard() {
       </div>
 
       <div className="card"><div className="card-body controls-wrap">
-        <div className="d-flex align-items-center gap-2"><Calendar size={16} /><strong>Period:</strong></div>
+        <div className="d-flex align-items-center gap-2"><Calendar size={16} /><strong>{t('period')}:</strong></div>
         <div className="btn-group">
-          <button className={`btn btn-sm ${period === 'daily' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('daily')}>Daily</button>
-          <button className={`btn btn-sm ${period === 'weekly' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('weekly')}>Weekly</button>
-          <button className={`btn btn-sm ${period === 'monthly' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('monthly')}>Monthly</button>
+          <button className={`btn btn-sm ${period === 'daily' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('daily')}>{t('daily')}</button>
+          <button className={`btn btn-sm ${period === 'weekly' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('weekly')}>{t('weekly')}</button>
+          <button className={`btn btn-sm ${period === 'monthly' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('monthly')}>{t('monthly')}</button>
         </div>
         {period === 'daily' && <input type="date" className="form-control form-control-sm date-input" value={dailyDate} onChange={(e) => setDailyDate(e.target.value)} />}
         {period === 'weekly' && <input type="date" className="form-control form-control-sm date-input" value={weekEndDate} onChange={(e) => setWeekEndDate(e.target.value)} />}
@@ -215,16 +215,16 @@ export default function Dashboard() {
       <div className="period-chip">{periodLabel}</div>
 
       <div className="stats-grid">
-        <StatCard icon={<DollarSign size={18} />} label={`${period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly'} Revenue`} value={formatMoney(totals.revenue)} sub={`${totals.transactions} sales + picked-up orders`} />
-        <StatCard icon={<Receipt size={18} />} label={`${period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly'} Expenses`} value={formatMoney(totals.expenses)} sub={`${expenseRows.length} expense entries`} />
-        <StatCard icon={<Users size={18} />} label="Staff Payments" value={formatMoney(totals.staffPayments)} sub={`${staffPaymentRows.length} payments`} />
-        <StatCard icon={<Wallet size={18} />} label="Net Profit" value={formatMoney(totals.netProfit)} sub="Revenue - all costs" tone={totals.netProfit >= 0 ? 'success' : 'danger'} />
-        <StatCard icon={<Receipt size={18} />} label="Order Performance" value={formatMoney(totals.orderRevenue)} sub={`${totals.orderCount} picked-up orders`} tone="info" />
+        <StatCard icon={<DollarSign size={18} />} label={`${t(period)} ${t('revenue')}`} value={formatMoney(totals.revenue)} sub={`${totals.transactions} sales + picked-up orders`} />
+        <StatCard icon={<Receipt size={18} />} label={`${t(period)} ${t('expenses')}`} value={formatMoney(totals.expenses)} sub={`${expenseRows.length} expense entries`} />
+        <StatCard icon={<Users size={18} />} label={t('staffPayments')} value={formatMoney(totals.staffPayments)} sub={`${staffPaymentRows.length} payments`} />
+        <StatCard icon={<Wallet size={18} />} label={t('netProfit')} value={formatMoney(totals.netProfit)} sub="Revenue - all costs" tone={totals.netProfit >= 0 ? 'success' : 'danger'} />
+        <StatCard icon={<Receipt size={18} />} label={t('orderPerformance')} value={formatMoney(totals.orderRevenue)} sub={`${totals.orderCount} picked-up orders`} tone="info" />
       </div>
 
       <div className="details-grid">
         <div className="card">
-          <div className="card-header"><h3>Top Products</h3></div>
+          <div className="card-header"><h3>{t('topProducts')}</h3></div>
           <div className="card-body">
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={topProducts.slice(0, 8)}>
@@ -241,7 +241,7 @@ export default function Dashboard() {
         </div>
 
         <div className="card">
-          <div className="card-header"><h3>Payment Methods ({period === 'daily' ? 'Today' : 'Selected period'})</h3></div>
+          <div className="card-header"><h3>{t('paymentMethods')} ({period === 'daily' ? t('today') : t('selectedPeriod')})</h3></div>
           <div className="card-body payment-methods">
             {paymentMethods.map((row, idx) => (
               <div className="payment-method-item" key={`${row.payment_method}-${idx}`}>
@@ -252,28 +252,28 @@ export default function Dashboard() {
                 <div className="payment-amount">{formatMoney(row.total)}</div>
               </div>
             ))}
-            {!paymentMethods.length && <div className="stat-subtext">No payment records in this period.</div>}
+            {!paymentMethods.length && <div className="stat-subtext">{t('noPaymentRecords')}</div>}
           </div>
         </div>
       </div>
 
-      <DataTable title="Products Sold" headers={['Product', 'Units', 'Revenue']} rows={topProducts.map((r) => [r.name, Number(r.total_sold || 0), formatMoney(r.revenue)])} empty="No products sold in this period." />
+      <DataTable title={t('productsSold')} headers={[t('product'), t('units'), t('revenue')]} rows={topProducts.map((r) => [r.name, Number(r.total_sold || 0), formatMoney(r.revenue)])} empty={t('noData')} />
 
       <DataTable
-        title="Cashier & Ground Manager Performance"
-        headers={['Team Member', 'Role', 'Sales', 'Txns', 'Items', 'Cash', 'Mobile']}
+        title={t('teamPerformance')}
+        headers={[t('teamMember'), t('role'), t('sales'), t('txns'), t('items'), t('cash'), t('mobile')]}
         rows={cashierRows.map((r) => [r.cashier_name, r.cashier_role, formatMoney(r.total_sales), Number(r.transactions || 0), Number(r.items_sold || 0), formatMoney(r.cash_sales), formatMoney(r.mobile_sales)])}
-        empty="No cashier performance data in this period."
+        empty={t('noData')}
       />
       <DataTable
-        title="Expense Records"
-        headers={['Date', 'Category', 'Amount', 'Created By']}
+        title={t('expenseRecords')}
+        headers={[t('dateTime'), 'Category', t('amount'), 'Created By']}
         rows={expenseRows.map((r) => [formatShortDate(r.expense_date), r.category, formatMoney(r.amount), r.created_by_name || '-'])}
-        empty="No expense records in this period."
+        empty={t('noData')}
       />
       <DataTable
-        title="Cost Components"
-        headers={['Component', 'Amount', 'Transparency Note']}
+        title={t('costComponents')}
+        headers={[t('component'), t('amount'), t('transparencyNote')]}
         rows={[
           ['Total Revenue', formatMoney(totals.revenue), 'From completed sales in this period'],
           ['Batch Production Cost', formatMoney(totals.batchCosts), `${Number(report?.details?.batches?.batch_count || 0)} non-voided batches × product unit cost`],
@@ -285,21 +285,21 @@ export default function Dashboard() {
       />
 
       <DataTable
-        title="Order Performance"
-        headers={['Order ID', 'Customer', 'Amount', 'Picked Up At']}
+        title={t('orderPerformance')}
+        headers={['Order ID', t('customer'), t('amount'), t('pickedUpAt')]}
         rows={orderPerformance.rows.map((o) => [o.order_code || `ORD-${String(o.id).padStart(6, '0')}`, o.customer_name, formatMoney(o.total_amount), formatShortDate(o.delivered_at || o.updated_at || o.created_at)])}
-        empty="No picked-up orders in this period."
+        empty={t('noData')}
       />
 
       <div className="card">
-        <div className="card-header"><h3>{period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly'} Summary</h3></div>
+        <div className="card-header"><h3>{`${t(period)} ${t('summary')}`}</h3></div>
         <div className="card-body summary-list">
-          <SummaryItem label="Total Revenue" value={formatMoney(totals.revenue)} />
-          <SummaryItem label="Total Expenses" value={formatMoney(totals.expenses)} />
-          <SummaryItem label="Total Staff Payments" value={formatMoney(totals.staffPayments)} />
-          <SummaryItem label="Total Costs" value={formatMoney(totals.totalCosts)} />
+          <SummaryItem label={t('totalRevenue')} value={formatMoney(totals.revenue)} />
+          <SummaryItem label={t('totalExpenses')} value={formatMoney(totals.expenses)} />
+          <SummaryItem label={t('totalStaffPayments')} value={formatMoney(totals.staffPayments)} />
+          <SummaryItem label={t('totalCosts')} value={formatMoney(totals.totalCosts)} />
           <SummaryItem label="Pre-Order Revenue (Picked Up)" value={formatMoney(totals.orderRevenue)} />
-          <SummaryItem label="Net Profit" value={formatMoney(totals.netProfit)} bold />
+          <SummaryItem label={t('netProfit')} value={formatMoney(totals.netProfit)} bold />
         </div>
       </div>
     </div>
@@ -328,7 +328,7 @@ function DataTable({ title, headers, rows, empty }) {
           <thead><tr>{headers.map((h) => <th key={h}>{h}</th>)}</tr></thead>
           <tbody>
             {rows?.length ? rows.map((row, i) => <tr key={`${title}-${i}`}>{row.map((cell, ci) => <td key={`${title}-${i}-${ci}`}>{cell}</td>)}</tr>) : (
-              <tr><td colSpan={headers.length} className="text-center text-muted">{empty || 'No records in this period.'}</td></tr>
+              <tr><td colSpan={headers.length} className="text-center text-muted">{empty || '—'}</td></tr>
             )}
           </tbody>
         </table>

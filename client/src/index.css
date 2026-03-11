@@ -160,3 +160,21 @@ textarea, textarea.form-control, .form-note-input { min-height: 7rem; resize: ve
   .row { grid-template-columns: 1fr; }
   .table th,.table td { padding: .7rem .55rem; font-size: .82rem; }
 }
+
+.skeleton {
+  background: linear-gradient(90deg, #f4e5d5 25%, #f8efe7 37%, #f4e5d5 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.3s ease infinite;
+  border-radius: var(--radius-sm);
+}
+@keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--focus-border);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .btn { width: 100%; }
+  .table th, .table td { white-space: nowrap; }
+}

@@ -239,6 +239,99 @@ const translations = {
   },
 };
 
+const sharedTranslations = {
+  en: {
+    location: 'Location',
+    allLocations: 'All locations',
+    interfaceSettings: 'Interface settings',
+    period: 'Period',
+    daily: 'Daily',
+    weekly: 'Weekly',
+    monthly: 'Monthly',
+    today: 'Today',
+    selectedPeriod: 'Selected period',
+    noData: 'No records in this period.',
+    noPaymentRecords: 'No payment records in this period.',
+    topProducts: 'Top Products',
+    paymentMethods: 'Payment Methods',
+    productsSold: 'Products Sold',
+    units: 'Units',
+    revenue: 'Revenue',
+    teamPerformance: 'Cashier & Ground Manager Performance',
+    teamMember: 'Team Member',
+    role: 'Role',
+    txns: 'Txns',
+    cash: 'Cash',
+    mobile: 'Mobile',
+    expenseRecords: 'Expense Records',
+    costComponents: 'Cost Components',
+    component: 'Component',
+    transparencyNote: 'Transparency Note',
+    orderPerformance: 'Order Performance',
+    customer: 'Customer',
+    pickedUpAt: 'Picked Up At',
+    summary: 'Summary',
+    totalRevenue: 'Total Revenue',
+    totalExpenses: 'Total Expenses',
+    totalStaffPayments: 'Total Staff Payments',
+    totalCosts: 'Total Costs',
+    netProfit: 'Net Profit',
+    noEnglishFallback: 'No translation found',
+    requiredField: 'This field is required.',
+    invalidCredentials: 'Please provide username and password.',
+    invalidEmail: 'Please enter a valid email address.',
+    save: 'Save',
+    newCategory: 'New category',
+    loading: 'Loading...',
+    branchRequired: 'Select a branch from the top bar to load live dashboard data.'
+  },
+  am: {
+    location: 'ቦታ',
+    allLocations: 'ሁሉም ቦታዎች',
+    interfaceSettings: 'የበይነገጽ ቅንብሮች',
+    period: 'ጊዜ ክልል',
+    daily: 'ዕለታዊ',
+    weekly: 'ሳምንታዊ',
+    monthly: 'ወርሃዊ',
+    today: 'ዛሬ',
+    selectedPeriod: 'የተመረጠ ጊዜ',
+    noData: 'በዚህ ጊዜ መዝገቦች የሉም።',
+    noPaymentRecords: 'በዚህ ጊዜ የክፍያ መዝገብ የለም።',
+    topProducts: 'ከፍተኛ ምርቶች',
+    paymentMethods: 'የክፍያ ዘዴዎች',
+    productsSold: 'የተሸጡ ምርቶች',
+    units: 'አሃዶች',
+    revenue: 'ገቢ',
+    teamPerformance: 'የካሸር እና የመሬት ስራ አስኪያጅ አፈጻጸም',
+    teamMember: 'የቡድን አባል',
+    role: 'ሚና',
+    txns: 'ግብይቶች',
+    cash: 'ጥሬ ገንዘብ',
+    mobile: 'ሞባይል',
+    expenseRecords: 'የወጪ መዝገቦች',
+    costComponents: 'የወጪ ክፍሎች',
+    component: 'ክፍል',
+    transparencyNote: 'ማብራሪያ',
+    orderPerformance: 'የትዕዛዝ አፈጻጸም',
+    customer: 'ደንበኛ',
+    pickedUpAt: 'የተወሰደበት ጊዜ',
+    summary: 'ማጠቃለያ',
+    totalRevenue: 'ጠቅላላ ገቢ',
+    totalExpenses: 'ጠቅላላ ወጪ',
+    totalStaffPayments: 'ጠቅላላ የሰራተኛ ክፍያ',
+    totalCosts: 'ጠቅላላ ወጪዎች',
+    netProfit: 'የተጣራ ትርፍ',
+    noEnglishFallback: 'ትርጉም አልተገኘም',
+    requiredField: 'ይህ መስክ ያስፈልጋል።',
+    invalidCredentials: 'እባክዎ የተጠቃሚ ስም እና የይለፍ ቃል ያስገቡ።',
+    invalidEmail: 'እባክዎ ትክክለኛ ኢሜይል ያስገቡ።',
+    save: 'አስቀምጥ',
+    newCategory: 'አዲስ ምድብ',
+    loading: 'በመጫን ላይ...',
+    branchRequired: 'ቀጥታ ዳሽቦርድ መረጃ ለማየት ከላይ ካለው መምረጫ ቦታ ይምረጡ።'
+  },
+};
+
 export function LanguageProvider({ children }) {
   const [language, setLanguage] = useState(localStorage.getItem('lang') || 'en');
 
@@ -247,7 +340,7 @@ export function LanguageProvider({ children }) {
     localStorage.setItem('lang', lang);
   };
 
-  const t = (key) => translations[language]?.[key] || translations.en[key] || key;
+  const t = (key) => translations[language]?.[key] || sharedTranslations[language]?.[key] || translations.en[key] || sharedTranslations.en[key] || key;
 
   const value = useMemo(() => ({ language, setLang, t }), [language]);
   return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
