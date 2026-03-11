@@ -15,6 +15,9 @@ import {
   Moon,
   Sun,
   ClipboardList,
+  MapPin,
+  Languages,
+  Palette,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
@@ -70,11 +73,10 @@ export default function Layout() {
         if (singleLocation && Number(selectedLocationId || 0) !== Number(singleLocation)) {
           setLocation(singleLocation);
         }
-      } catch (err) {
-        console.error('Failed to fetch locations:', err);
+      } catch {
+        setLocations([]);
       }
     };
-
     fetchLocations();
   }, [user?.role, user?.location_id, selectedLocationId, setLocation]);
 
@@ -84,7 +86,6 @@ export default function Layout() {
 
   const navItems = useMemo(() => {
     const role = user?.role;
-
     if (role === 'admin') {
       return [
         { to: '/admin/dashboard', icon: LayoutDashboard, label: t('dashboard') },
@@ -140,11 +141,9 @@ export default function Layout() {
               onClick={() => setSidebarOpen(false)}
             >
               <item.icon size={20} />
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+              <span className="nav-item-label">
                 {item.label}
-                {item.showBadge && unreadCount > 0 && (
-                  <span className="badge badge-danger" style={{ fontSize: '0.68rem' }}>{unreadCount}</span>
-                )}
+                {item.showBadge && unreadCount > 0 && <span className="badge badge-danger">{unreadCount}</span>}
               </span>
             </NavLink>
           ))}
@@ -169,15 +168,27 @@ export default function Layout() {
           <button className="menu-toggle" onClick={() => setSidebarOpen(true)}>
             <Menu size={24} />
           </button>
-          <div className="top-bar-content" style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+          <div className="top-bar-content">
             <h1 className="page-title">{t('appTitle')}</h1>
+            <div className="control-group">
+              <label><MapPin size={14} /> {t('location')}</label>
+              <select className="form-select" value={selectedLocationId || ''} onChange={(e) => setLocation(e.target.value)}>
+                {user?.role === 'admin' && <option value="">{t('allLocations')}</option>}
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="control-group">
+              <label><Languages size={14} /> {t('language')}</label>
+              <select className="form-select" value={language} onChange={(e) => setLang(e.target.value)}>
+                <option value="en">English</option>
+                <option value="am">አማርኛ</option>
+              </select>
+            </div>
             <button className="btn btn-sm btn-secondary" onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}>
-              {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />} {t(theme === 'light' ? 'dark' : 'light')}
+              <Palette size={14} /> {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />} {t(theme === 'light' ? 'dark' : 'light')}
             </button>
-            <select className="form-select" style={{ maxWidth: '140px' }} value={language} onChange={(e) => setLang(e.target.value)}>
-              <option value="en">English</option>
-              <option value="am">አማርኛ</option>
-            </select>
           </div>
         </header>
 
@@ -197,15 +208,11 @@ export default function Layout() {
               <button className="close-btn" onClick={() => setShowLogoutWarning(false)}>×</button>
             </div>
             <div className="modal-body">
-              <p>
-                {t('pendingOfflineDetails')} <strong>{pendingLogoutCount}</strong>
-              </p>
+              <p>{t('pendingOfflineDetails')} <strong>{pendingLogoutCount}</strong></p>
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowLogoutWarning(false)}>{t('cancel')}</button>
-              <button className="btn btn-danger" onClick={() => { setShowLogoutWarning(false); doLogout(); }}>
-                {t('logoutAnyway')}
-              </button>
+              <button className="btn btn-danger" onClick={() => { setShowLogoutWarning(false); doLogout(); }}>{t('logoutAnyway')}</button>
             </div>
           </div>
         </div>

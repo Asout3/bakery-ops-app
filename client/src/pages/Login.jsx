@@ -23,12 +23,22 @@ export default function Login() {
   const [recoveryMessage, setRecoveryMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [touched, setTouched] = useState({ username: false, password: false });
   const { login } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
 
+  const usernameError = touched.username && !username.trim() ? t('requiredField') : '';
+  const passwordError = touched.password && !password.trim() ? t('requiredField') : '';
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setTouched({ username: true, password: true });
+    if (!username.trim() || !password.trim()) {
+      setError(t('invalidCredentials'));
+      return;
+    }
+
     setError('');
     setLoading(true);
 
@@ -88,21 +98,23 @@ export default function Login() {
           <p>{t('welcomeBack')}</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="login-form">
+        <form onSubmit={handleSubmit} className="login-form" noValidate>
           {error && <div className="alert alert-danger">{error}</div>}
           <div className="form-group">
             <label className="label" htmlFor="username">{t('username')}</label>
-            <input id="username" type="text" className="input" value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus />
+            <input id="username" type="text" className={`input ${usernameError ? 'is-invalid' : ''}`} value={username} onBlur={() => setTouched((prev) => ({ ...prev, username: true }))} onChange={(e) => setUsername(e.target.value)} required autoFocus />
+            {usernameError && <small className="field-error">{usernameError}</small>}
           </div>
 
           <div className="form-group">
             <label className="label" htmlFor="password">{t('password')}</label>
             <div className="password-field">
-              <input id="password" type={showPassword ? 'text' : 'password'} className="input" value={password} onChange={(e) => setPassword(e.target.value)} required />
-              <button type="button" className="password-toggle" onClick={() => setShowPassword((prev) => !prev)} aria-label="Toggle password visibility">
+              <input id="password" type={showPassword ? 'text' : 'password'} className={`input ${passwordError ? 'is-invalid' : ''}`} value={password} onBlur={() => setTouched((prev) => ({ ...prev, password: true }))} onChange={(e) => setPassword(e.target.value)} required />
+              <button type="button" className="password-toggle" onClick={() => setShowPassword((prev) => !prev)}>
                 {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
               </button>
             </div>
+            {passwordError && <small className="field-error">{passwordError}</small>}
           </div>
 
           <button type="submit" className="btn btn-primary btn-lg" disabled={loading}>{loading ? t('signingIn') : t('signIn')}</button>

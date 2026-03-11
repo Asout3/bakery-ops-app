@@ -30,9 +30,9 @@
 
 .period-chip {
   width: fit-content;
-  background: rgba(37, 99, 235, 0.1);
-  border: 1px solid rgba(37, 99, 235, 0.18);
-  color: #1d4ed8;
+  background: #fff1e4;
+  border: 1px solid var(--accent-border);
+  color: var(--text-secondary);
   border-radius: 9999px;
   padding: 0.35rem 0.8rem;
   font-weight: 600;
@@ -70,9 +70,9 @@
   color: #fff;
 }
 
-.tone-primary { background: #2563eb; }
-.tone-success { background: #16a34a; }
-.tone-danger { background: #dc2626; }
+.tone-primary { background: linear-gradient(120deg, var(--button-start), var(--button-end)); }
+.tone-success { background: #4a9b5a; }
+.tone-danger { background: #b7432b; }
 
 .stat-label {
   font-size: 0.78rem;
@@ -118,7 +118,7 @@
 }
 
 .payment-amount {
-  color: #1d4ed8;
+  color: var(--text-secondary);
   font-weight: 700;
 }
 

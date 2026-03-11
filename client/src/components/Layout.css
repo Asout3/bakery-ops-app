@@ -1,28 +1,41 @@
 .layout { display: flex; min-height: 100vh; background: var(--primary-bg); }
 .sidebar {
-  width: 272px; position: fixed; inset: 0 auto 0 0; z-index: 120;
-  background: var(--card-bg); border-right: 1px solid var(--accent-border);
-  display: flex; flex-direction: column; transition: transform .22s ease;
+  width: 280px;
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 120;
+  background: var(--card-bg);
+  border-right: 1px solid var(--accent-border);
+  display: flex;
+  flex-direction: column;
+  transition: transform .22s ease;
 }
 .sidebar-header { padding: 1.1rem 1rem; border-bottom: 1px solid var(--accent-border); display:flex; justify-content:space-between; align-items:center; }
-.sidebar-header h2 { color: var(--text-primary); font-size: 1.18rem; }
-.sidebar-nav { flex: 1; overflow: auto; padding: .9rem; }
-.nav-item { display:flex; align-items:center; gap:.65rem; padding:.7rem .85rem; border-radius: 10px; text-decoration:none; color:var(--text-secondary); font-weight:600; margin-bottom:.3rem; }
-.nav-item:hover { background: #fbefe2; text-decoration:none; }
-.nav-item-active { background: #f9e4cf; color: var(--text-primary); }
+.sidebar-nav { flex: 1; overflow: auto; padding: .85rem; }
+.nav-item { display:flex; align-items:center; gap:.65rem; padding:.72rem .85rem; border-radius: 10px; text-decoration:none; color:var(--text-secondary); font-weight:600; margin-bottom:.25rem; }
+.nav-item:hover { background: #fbefe2; }
+.nav-item-active { background: #f9e4cf; color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--accent-border); }
+.nav-item-label{display:inline-flex;align-items:center;gap:.45rem;}
 .sidebar-footer { padding: .85rem; border-top: 1px solid var(--accent-border); display:grid; gap:.7rem; }
 .user-info { display:flex; gap:.6rem; align-items:center; }
-.user-avatar { width:2.4rem; height:2.4rem; border-radius:50%; background: linear-gradient(120deg, var(--button-start), var(--button-end)); color:#fff; display:grid; place-items:center; }
+.user-avatar { width:2.4rem; height:2.4rem; border-radius:50%; background: linear-gradient(120deg, var(--button-start), var(--button-end)); color:#fff; display:grid; place-items:center; font-weight:700; }
 .user-name { color: var(--text-primary); font-weight: 600; }
 .user-role { font-size: .78rem; color: var(--text-muted); text-transform: capitalize; }
 
-.main-content { flex: 1; margin-left: 272px; display: flex; flex-direction: column; min-height: 100vh; }
-.top-bar { position: sticky; top:0; z-index:90; background: color-mix(in srgb, var(--card-bg) 90%, white); backdrop-filter: blur(6px); border-bottom: 1px solid var(--accent-border); padding: .8rem 1.1rem; display:flex; align-items:center; gap:.8rem; }
-.top-bar-content { width: 100%; justify-content: space-between; }
-.page-title { font-size: 1.05rem; }
-.menu-toggle,.sidebar-close { display:none; background: transparent; color: var(--text-secondary); }
-.content { padding: 1rem; width: 100%; max-width: 1400px; margin: 0 auto; }
+.main-content { flex: 1; margin-left: 280px; display: flex; flex-direction: column; min-height: 100vh; }
+.top-bar { position: sticky; top:0; z-index:90; background: color-mix(in srgb, var(--card-bg) 90%, white); backdrop-filter: blur(6px); border-bottom: 1px solid var(--accent-border); padding: .8rem 1rem; display:flex; align-items:center; gap:.8rem; }
+.top-bar-content { width: 100%; display:grid; grid-template-columns: auto repeat(3, minmax(180px, auto)); gap:.7rem; align-items:end; }
+.page-title { font-size: 1rem; }
+.control-group{display:grid;gap:.3rem;}
+.control-group label{font-size:.74rem;font-weight:700;color:var(--text-muted);display:inline-flex;gap:.25rem;align-items:center;}
+.menu-toggle,.sidebar-close { display:none; background: transparent; color: var(--text-secondary); border:0; }
+.content { padding: 1rem; width: 100%; max-width: 1440px; margin: 0 auto; }
 .sidebar-overlay { display:none; }
+
+@media (max-width: 1100px){
+  .top-bar-content{grid-template-columns:1fr 1fr;}
+  .page-title{grid-column:1/-1;}
+}
 
 @media (max-width: 1024px) {
   .sidebar { transform: translateX(-100%); }
@@ -30,4 +43,7 @@
   .main-content { margin-left: 0; }
   .menu-toggle,.sidebar-close { display: inline-flex; }
   .sidebar-overlay { display:block; position: fixed; inset: 0; z-index: 110; background: rgba(0,0,0,.35); }
+}
+@media (max-width: 768px){
+  .top-bar-content{grid-template-columns:1fr;align-items:stretch;}
 }
