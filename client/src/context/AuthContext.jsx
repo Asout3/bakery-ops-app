@@ -19,7 +19,7 @@ export const AuthProvider = ({ children }) => {
       setUser(session.user);
 
       try {
-        const response = await api.get('/auth/me', { headers: { 'X-Skip-Auth-Redirect': 'true' } });
+        const response = await api.get('/auth/me', { headers: { 'X-Skip-Auth-Redirect': 'true' }, timeout: 8000 });
         persistSession({ user: response.data });
         setUser(response.data);
       } catch (err) {
@@ -38,7 +38,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (username, password) => {
-    const response = await api.post('/auth/login', { username, password });
+    const response = await api.post('/auth/login', { username, password }, { timeout: 30000 });
     const { user: nextUser, token, refresh_token: refreshToken, refresh_token_expires_at: refreshTokenExpiresAt } = response.data;
     persistSession({ user: nextUser, token, refreshToken, refreshTokenExpiresAt });
     setUser(nextUser);

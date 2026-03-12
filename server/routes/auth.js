@@ -223,16 +223,17 @@ router.post('/login',
       };
     });
 
-    await query(
-      `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [user.id, user.location_id, 'user_login', `User logged in: ${username}`, JSON.stringify({ login_method: 'password' })]
-    );
-
-    await query(
-      `UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-      [user.id]
-    );
+    await Promise.allSettled([
+      query(
+        `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [user.id, user.location_id, 'user_login', `User logged in: ${username}`, JSON.stringify({ login_method: 'password' })]
+      ),
+      query(
+        `UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [user.id]
+      ),
+    ]);
 
     res.json({ user: toUserResponse(user), ...tokens });
   })

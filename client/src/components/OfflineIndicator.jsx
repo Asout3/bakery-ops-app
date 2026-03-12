@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { WifiOff, RefreshCw, AlertTriangle, CheckCircle, Minimize2, Maximize2 } from 'lucide-react';
-import { useOfflineSync } from '../hooks/useOfflineSync';
 import { retryOperation, cancelOperation, listQueuedOperations } from '../utils/offlineQueue';
 import { useAuth } from '../context/AuthContext';
 import './OfflineIndicator.css';
 
-export default function OfflineIndicator() {
+export default function OfflineIndicator({ sync }) {
   const { user, isAuthenticated } = useAuth();
-  const { isOnline, queueStats, syncInProgress, runSync, appInitialized, syncProgress, syncOutcome, lastSyncResult } = useOfflineSync();
+  const { isOnline, queueStats, syncInProgress, runSync, appInitialized, syncProgress, syncOutcome, lastSyncResult } = sync;
   const [expanded, setExpanded] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [conflictOps, setConflictOps] = useState([]);

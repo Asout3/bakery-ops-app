@@ -18,7 +18,7 @@ import './Layout.css';
 export default function Layout() {
   const { user, logout } = useAuth();
   const { unreadCount, refresh: refreshNotifications } = useNotifications();
-  useOfflineSync();
+  const offlineSync = useOfflineSync();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [locations, setLocations] = useState([]);
@@ -236,7 +236,7 @@ export default function Layout() {
         />
       )}
 
-      <OfflineIndicator />
+      <OfflineIndicator sync={offlineSync} />
 
       {/* ── Pending-logout warning modal ──────── */}
       {showLogoutWarning && (

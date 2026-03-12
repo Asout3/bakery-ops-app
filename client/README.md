@@ -29,3 +29,6 @@ If you are developing a production application, we recommend using TypeScript wi
 - Manager order actions now prevent restarting already-ready pre-orders, and finalized orders are protected from further edits.
 
 - Staff Payments UI now includes quick search + frequency filtering, a simplified pay form (removed frequency/payroll-month inputs), and improved suggested-payment readability/interactions.
+- Offline sync UX now uses global toast notifications for queued actions, sync start, successful sync completion, retry states, and attention-needed outcomes.
+- Cashier sales checkout footer was reworked into a clear vertical stack (Payment Method, Total, Complete Sale button) and larger product/size selectors for faster touch interaction.
+- Admin sales page scroll behavior was hardened so long sales and batch-performance tables remain fully scrollable.
