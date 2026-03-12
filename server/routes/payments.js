@@ -7,6 +7,19 @@ import { getTargetLocationId } from '../utils/location.js';
 const router = express.Router();
 const STAFF_PAYMENT_EDIT_WINDOW_MINUTES = 20;
 
+
+async function resolveEffectiveActor(tx, req, locationId) {
+  const queuedActorIdHeader = req.headers['x-offline-actor-id'];
+  const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
+  if (!isFromOfflineQueue || !queuedActorIdHeader) return req.user.id;
+
+  const actorResult = await tx.query(
+    'SELECT id FROM users WHERE id = $1 AND location_id = $2',
+    [Number(queuedActorIdHeader), locationId]
+  );
+  return actorResult.rows.length ? Number(actorResult.rows[0].id) : req.user.id;
+}
+
 router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
     const startDate = req.query.start_date;

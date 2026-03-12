@@ -10,6 +10,19 @@ const STATUS_FLOW = ['pending', 'in_production', 'ready', 'picked_up', 'delivere
 const PREP_STATUS_FLOW = ['not_started', 'preparing', 'ready'];
 const ORDER_EDIT_WINDOW_MINUTES = 20;
 
+async function resolveEffectiveActor(tx, req, locationId) {
+  const queuedActorIdHeader = req.headers['x-offline-actor-id'];
+  const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
+  if (!isFromOfflineQueue || !queuedActorIdHeader) return { actorId: req.user.id, actorName: req.user.username };
+
+  const actorResult = await tx.query(
+    'SELECT id, username FROM users WHERE id = $1 AND location_id = $2',
+    [Number(queuedActorIdHeader), locationId]
+  );
+  if (!actorResult.rows.length) return { actorId: req.user.id, actorName: req.user.username };
+  return { actorId: Number(actorResult.rows[0].id), actorName: actorResult.rows[0].username };
+}
+
 function normalizeNumber(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
