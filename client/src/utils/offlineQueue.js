@@ -1,3 +1,4 @@
+import { getSessionSnapshot } from './authSession.js';
 const DB_NAME = 'bakery_ops_offline_v2';
 const DB_VERSION = 2;
 const OPS_STORE = 'operations';
@@ -109,9 +110,7 @@ function resolveSyncErrorMessage(error) {
 }
 export async function enqueueOperation(operation) {
   const id = operation.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const sessionUser = typeof localStorage !== 'undefined'
-    ? JSON.parse(localStorage.getItem('user') || 'null')
-    : null;
+  const sessionUser = getSessionSnapshot()?.user || null;
   const selectedLocationId = typeof localStorage !== 'undefined' ? localStorage.getItem('selectedLocationId') : null;
 
   const op = {

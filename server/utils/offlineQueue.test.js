@@ -113,6 +113,25 @@ function buildIndexedDbMock() {
   };
 }
 
+
+function createStorageMock() {
+  const store = new Map();
+  return {
+    getItem(key) {
+      return store.has(key) ? store.get(key) : null;
+    },
+    setItem(key, value) {
+      store.set(key, String(value));
+    },
+    removeItem(key) {
+      store.delete(key);
+    },
+    clear() {
+      store.clear();
+    },
+  };
+}
+
 function createApiStub(outcomes) {
   const requests = [];
   let call = 0;
@@ -139,6 +158,8 @@ function createApiStub(outcomes) {
 
 test.beforeEach(async () => {
   globalThis.indexedDB = buildIndexedDbMock();
+  globalThis.localStorage = createStorageMock();
+  globalThis.sessionStorage = createStorageMock();
   Object.defineProperty(globalThis, 'navigator', {
     value: {
       onLine: true,
@@ -149,6 +170,22 @@ test.beforeEach(async () => {
   await clearHistory();
   const queued = await listQueuedOperations();
   await Promise.all(queued.map((op) => cancelOperation(op.id)));
+});
+
+
+test('enqueueOperation captures actor from active session and sends it during replay', async () => {
+  globalThis.sessionStorage.setItem('user', JSON.stringify({ id: 77, username: 'joe' }));
+
+  await enqueueOperation({ id: 'actor-op', url: '/api/sales', method: 'post', data: { n: 1 } });
+  const queued = await listQueuedOperations();
+
+  assert.equal(queued[0].actorId, 77);
+  assert.equal(queued[0].actorName, 'joe');
+
+  const { api, requests } = createApiStub([{ type: 'success' }]);
+  await flushQueue(api);
+
+  assert.equal(requests[0].headers['X-Offline-Actor-Id'], '77');
 });
 
 test('flushQueue keeps processing queue even when one operation fails transiently', async () => {
