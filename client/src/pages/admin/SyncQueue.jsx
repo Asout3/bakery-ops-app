@@ -13,6 +13,33 @@ const getStatusLabel = (status) => {
   return status;
 };
 
+
+const OPERATION_LABELS = {
+  'POST /sales': 'Create Sale',
+  'POST /orders': 'Create Pre-Order',
+  'POST /expenses': 'Record Expense',
+  'POST /payments': 'Record Staff Payment',
+  'POST /inventory': 'Create Inventory Item',
+  'PUT /inventory': 'Update Inventory Item',
+  'DELETE /inventory': 'Delete Inventory Item',
+  'POST /inventory/batches': 'Create Inventory Batch',
+};
+
+function describeOperation(method, endpoint) {
+  const cleanMethod = String(method || '').toUpperCase();
+  const cleanEndpoint = String(endpoint || '');
+  const normalizedEndpoint = cleanEndpoint
+    .replace(/\/\d+(?=\/|$)/g, '/:id')
+    .replace(/\/\d+-(?=\/|$)/g, '/:id')
+    .replace(/\/\d+[a-zA-Z0-9-]*/g, '/:id');
+  const direct = OPERATION_LABELS[`${cleanMethod} ${cleanEndpoint}`] || OPERATION_LABELS[`${cleanMethod} ${normalizedEndpoint}`];
+  if (direct) return direct;
+  if (cleanMethod === 'POST') return 'Create Record';
+  if (cleanMethod === 'PUT' || cleanMethod === 'PATCH') return 'Update Record';
+  if (cleanMethod === 'DELETE') return 'Delete Record';
+  return 'Queued Operation';
+}
+
 const getStatusBadgeClass = (status) => {
   if (status === 'needs_review') return 'badge-warning';
   if (status === 'conflict') return 'badge-danger';
@@ -99,7 +126,7 @@ export default function SyncQueuePage() {
     <div className="reports-page">
       <div className="page-header">
         <h2>Sync Audit Log</h2>
-        <button className="btn btn-primary" onClick={handleSyncNow}>Force Sync</button>
+        <button className="btn btn-primary" onClick={handleSyncNow} disabled={loading}>{loading ? 'Syncing...' : 'Force Sync'}</button>
       </div>
 
       {syncResult && (
@@ -127,7 +154,7 @@ export default function SyncQueuePage() {
                 <tbody>
                   {queued.map((op) => (
                     <tr key={op.id}>
-                      <td>{op.method?.toUpperCase()} {op.url}</td>
+                      <td>{describeOperation(op.method, op.url)}</td>
                       <td><span className={`badge ${getStatusBadgeClass(op.status)}`}>{getStatusLabel(op.status)}</span></td>
                       <td>{op.retries || 0}</td>
                       <td>{op.lastError || '—'}</td>
@@ -171,7 +198,7 @@ export default function SyncQueuePage() {
                       <td>{new Date(item.created_at).toLocaleString()}</td>
                       <td><span className={`badge ${getStatusBadgeClass(item.status)}`}>{getStatusLabel(item.status)}</span></td>
                       <td>{item.actor_username || item.actor_user_id || '—'}</td>
-                      <td>{(item.method || '').toUpperCase()} {item.endpoint || item.operation_id}</td>
+                      <td>{describeOperation(item.method, item.endpoint || '')}</td>
                       <td>{item.reason || item.resolution_note || '—'}</td>
                     </tr>
                   ))}

@@ -4,6 +4,10 @@ import { enqueueOperation } from '../../utils/offlineQueue';
 import './Orders.css';
 
 const PRODUCT_CACHE_KEY = 'orders.products.cache.v1';
+const getOrdersProductCacheKeys = () => {
+  const selectedLocationId = localStorage.getItem('selectedLocationId') || 'default';
+  return [PRODUCT_CACHE_KEY, `cashier_products_cache_${selectedLocationId}`, 'cashier_products_cache_default'];
+};
 const emptyItem = { product_id: '', custom_item_name: '', quantity: 1, unit_price: '' };
 
 export default function CashierOrders() {
@@ -58,7 +62,10 @@ export default function CashierOrders() {
         setProducts(serverProducts);
         localStorage.setItem(PRODUCT_CACHE_KEY, JSON.stringify(serverProducts));
       } else {
-        const cachedProducts = localStorage.getItem(PRODUCT_CACHE_KEY);
+        const cachedProducts = getOrdersProductCacheKeys()
+          .map((key) => localStorage.getItem(key))
+          .find((value) => !!value);
+
         if (cachedProducts) {
           setProducts(JSON.parse(cachedProducts));
           setMessage({ type: 'warning', text: 'Offline mode: using cached products for item selection.' });

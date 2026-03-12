@@ -97,11 +97,12 @@ router.post(
       }
 
       const result = await withTransaction(async (tx) => {
+        const effectiveActorId = await resolveEffectiveActor(tx, req, locationId);
         if (idempotencyKey) {
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
              WHERE user_id = $1 AND idempotency_key = $2`,
-            [req.user.id, idempotencyKey]
+            [effectiveActorId, idempotencyKey]
           );
           if (existing.rows.length > 0) {
             return existing.rows[0].response_payload;
@@ -112,7 +113,7 @@ router.post(
           `INSERT INTO staff_payments (user_id, staff_profile_id, location_id, amount, payment_date, payment_type, notes, created_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            RETURNING *`,
-          [resolvedUserId, resolvedStaffProfileId, locationId, amount, payment_date, payment_type || 'salary', JSON.stringify({ notes: notes || '', payment_frequency: payment_frequency || 'monthly', payout_mode: payout_mode || 'pay_now', payroll_month: payroll_month || null }), req.user.id]
+          [resolvedUserId, resolvedStaffProfileId, locationId, amount, payment_date, payment_type || 'salary', JSON.stringify({ notes: notes || '', payment_frequency: payment_frequency || 'monthly', payout_mode: payout_mode || 'pay_now', payroll_month: payroll_month || null }), effectiveActorId]
         );
 
         const payment = paymentResult.rows[0];
@@ -121,11 +122,11 @@ router.post(
           `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
            VALUES ($1, $2, $3, $4, $5)`,
           [
-            req.user.id,
+            effectiveActorId,
             locationId,
             'payment_created',
             `Staff payment: ${amount} to ${staffName}`,
-            JSON.stringify({ payment_id: payment.id, staff_name: staffName, amount }),
+            JSON.stringify({ payment_id: payment.id, staff_name: staffName, amount, synced_by_user_id: req.user.id }),
           ]
         );
 
@@ -134,7 +135,7 @@ router.post(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
-            [req.user.id, locationId, idempotencyKey, '/api/payments', JSON.stringify(payment)]
+            [effectiveActorId, locationId, idempotencyKey, '/api/payments', JSON.stringify(payment)]
           );
         }
 

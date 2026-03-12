@@ -4,6 +4,7 @@ import { UserPlus, Users, Eye, EyeOff } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { useToast } from '../../context/ToastContext';
 
 const emptyAccount = {
   staff_profile_id: '',
@@ -26,7 +27,6 @@ export default function BranchesAndStaff() {
   const [authEvents, setAuthEvents] = useState([]);
   const [accountForm, setAccountForm] = useState(emptyAccount);
   const [savingAccount, setSavingAccount] = useState(false);
-  const [feedback, setFeedback] = useState(null);
   const [editAccountModel, setEditAccountModel] = useState(null);
   const [credentialForm, setCredentialForm] = useState({ current_password: '', new_username: '', new_password: '' });
   const [savingCredentials, setSavingCredentials] = useState(false);
@@ -39,6 +39,7 @@ export default function BranchesAndStaff() {
     confirmCredential: false,
   });
   const [credentialConfirmModal, setCredentialConfirmModal] = useState({ open: false, payload: null, message: '' });
+  const toast = useToast();
 
 
   const togglePasswordVisibility = (key) => {
@@ -60,7 +61,7 @@ export default function BranchesAndStaff() {
         .slice(0, 40);
       setAuthEvents(events);
     } catch (err) {
-      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Failed to load branch/account data' });
+toast.error(err.response?.data?.error || 'Failed to load branch/account data');
     } finally {
       setLoading(false);
     }
@@ -71,8 +72,10 @@ export default function BranchesAndStaff() {
   }, []);
 
   const showFeedback = (type, message) => {
-    setFeedback({ type, message });
-    setTimeout(() => setFeedback(null), 5000);
+    if (type === 'success') toast.success(message);
+    else if (type === 'warning') toast.warning(message);
+    else if (type === 'info') toast.info(message);
+    else toast.error(message);
   };
 
   const createAccount = async (e) => {
@@ -164,7 +167,6 @@ export default function BranchesAndStaff() {
     try {
       const payload = {
         username: editAccountModel.username,
-        role: editAccountModel.role,
       };
       
       if (editAccountModel.password) {
@@ -282,7 +284,6 @@ export default function BranchesAndStaff() {
   return (
     <div>
       <div className="page-header"><h2>{t('accountManagement')}</h2></div>
-      {feedback && <div className={`alert alert-${feedback.type} mb-4`}>{feedback.message}</div>}
 
       <div className="stats-grid mb-4">
         <div className="stat-card card"><div className="stat-icon bg-success text-white"><Users size={24} /></div><div className="stat-content"><h3>{accounts.filter(a => a.is_active).length}</h3><p>Active Accounts</p></div></div>
@@ -403,11 +404,8 @@ export default function BranchesAndStaff() {
             <div className="modal-body">
               <div className="mb-3"><label className="form-label">Username</label><input className="form-control" value={editAccountModel.username || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,username:e.target.value}))} /></div>
               <div className="mb-3"><label className="form-label">Role</label>
-                <select className="form-select" value={editAccountModel.role} onChange={(e)=>setEditAccountModel((p)=>({...p,role:e.target.value}))}>
-                  {Object.entries(ROLE_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
+                <input className="form-control" value={ROLE_LABELS[editAccountModel.role] || editAccountModel.role} disabled readOnly />
+                <small className="text-muted">Role is locked after account creation.</small>
               </div>
 
               <div className="mb-3"><label className="form-label">New Password (leave blank to keep current)</label><div className="input-group"><input type={showPasswords.editAccount ? "text" : "password"} className="form-control" value={editAccountModel.password || ''} onChange={(e)=>setEditAccountModel((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters, include letter/number/special" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("editAccount")}>{showPasswords.editAccount ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></div>

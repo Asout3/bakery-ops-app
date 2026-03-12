@@ -135,10 +135,11 @@ router.post('/',
       const { customer_name, customer_phone, customer_note, pickup_at, payment_method, paid_amount, items } = req.body;
 
       const created = await withTransaction(async (tx) => {
+        const effectiveActor = await resolveEffectiveActor(tx, req, locationId);
         if (idempotencyKey) {
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys WHERE user_id = $1 AND idempotency_key = $2`,
-            [req.user.id, idempotencyKey]
+            [effectiveActor.actorId, idempotencyKey]
           );
           if (existing.rows.length > 0) {
             return typeof existing.rows[0].response_payload === 'string' ? JSON.parse(existing.rows[0].response_payload) : existing.rows[0].response_payload;
@@ -196,7 +197,7 @@ router.post('/',
               total_amount, paid_amount, payment_method, status, prep_status, prep_progress)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', 'not_started', 0)
            RETURNING *`,
-          [locationId, req.user.id, customer_name, customer_phone, customer_note || null, orderDetails, pickup_at || new Date(Date.now() + (2 * 60 * 60 * 1000)).toISOString(), totalAmount, normalizedPaidAmount, payment_method || 'cash']
+          [locationId, effectiveActor.actorId, customer_name, customer_phone, customer_note || null, orderDetails, pickup_at || new Date(Date.now() + (2 * 60 * 60 * 1000)).toISOString(), totalAmount, normalizedPaidAmount, payment_method || 'cash']
         );
 
         const order = orderResult.rows[0];
@@ -209,14 +210,14 @@ router.post('/',
           );
         }
 
-        await notifyRoles(tx, locationId, ['manager', 'admin', 'cashier'], 'New Pre-Order', `Pre-order #${order.id} created by ${req.user.username}.`, 'order_created');
+        await notifyRoles(tx, locationId, ['manager', 'admin', 'cashier'], 'New Pre-Order', `Pre-order #${order.id} created by ${effectiveActor.actorName}.`, 'order_created');
 
         if (idempotencyKey) {
           await tx.query(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
              VALUES ($1, $2, $3, '/api/orders', $4)
              ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
-            [req.user.id, locationId, idempotencyKey, JSON.stringify(order)]
+            [effectiveActor.actorId, locationId, idempotencyKey, JSON.stringify(order)]
           );
         }
 

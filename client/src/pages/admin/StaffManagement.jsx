@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { UserPlus, Users } from 'lucide-react';
 import api from '../../api/axios';
 import { formatCurrencyETB } from '../../utils/currency';
+import { useToast } from '../../context/ToastContext';
 
 
 const ETHIOPIA_PHONE_REGEX = /^\+251(9|7)\d{8}$/;
@@ -35,6 +36,7 @@ export default function StaffManagement() {
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [profile, setProfile] = useState(null);
+  const toast = useToast();
 
   const activeStaff = useMemo(() => staff.filter((u) => u.is_active), [staff]);
   const inactiveStaff = useMemo(() => staff.filter((u) => !u.is_active), [staff]);
@@ -56,6 +58,13 @@ export default function StaffManagement() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (!feedback?.message) return;
+    if (feedback.type === 'success') toast.success(feedback.message);
+    else if (feedback.type === 'warning') toast.warning(feedback.message);
+    else toast.error(feedback.message);
+  }, [feedback, toast]);
 
   const createStaff = async (e) => {
     e.preventDefault();
@@ -143,7 +152,6 @@ export default function StaffManagement() {
   return (
     <div>
       <div className="page-header"><h2>Staff Management</h2></div>
-      {feedback && <div className={`alert alert-${feedback.type} mb-4`}>{feedback.message}</div>}
 
       {expenseSummary && (
         <div className="card mb-4"><div className="card-body">

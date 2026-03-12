@@ -123,9 +123,9 @@ export default function OfflineIndicator({ sync }) {
             </div>
           )}
 
-          {isOnline && queueStats.pending > 0 && (
-            <button className="btn btn-primary btn-sm" onClick={runSync} disabled={syncInProgress}>
-              {syncInProgress ? 'Running...' : 'Force Sync'}
+          {isOnline && queueStats.pending > 0 && !syncInProgress && (
+            <button className="btn btn-primary btn-sm" onClick={runSync}>
+              Force Sync
             </button>
           )}
         </div>

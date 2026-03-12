@@ -220,6 +220,7 @@ export default function Dashboard() {
         <StatCard icon={<DollarSign size={18} />} label={`${t(period)} Revenue`} value={formatMoney(totals.revenue)} sub={`${totals.transactions} transactions`} />
         <StatCard icon={<Receipt size={18} />} label={`${t(period)} Expenses`} value={formatMoney(totals.expenses)} sub={`${expenseRows.length} entries`} />
         <StatCard icon={<Users size={18} />} label={t('staffPayments')} value={formatMoney(totals.staffPayments)} sub={`${staffPaymentRows.length} payments`} />
+        <StatCard icon={<Receipt size={18} />} label="Total Batch Cost" value={formatMoney(totals.batchCosts)} sub={`${Number(report?.details?.batches?.batch_count || 0)} batches`} tone="warning" />
         <StatCard icon={<Wallet size={18} />} label="Net Profit" value={formatMoney(totals.netProfit)} sub="Revenue - all costs" tone={totals.netProfit >= 0 ? 'success' : 'danger'} />
         <StatCard icon={<Receipt size={18} />} label="Order Revenue" value={formatMoney(totals.orderRevenue)} sub={`${totals.orderCount} picked-up`} tone="info" />
       </div>

@@ -3,6 +3,7 @@ import './StaffPayments.css';
 import api, { getErrorMessage } from '../../api/axios';
 import { Plus, Edit, Trash2, DollarSign, Calendar, User, X, Clock, Eye } from 'lucide-react';
 import { enqueueOperation } from '../../utils/offlineQueue';
+import { useToast } from '../../context/ToastContext';
 
 const PAYMENT_EDIT_WINDOW_MINUTES = 20;
 
@@ -32,10 +33,18 @@ export default function StaffPaymentsPage() {
   const [suggestedPayment, setSuggestedPayment] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [frequencyFilter, setFrequencyFilter] = useState('all');
+  const toast = useToast();
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (!feedback?.message) return;
+    if (feedback.type === 'success') toast.success(feedback.message);
+    else if (feedback.type === 'warning') toast.warning(feedback.message);
+    else toast.error(feedback.message);
+  }, [feedback, toast]);
 
   const fetchData = async () => {
     try {
@@ -238,7 +247,6 @@ export default function StaffPaymentsPage() {
         <button className="btn btn-primary" onClick={openCreateModal}><Plus size={18} /> Pay Staff</button>
       </div>
 
-      {feedback && <div className={`alert alert-${feedback.type} mb-3`}>{feedback.message}</div>}
 
 
       <div className="card mb-3">

@@ -5,6 +5,15 @@ import { AppError, asyncHandler } from '../utils/errors.js';
 
 const router = express.Router();
 
+function resolveAuditActor(event, reqUser) {
+  const eventActorId = Number(event?.actor_user_id);
+  const hasEventActorId = Number.isInteger(eventActorId) && eventActorId > 0;
+  return {
+    actorUserId: hasEventActorId ? eventActorId : reqUser.id,
+    actorUsername: (typeof event?.actor_username === 'string' && event.actor_username.trim()) ? event.actor_username.trim() : (reqUser.username || null),
+  };
+}
+
 router.post('/audit/bulk', authenticateToken, asyncHandler(async (req, res) => {
   const events = Array.isArray(req.body?.events) ? req.body.events : [];
   if (!events.length) {
@@ -23,6 +32,8 @@ router.post('/audit/bulk', authenticateToken, asyncHandler(async (req, res) => {
       ? (event.location_id ? Number(event.location_id) : (req.user.location_id ? Number(req.user.location_id) : null))
       : (req.user.location_id ? Number(req.user.location_id) : null);
 
+    const actor = resolveAuditActor(event, req.user);
+
     await query(
       `INSERT INTO sync_audit_logs
         (operation_id, actor_user_id, actor_username, location_id, method, endpoint, status, reason, retry_count, metadata, created_at)
@@ -30,8 +41,8 @@ router.post('/audit/bulk', authenticateToken, asyncHandler(async (req, res) => {
         ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::jsonb, '{}'::jsonb), COALESCE($11::timestamptz, NOW()))`,
       [
         operationId,
-        req.user.id,
-        req.user.username || null,
+        actor.actorUserId,
+        actor.actorUsername,
         locationId,
         event.method ? String(event.method).toUpperCase() : null,
         event.url ? String(event.url) : null,

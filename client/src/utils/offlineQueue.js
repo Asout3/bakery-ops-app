@@ -270,6 +270,8 @@ export async function flushQueue(api) {
           retry_count: op.retries || 0,
           created_at: new Date().toISOString(),
           location_id: Number(op.headers?.['X-Location-Id'] || 0) || null,
+          actor_user_id: op.actorId || null,
+          actor_username: op.actorName || null,
         });
       } catch (error) {
         const statusCode = error?.response?.status;
@@ -353,6 +355,8 @@ export async function flushQueue(api) {
             reason,
             created_at: new Date().toISOString(),
             location_id: Number(op.headers?.['X-Location-Id'] || 0) || null,
+            actor_user_id: op.actorId || null,
+            actor_username: op.actorName || null,
           });
         }
       }
