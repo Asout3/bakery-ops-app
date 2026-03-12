@@ -151,6 +151,8 @@ sequenceDiagram
 - Cashier sales now block add/increase actions when stock is exhausted and still show variants as out-of-stock in the selector for better operator clarity.
 - Idempotent write headers for retry-safe replay.
 - Replay status model (`synced`, `failed`, `conflict`, `needs_review`, `ignored`, `resolved`).
+- Offline replay preserves the original actor identity (`X-Offline-Actor-Id`) so synced records remain attributed to the initiating cashier/manager, not the user who triggers replay later.
+- Staff account roles are immutable after account creation; updates can change credentials/location but not role.
 - API error envelope consistency (`error`, `code`, `requestId`) for client classification.
 - Cache fallback in key manager/cashier pages for continuity.
 - Single-flight offline queue flush locking to prevent overlapping replay runs.

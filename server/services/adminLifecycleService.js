@@ -95,11 +95,21 @@ export async function createStaffAccount(payload, repository) {
 }
 
 export async function updateStaffAccount(payload, repository) {
+  const existing = await repository.getUserById(payload.id);
+  if (!existing) {
+    return null;
+  }
+
+  if (payload.role && payload.role !== existing.role) {
+    throw toError('Account role cannot be changed after creation.', 400, 'ROLE_IMMUTABLE');
+  }
+
+  const sanitizedPayload = { ...payload, role: undefined };
   if (payload.password) {
     const password_hash = await bcrypt.hash(payload.password, 10);
-    return repository.updateUserWithPassword({ ...payload, password_hash });
+    return repository.updateUserWithPassword({ ...sanitizedPayload, password_hash });
   }
-  return repository.updateUserWithoutPassword(payload);
+  return repository.updateUserWithoutPassword(sanitizedPayload);
 }
 
 export async function archiveStaffAccount(userId, repository) {

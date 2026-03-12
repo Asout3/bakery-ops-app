@@ -5,6 +5,7 @@ import { useBranch } from '../../context/BranchContext';
 import { useAuth } from '../../context/AuthContext';
 import { Plus, Edit, Trash2, TrendingDown, DollarSign, Calendar, Clock, Eye } from 'lucide-react';
 import { enqueueOperation } from '../../utils/offlineQueue';
+import { useToast } from '../../context/ToastContext';
 
 const EXPENSE_EDIT_WINDOW_MINUTES = 20;
 
@@ -22,6 +23,7 @@ export default function ExpensesPage() {
   const [selectedDay, setSelectedDay] = useState('');
   const [showDescription, setShowDescription] = useState(null);
   const hasManagedCategories = categories.some((category) => category.id);
+  const toast = useToast();
   const [formData, setFormData] = useState({
     category: '',
     description: '',
@@ -33,6 +35,13 @@ export default function ExpensesPage() {
     fetchExpenses();
     fetchCategories();
   }, [selectedLocationId, selectedDay]);
+
+  useEffect(() => {
+    if (!message?.text) return;
+    if (message.type === 'success') toast.success(message.text);
+    else if (message.type === 'warning') toast.warning(message.text);
+    else toast.error(message.text);
+  }, [message, toast]);
 
   const fetchCategories = async () => {
     try {
@@ -141,7 +150,6 @@ export default function ExpensesPage() {
     <div className="expenses-page">
       <div className="page-header">
         <h2>Expenses Management</h2>
-        {message && <div className={`alert alert-${message.type}`}>{message.text}</div>}
         <button className="btn btn-primary" onClick={() => { setEditingExpense(null); setFormData({ category: categories[0]?.name || '', description: '', amount: '', expense_date: new Date().toISOString().split('T')[0] }); setShowForm(true); }}>
           <Plus size={18} /> Add Expense
         </button>

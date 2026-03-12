@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createStaffAccount, archiveStaffAccount, archiveStaffProfile } from './adminLifecycleService.js';
+import { createStaffAccount, updateStaffAccount, archiveStaffAccount, archiveStaffProfile } from './adminLifecycleService.js';
 
 test('createStaffAccount reactivates inactive matching account', async () => {
   const calls = { reactivate: 0, create: 0 };
@@ -90,4 +90,18 @@ test('archiveStaffProfile hard deletes linked account and profile', async () => 
   assert.deepEqual(result, { deleted: true });
   assert.equal(calls.hardDeleteUser, 1);
   assert.equal(calls.hardDeleteStaffProfile, 1);
+});
+
+
+test('updateStaffAccount rejects role changes after account creation', async () => {
+  const repository = {
+    getUserById: async () => ({ id: 5, role: 'cashier', is_active: true }),
+    updateUserWithoutPassword: async () => ({ id: 5, username: 'cashier1', role: 'cashier', location_id: 1, is_active: true }),
+    updateUserWithPassword: async () => ({ id: 5, username: 'cashier1', role: 'cashier', location_id: 1, is_active: true }),
+  };
+
+  await assert.rejects(
+    () => updateStaffAccount({ id: 5, username: 'cashier1', role: 'manager' }, repository),
+    (err) => err.status === 400 && err.code === 'ROLE_IMMUTABLE'
+  );
 });

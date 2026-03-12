@@ -5,15 +5,16 @@ import { Plus, Minus, ShoppingCart, Trash2, Search } from 'lucide-react';
 import './Sales.css';
 import { enqueueOperation, listQueuedOperations } from '../../utils/offlineQueue';
 import { useLanguage } from '../../context/LanguageContext';
+import { useToast } from '../../context/ToastContext';
 
 export default function Sales() {
   const { selectedLocationId } = useBranch();
   const { t } = useLanguage();
+  const toast = useToast();
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [groupFilter, setGroupFilter] = useState('all');
@@ -46,7 +47,7 @@ export default function Sales() {
       const cached = localStorage.getItem(`cashier_products_cache_${selectedLocationId || 'default'}`);
       if (cached) {
         setProducts(JSON.parse(cached));
-        setMessage({ type: 'warning', text: 'Offline mode: using cached products.' });
+        toast.warning('Offline mode: using cached products.');
       }
     }
   };
@@ -95,7 +96,7 @@ export default function Sales() {
 
   const addVariantToCart = (product) => {
     if (getRemainingStock(product) <= 0) {
-      setMessage({ type: 'warning', text: `${product.name} is out of stock.` });
+      toast.warning(`${product.name} is out of stock.`);
       return;
     }
 
@@ -124,7 +125,7 @@ export default function Sales() {
       const maxQty = Number(product?.stock_quantity || 0);
       const nextQty = Math.max(1, item.quantity + change);
       if (maxQty > 0 && nextQty > maxQty) {
-        setMessage({ type: 'warning', text: `${product?.name || 'Item'} is out of stock.` });
+        toast.warning(`${product?.name || 'Item'} is out of stock.`);
         return item;
       }
       return { ...item, quantity: nextQty };
@@ -138,7 +139,7 @@ export default function Sales() {
     const product = products.find((p) => Number(p.id) === Number(productId));
     const maxQty = Number(product?.stock_quantity || 0);
     if (maxQty > 0 && quantity > maxQty) {
-      setMessage({ type: 'warning', text: `${product?.name || 'Item'} is out of stock.` });
+      toast.warning(`${product?.name || 'Item'} is out of stock.`);
       return;
     }
 
@@ -171,16 +172,16 @@ export default function Sales() {
       setReceiptData(response.data);
       applySaleToLocalStock(payload.items);
       setCart([]);
-      setMessage({ type: 'success', text: 'Sale completed.' });
+      toast.success('Sale completed.');
     } catch (err) {
       if (!err.response) {
         const idempotencyKey = `sale-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         await enqueueOperation({ url: '/sales', method: 'post', data: payload, idempotencyKey });
         applySaleToLocalStock(payload.items);
         setCart([]);
-        setMessage({ type: 'warning', text: 'Offline: sale queued for sync.' });
+        toast.info('Action added to queue. Sale will sync automatically when online.');
       } else {
-        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to complete sale.') });
+        toast.error(getErrorMessage(err, 'Failed to complete sale.'));
       }
     } finally {
       setLoading(false);
@@ -191,7 +192,6 @@ export default function Sales() {
   return (
     <div className="sales-page">
       <div className="page-header"><h2>{t('newSale')}</h2></div>
-      {message && <div className={`alert alert-${message.type}`}>{message.text}</div>}
       <div className="sales-layout">
         <div className="products-section">
           <div className="card"><div className="card-header"><h3>Product Groups</h3></div><div className="card-body">
@@ -219,7 +219,7 @@ export default function Sales() {
         <div className="cart-section">
           <div className="card"><div className="card-header"><h3><ShoppingCart size={20} />Cart ({cart.length})</h3></div><div className="card-body cart-body">
             {cart.length === 0 ? <div className="empty-cart"><ShoppingCart size={48} /><p>{t('cartEmpty')}</p></div> : <div className="cart-items">{cart.map((item) => <div key={item.product_id} className="cart-item"><div className="cart-item-details"><div className="cart-item-name">{item.name}</div><div className="cart-item-price">ETB {Number(item.price).toFixed(2)}</div></div><div className="cart-item-actions"><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, -1)}><Minus size={14} /></button><input type="number" min="1" className="form-control form-control-sm" style={{ width: '72px', textAlign: 'center' }} value={item.quantity} onChange={(e) => setQuantity(item.product_id, Number(e.target.value))} /><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, 1)}><Plus size={14} /></button><button className="btn btn-sm btn-danger" onClick={() => removeFromCart(item.product_id)}><Trash2 size={14} /></button></div><div className="cart-item-subtotal">ETB {(item.price * item.quantity).toFixed(2)}</div></div>)}</div>}
-          </div><div className="card-footer"><div className="payment-method-select"><span>Payment:</span><select className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div><div className="cart-total"><span className="cart-total-label">Total:</span><span className="cart-total-amount">ETB {calculateTotal().toFixed(2)}</span></div><button className="btn btn-success btn-lg" onClick={handleCheckout} disabled={loading || cart.length === 0} style={{ width: '100%', marginTop: '1rem' }}>{loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}</button></div></div>
+          </div><div className="card-footer"><div className="payment-method-select"><label htmlFor="payment-method">Payment Method</label><select id="payment-method" className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div><div className="cart-total"><span className="cart-total-label">Total:</span><span className="cart-total-amount">ETB {calculateTotal().toFixed(2)}</span></div><button className="btn btn-success btn-lg" onClick={handleCheckout} disabled={loading || cart.length === 0} style={{ width: '100%', marginTop: '1rem' }}>{loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}</button></div></div>
         </div>
       </div>
 

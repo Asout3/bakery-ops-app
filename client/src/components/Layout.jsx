@@ -4,7 +4,7 @@ import { useNotifications } from '../context/NotificationContext';
 import {
   LayoutDashboard, Package, ShoppingCart, DollarSign, Users,
   BarChart3, Bell, LogOut, Menu, X, Moon, Sun, ClipboardList,
-  ChevronRight, Layers, History, RefreshCw,
+  Layers, History, RefreshCw,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
@@ -18,7 +18,7 @@ import './Layout.css';
 export default function Layout() {
   const { user, logout } = useAuth();
   const { unreadCount, refresh: refreshNotifications } = useNotifications();
-  useOfflineSync();
+  const offlineSync = useOfflineSync();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [locations, setLocations] = useState([]);
@@ -108,10 +108,6 @@ export default function Layout() {
     return [];
   }, [user?.role, t]);
 
-  const selectedLocationName = useMemo(() => {
-    if (!selectedLocationId) return null;
-    return locations.find((l) => Number(l.id) === Number(selectedLocationId))?.name || null;
-  }, [locations, selectedLocationId]);
 
   return (
     <div className="layout">
@@ -172,12 +168,6 @@ export default function Layout() {
           {/* App title (mobile) / location breadcrumb */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
             <span className="top-bar-title">{t('appTitle')}</span>
-            {selectedLocationName && (
-              <>
-                <ChevronRight size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                <span className="top-bar-location">{selectedLocationName}</span>
-              </>
-            )}
           </div>
 
           <div className="top-bar-right">
@@ -236,7 +226,7 @@ export default function Layout() {
         />
       )}
 
-      <OfflineIndicator />
+      <OfflineIndicator sync={offlineSync} />
 
       {/* ── Pending-logout warning modal ──────── */}
       {showLogoutWarning && (

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import './Inventory.css';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
@@ -15,6 +15,7 @@ export default function AdminInventory() {
   const [editingItem, setEditingItem] = useState(null);
   const [message, setMessage] = useState(null);
   const [search, setSearch] = useState('');
+  const [stockFilter, setStockFilter] = useState('all');
   const [formData, setFormData] = useState({
     product_id: '',
     quantity: ''
@@ -172,11 +173,26 @@ export default function AdminInventory() {
   });
 
 
+  const productById = useMemo(() => new Map(products.map((product) => [Number(product.id), product])), [products]);
+
+  const outOfStockCount = useMemo(() => {
+    return products.filter((product) => {
+      if (product.is_active === false) return false;
+      const row = inventory.find((item) => Number(item.product_id) === Number(product.id));
+      return !row || Number(row.quantity || 0) <= 0;
+    }).length;
+  }, [products, inventory]);
+
   const filteredInventory = inventory.filter((item) => {
-    const product = products.find((p) => Number(p.id) === Number(item.product_id));
+    const product = productById.get(Number(item.product_id));
     if (!product || product.is_active === false) return false;
     const text = `${product?.group_name || product?.name || ''} ${product?.name || ''}`.toLowerCase();
-    return text.includes(search.toLowerCase());
+    if (!text.includes(search.toLowerCase())) return false;
+
+    const qty = Number(item.quantity || 0);
+    if (stockFilter === 'low') return qty > 0 && qty <= 5;
+    if (stockFilter === 'out') return qty <= 0;
+    return true;
   });
 
   const groupedInventory = filteredInventory.reduce((acc, item) => {
@@ -209,15 +225,21 @@ export default function AdminInventory() {
 
       {message && <div className={`alert alert-${message.type} mb-3`}>{message.text}</div>}
 
-      <div className="card mb-3"><div className="card-body">
+      <div className="card mb-3"><div className="card-body" style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <div className="search-bar" style={{ maxWidth: '320px' }}><Search size={16}/><input className="input" placeholder="Search inventory by product..." value={search} onChange={(e)=>setSearch(e.target.value)} /></div>
+        <div className="btn-group" role="group">
+          <button type="button" className={`btn btn-sm ${stockFilter === 'all' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setStockFilter('all')}>All</button>
+          <button type="button" className={`btn btn-sm ${stockFilter === 'low' ? 'btn-warning' : 'btn-outline-warning'}`} onClick={() => setStockFilter('low')}>Low Stock</button>
+          <button type="button" className={`btn btn-sm ${stockFilter === 'out' ? 'btn-danger' : 'btn-outline-danger'}`} onClick={() => setStockFilter('out')}>Out of Stock</button>
+        </div>
       </div></div>
 
 
       <div className="stats-grid mb-4">
         <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><Package size={24} /></div><div className="stat-content"><h3>{inventory.reduce((sum, item) => sum + Number(item.quantity || 0), 0)}</h3><p>Total Items</p></div></div>
         <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><TrendingUp size={24} /></div><div className="stat-content"><h3>{inventory.filter((item) => Number(item.quantity || 0) > 10).length}</h3><p>In Stock</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><TrendingDown size={24} /></div><div className="stat-content"><h3>{inventory.filter((item) => Number(item.quantity || 0) <= 5).length}</h3><p>Low Stock</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><TrendingDown size={24} /></div><div className="stat-content"><h3>{inventory.filter((item) => Number(item.quantity || 0) > 0 && Number(item.quantity || 0) <= 5).length}</h3><p>Low Stock</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-icon bg-danger text-white"><TrendingDown size={24} /></div><div className="stat-content"><h3>{outOfStockCount}</h3><p>Out of Stock</p></div></div>
       </div>
 
       {Object.keys(groupedInventory).sort((a, b) => a.localeCompare(b)).map((group) => (

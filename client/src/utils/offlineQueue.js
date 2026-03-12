@@ -1,3 +1,4 @@
+import { getSessionSnapshot } from './authSession.js';
 const DB_NAME = 'bakery_ops_offline_v2';
 const DB_VERSION = 2;
 const OPS_STORE = 'operations';
@@ -7,6 +8,7 @@ const PAYLOAD_STORE = 'payloads';
 const MAX_RETRIES = 5;
 const BASE_RETRY_DELAY_MS = 1000;
 const MAX_BATCH_PER_FLUSH = 20;
+const MAX_FLUSH_CYCLES = 25;
 let flushLockToken = null;
 
 
@@ -58,18 +60,6 @@ function txPromise(tx) {
   });
 }
 
-async function storePayload(operationId, payload) {
-  const db = await openDb();
-  const tx = db.transaction(PAYLOAD_STORE, 'readwrite');
-  tx.objectStore(PAYLOAD_STORE).put({
-    operation_id: operationId,
-    payload,
-    created_at: new Date().toISOString(),
-  });
-  await txPromise(tx);
-  db.close();
-}
-
 async function getPayload(operationId) {
   const db = await openDb();
   const tx = db.transaction(PAYLOAD_STORE, 'readonly');
@@ -119,11 +109,8 @@ function resolveSyncErrorMessage(error) {
   return error?.response?.data?.error || error?.userMessage || error?.message || 'Sync failed';
 }
 export async function enqueueOperation(operation) {
-  const db = await openDb();
   const id = operation.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const sessionUser = typeof localStorage !== 'undefined'
-    ? JSON.parse(localStorage.getItem('user') || 'null')
-    : null;
+  const sessionUser = getSessionSnapshot()?.user || null;
   const selectedLocationId = typeof localStorage !== 'undefined' ? localStorage.getItem('selectedLocationId') : null;
 
   const op = {
@@ -143,12 +130,11 @@ export async function enqueueOperation(operation) {
     ...operation,
   };
 
+  const db = await openDb();
   const tx = db.transaction(OPS_STORE, 'readwrite');
   tx.objectStore(OPS_STORE).put(op);
   await txPromise(tx);
   db.close();
-
-  await storePayload(id, operation.data);
 
   await appendHistory({
     id: `${op.id}-queued-${Date.now()}`,
@@ -157,6 +143,13 @@ export async function enqueueOperation(operation) {
     message: `Queued ${op.method?.toUpperCase() || 'REQUEST'} ${op.url}`,
     created_at: new Date().toISOString(),
   });
+
+  const payload = operation.data;
+  const payloadDb = await openDb();
+  const payloadTx = payloadDb.transaction(PAYLOAD_STORE, 'readwrite');
+  payloadTx.objectStore(PAYLOAD_STORE).put({ operation_id: id, payload, created_at: new Date().toISOString() });
+  await txPromise(payloadTx);
+  payloadDb.close();
 
   return id;
 }
@@ -195,7 +188,16 @@ export async function getQueueSize() {
 export async function getPendingCount() {
   const items = await listQueuedOperations();
   const now = Date.now();
-  return items.filter(op => op.status === 'pending' && op.nextRetry <= now).length;
+  return items.filter((op) => op.status === 'pending' && Number(op.nextRetry || 0) <= now).length;
+}
+
+async function getReadyPendingOperations(limit = MAX_BATCH_PER_FLUSH) {
+  const items = await listQueuedOperations();
+  const now = Date.now();
+  return items
+    .filter((op) => op.status === 'pending' && Number(op.nextRetry || 0) <= now)
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    .slice(0, limit);
 }
 
 export async function flushQueue(api) {
@@ -212,23 +214,18 @@ export async function flushQueue(api) {
   }
 
   try {
-    const queue = await listQueuedOperations();
-    if (!queue.length) return { synced: 0, failed: 0, pending: 0, completed: [] };
-
-    const now = Date.now();
-    const readyToSync = queue
-      .filter((op) => op.nextRetry <= now && op.status === 'pending')
-      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-      .slice(0, MAX_BATCH_PER_FLUSH);
-
-    if (!readyToSync.length) return { synced: 0, failed: 0, pending: queue.length, completed: [] };
+    const queued = await getQueueSize();
+    if (!queued) return { synced: 0, failed: 0, pending: 0, completed: [] };
 
     let synced = 0;
     let failed = 0;
     const completed = [];
 
-    for (const op of readyToSync) {
-      const payload = await getPayload(op.id);
+    for (let cycle = 0; cycle < MAX_FLUSH_CYCLES; cycle += 1) {
+      const readyToSync = await getReadyPendingOperations(MAX_BATCH_PER_FLUSH);
+      if (!readyToSync.length) break;
+      for (const op of readyToSync) {
+        const payload = await getPayload(op.id);
 
       try {
         const response = await api.request({
@@ -272,6 +269,8 @@ export async function flushQueue(api) {
           retry_count: op.retries || 0,
           created_at: new Date().toISOString(),
           location_id: Number(op.headers?.['X-Location-Id'] || 0) || null,
+          actor_user_id: op.actorId || null,
+          actor_username: op.actorName || null,
         });
       } catch (error) {
         const statusCode = error?.response?.status;
@@ -355,10 +354,13 @@ export async function flushQueue(api) {
             reason,
             created_at: new Date().toISOString(),
             location_id: Number(op.headers?.['X-Location-Id'] || 0) || null,
+            actor_user_id: op.actorId || null,
+            actor_username: op.actorName || null,
           });
         }
       }
     }
+  }
 
     const remaining = await getQueueSize();
     return { synced, failed, pending: remaining, completed };

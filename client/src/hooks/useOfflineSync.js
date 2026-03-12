@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useMemo, useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import api from '../api/axios';
 import { flushQueue, getSyncStats, isOnline, getConnectionQuality } from '../utils/offlineQueue';
 
@@ -15,6 +16,7 @@ function resolveSyncInterval(queueStats) {
 
 export function useOfflineSync() {
   const { user, isAuthenticated } = useAuth();
+  const toast = useToast();
   const [isOnlineState, setIsOnlineState] = useState(() => isOnline());
   const [queueStats, setQueueStats] = useState({ total: 0, pending: 0, conflict: 0, needsReview: 0, failed: 0 });
   const [syncProgress, setSyncProgress] = useState({ total: 0, done: 0, active: false, finished: false });
@@ -32,6 +34,7 @@ export function useOfflineSync() {
   const initializedRef = useRef(false);
   const finishResetTimeoutRef = useRef(null);
   const lastSyncAttemptRef = useRef(0);
+  const lastNotifiedPendingRef = useRef(0);
 
   const runSync = useCallback(async (force = false) => {
     if (!isAuthenticated) return;
@@ -44,6 +47,10 @@ export function useOfflineSync() {
     if (!navigator.onLine) {
       const stats = await getSyncStats();
       setQueueStats(stats);
+      if (stats.pending > lastNotifiedPendingRef.current && !navigator.onLine) {
+        toast.info('Action added to offline queue. It will sync when connection returns.');
+      }
+      lastNotifiedPendingRef.current = stats.pending;
       return;
     }
 
@@ -56,6 +63,7 @@ export function useOfflineSync() {
       pendingBefore = Number(beforeStats.pending || 0);
       if (pendingBefore > 0) {
         setSyncProgress({ total: pendingBefore, done: 0, active: true, finished: false });
+        toast.info(`Sync started: ${pendingBefore} queued action${pendingBefore > 1 ? 's' : ''}.`);
       }
       result = await flushQueue(api);
       if (Array.isArray(result.completed) && result.completed.length > 0) {
@@ -74,10 +82,13 @@ export function useOfflineSync() {
       const hasAttentionAfter = Number(stats.failed || 0) > 0 || Number(stats.conflict || 0) > 0 || Number(stats.needsReview || 0) > 0;
       if (hasAttentionAfter) {
         setSyncOutcome('attention');
+        toast.warning('Sync finished with items needing admin review.');
       } else if (syncedCount > 0 && !hasPendingAfter) {
         setSyncOutcome('success');
+        toast.success(`Sync complete: ${syncedCount} queued action${syncedCount > 1 ? 's' : ''} sent.`);
       } else if (hasPendingAfter) {
         setSyncOutcome('retrying');
+        toast.info('Sync is retrying pending actions due to network/server issues.');
       } else {
         setSyncOutcome('idle');
       }
@@ -111,6 +122,7 @@ export function useOfflineSync() {
           setSyncOutcome('idle');
         }, 6000);
       }
+      toast.warning('Sync interrupted. Pending actions are still safe in queue and will retry.');
       const syncResult = {
         synced: 0,
         failed: 0,
@@ -127,7 +139,7 @@ export function useOfflineSync() {
     } finally {
       setSyncInProgress(false);
     }
-  }, [syncInProgress, isAuthenticated]);
+  }, [syncInProgress, isAuthenticated, toast]);
 
   const updateOnlineStatus = useCallback(async (eventType) => {
     const online = navigator.onLine;

@@ -19,3 +19,16 @@
   background: #2563eb;
   color: #fff;
 }
+
+.sales-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+  padding-bottom: 1.25rem;
+}
+
+.sales-page .card,
+.sales-page .table-responsive {
+  overflow: visible;
+}

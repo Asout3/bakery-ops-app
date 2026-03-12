@@ -10,6 +10,18 @@ const INVENTORY_BATCH_ALLOWED_STATUSES = ['pending', 'sent', 'received', 'edited
 let inventoryBatchConstraintReady = null;
 let inventoryBatchColumnsCache = null;
 
+async function resolveEffectiveActor(tx, req, locationId) {
+  const queuedActorIdHeader = req.headers['x-offline-actor-id'];
+  const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
+  if (!isFromOfflineQueue || !queuedActorIdHeader) return { actorId: req.user.id, actorName: req.user.username };
+
+  const actorResult = await tx.query(
+    'SELECT id, username FROM users WHERE id = $1 AND location_id = $2',
+    [Number(queuedActorIdHeader), locationId]
+  );
+  if (!actorResult.rows.length) return { actorId: req.user.id, actorName: req.user.username };
+  return { actorId: Number(actorResult.rows[0].id), actorName: actorResult.rows[0].username };
+}
 
 function clampLimit(value, fallback = 50, max = 200) {
   const parsed = Number(value);
@@ -166,6 +178,7 @@ router.put(
         return res.status(404).json({ error: 'Product not found', code: 'PRODUCT_NOT_FOUND', requestId: req.requestId });
       }
       const source = productRes.rows[0].source || 'baked';
+      const effectiveActor = await resolveEffectiveActor({ query }, req, locationId);
       const result = await query(
         `INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)
          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
@@ -179,14 +192,14 @@ router.put(
         `INSERT INTO inventory_movements
          (location_id, product_id, movement_type, quantity_change, source, reference_type, created_by, metadata)
          VALUES ($1, $2, 'manual_adjustment', $3, $4, 'manual', $5, $6)`,
-        [locationId, productId, quantity, source, req.user.id, JSON.stringify({ absolute_quantity: quantity })]
+        [locationId, productId, quantity, source, effectiveActor.actorId, JSON.stringify({ absolute_quantity: quantity, synced_by_user_id: req.user.id })]
       );
 
       await query(
         `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
          VALUES ($1, $2, $3, $4, $5)`,
         [
-          req.user.id,
+          effectiveActor.actorId,
           locationId,
           'inventory_updated',
           `Updated inventory for product ${productId}`,
@@ -216,13 +229,14 @@ router.delete('/:id', authenticateToken, authorizeRoles('admin', 'manager'), asy
     }
 
     const item = target.rows[0];
+    const effectiveActor = await resolveEffectiveActor({ query }, req, locationId);
     await query(`DELETE FROM inventory WHERE id = $1`, [item.id]);
 
     await query(
       `INSERT INTO inventory_movements
        (location_id, product_id, movement_type, quantity_change, source, reference_type, created_by, metadata)
        VALUES ($1, $2, 'manual_adjustment', $3, $4, 'manual', $5, $6)`,
-      [locationId, item.product_id, -Number(item.quantity || 0), item.source || 'baked', req.user.id, JSON.stringify({ deleted_inventory_row: true })]
+      [locationId, item.product_id, -Number(item.quantity || 0), item.source || 'baked', effectiveActor.actorId, JSON.stringify({ deleted_inventory_row: true, synced_by_user_id: req.user.id })]
     );
 
     return res.json({ message: 'Inventory item deleted successfully', deleted: item });
@@ -250,16 +264,19 @@ router.post(
     const idempotencyKey = req.headers['x-idempotency-key'];
     const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
     const queuedCreatedAtHeader = req.headers['x-queued-created-at'];
-    const queuedActorIdHeader = req.headers['x-offline-actor-id'];
 
     try {
       const locationId = await getTargetLocationId(req, query);
       const batch = await withTransaction(async (tx) => {
+        const effectiveActor = await resolveEffectiveActor(tx, req, locationId);
+        const effectiveCreatedBy = effectiveActor.actorId;
+        const originalActorName = effectiveActor.actorName;
+
         if (idempotencyKey) {
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
              WHERE user_id = $1 AND idempotency_key = $2`,
-            [req.user.id, idempotencyKey]
+            [effectiveCreatedBy, idempotencyKey]
           );
           if (existing.rows.length > 0) {
             return existing.rows[0].response_payload;
@@ -271,20 +288,6 @@ router.post(
         const effectiveCreatedAt = hasValidQueuedCreatedAt ? queuedCreatedAt.toISOString() : new Date().toISOString();
 
         const batchColumns = await getInventoryBatchColumns(tx);
-
-        let effectiveCreatedBy = req.user.id;
-        let originalActorName = req.user.username;
-
-        if (isFromOfflineQueue && queuedActorIdHeader) {
-          const actorResult = await tx.query(
-            `SELECT id, username FROM users WHERE id = $1 AND location_id = $2`,
-            [queuedActorIdHeader, locationId]
-          );
-          if (actorResult.rows.length > 0) {
-            effectiveCreatedBy = Number(actorResult.rows[0].id);
-            originalActorName = actorResult.rows[0].username;
-          }
-        }
 
         const insertColumns = ['location_id', 'created_by', 'batch_date', 'status', 'notes', 'created_at'];
         const insertValues = ['$1', '$2', "($3::timestamptz AT TIME ZONE 'UTC')::date", "'sent'", '$4', "($3::timestamptz AT TIME ZONE 'UTC')"];
@@ -428,7 +431,7 @@ router.post(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
-            [req.user.id, locationId, idempotencyKey, '/api/inventory/batches', JSON.stringify(createdBatch)]
+            [effectiveCreatedBy, locationId, idempotencyKey, '/api/inventory/batches', JSON.stringify(createdBatch)]
           );
         }
 

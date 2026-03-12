@@ -7,6 +7,18 @@ import { getTargetLocationId } from '../utils/location.js';
 const router = express.Router();
 const EXPENSE_EDIT_WINDOW_MINUTES = 20;
 
+async function resolveEffectiveActor(tx, req, locationId) {
+  const queuedActorIdHeader = req.headers['x-offline-actor-id'];
+  const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
+  if (!isFromOfflineQueue || !queuedActorIdHeader) return req.user.id;
+
+  const actorResult = await tx.query(
+    'SELECT id FROM users WHERE id = $1 AND location_id = $2',
+    [Number(queuedActorIdHeader), locationId]
+  );
+  return actorResult.rows.length ? Number(actorResult.rows[0].id) : req.user.id;
+}
+
 let expenseSchemaCache = { checkedAt: 0, hasExpenseCategoriesTable: false };
 
 async function getExpenseSchemaSupport() {
@@ -238,11 +250,13 @@ router.post('/',
       }
 
       const expense = await withTransaction(async (tx) => {
+        const effectiveActorId = await resolveEffectiveActor(tx, req, locationId);
+
         if (idempotencyKey) {
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
              WHERE user_id = $1 AND idempotency_key = $2`,
-            [req.user.id, idempotencyKey]
+            [effectiveActorId, idempotencyKey]
           );
 
           if (existing.rows.length > 0) {
@@ -254,19 +268,19 @@ router.post('/',
           `INSERT INTO expenses (location_id, category, description, amount, expense_date, created_by)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING *`,
-          [locationId, category, description || null, amount, expense_date, req.user.id]
+          [locationId, category, description || null, amount, expense_date, effectiveActorId]
         );
 
         await tx.query(
           `INSERT INTO kpi_events (location_id, user_id, event_type, event_value, metadata)
            VALUES ($1, $2, 'expense_created', $3, $4)`,
-          [locationId, req.user.id, amount, JSON.stringify({ expense_id: result.rows[0].id, category })]
+          [locationId, effectiveActorId, amount, JSON.stringify({ expense_id: result.rows[0].id, category, synced_by_user_id: req.user.id })]
         );
 
         await tx.query(
           `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
            VALUES ($1, $2, $3, $4, $5)`,
-          [req.user.id, locationId, 'expense_created', `Created expense: ${category} - ${amount}`, JSON.stringify({ expense_id: result.rows[0].id, category, amount })]
+          [effectiveActorId, locationId, 'expense_created', `Created expense: ${category} - ${amount}`, JSON.stringify({ expense_id: result.rows[0].id, category, amount, synced_by_user_id: req.user.id })]
         );
 
         if (idempotencyKey) {
@@ -274,7 +288,7 @@ router.post('/',
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
-            [req.user.id, locationId, idempotencyKey, '/api/expenses', JSON.stringify(result.rows[0])]
+            [effectiveActorId, locationId, idempotencyKey, '/api/expenses', JSON.stringify(result.rows[0])]
           );
         }
 
