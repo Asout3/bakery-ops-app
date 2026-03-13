@@ -28,7 +28,10 @@ export default function Sales() {
 
   const applyPendingSalesToProducts = async (baseProducts) => {
     const queue = await listQueuedOperations();
-    const pendingSales = queue.filter((op) => op.url === '/sales' && op.method === 'post' && op.status !== 'conflict');
+    const pendingSales = queue.filter((op) => op.url === '/sales'
+      && op.method === 'post'
+      && op.status === 'pending'
+      && String(op.headers?.['X-Location-Id'] || '') === String(selectedLocationId || ''));
     if (!pendingSales.length) return baseProducts;
     const usageByProduct = new Map();
     pendingSales.forEach((op) => (op.data?.items || []).forEach((item) => usageByProduct.set(Number(item.product_id), (usageByProduct.get(Number(item.product_id)) || 0) + Number(item.quantity || 0))));

@@ -32,20 +32,30 @@ export default function AdminInventory() {
 
   const applyPendingInventoryOps = async (baseInventory) => {
     const queue = await listQueuedOperations();
-    const ops = queue.filter((op) => op.url === '/inventory' || op.url?.startsWith('/inventory/'));
+    const ops = queue.filter((op) => (op.url === '/inventory' || op.url?.startsWith('/inventory/'))
+      && op.status === 'pending'
+      && String(op.headers?.['X-Location-Id'] || '') === String(selectedLocationId || ''));
     let nextInventory = [...baseInventory];
 
     ops.forEach((op) => {
       if (op.method === 'post' && op.url === '/inventory') {
-        nextInventory.push({
-          id: op.id,
-          product_id: Number(op.data?.product_id),
+        const productId = Number(op.data?.product_id);
+        const existingIndex = nextInventory.findIndex((item) => Number(item.product_id) === productId);
+        const projectedRow = {
+          id: existingIndex >= 0 ? nextInventory[existingIndex].id : op.id,
+          product_id: productId,
           location_id: Number(op.data?.location_id || selectedLocationId),
           quantity: Number(op.data?.quantity || 0),
           source: op.data?.source || 'baked',
           is_pending_sync: true,
           last_updated: new Date().toISOString(),
-        });
+        };
+
+        if (existingIndex >= 0) {
+          nextInventory[existingIndex] = { ...nextInventory[existingIndex], ...projectedRow };
+        } else {
+          nextInventory.push(projectedRow);
+        }
       }
 
       if (op.method === 'put' && op.url?.startsWith('/inventory/')) {
@@ -173,33 +183,64 @@ export default function AdminInventory() {
   });
 
 
-  const productById = useMemo(() => new Map(products.map((product) => [Number(product.id), product])), [products]);
-
-  const outOfStockCount = useMemo(() => {
-    return products.filter((product) => {
-      if (product.is_active === false) return false;
+  const inventoryRows = useMemo(() => products
+    .filter((product) => product.is_active !== false)
+    .map((product) => {
       const row = inventory.find((item) => Number(item.product_id) === Number(product.id));
-      return !row || Number(row.quantity || 0) <= 0;
-    }).length;
-  }, [products, inventory]);
+      return {
+        item: row || {
+          id: `virtual-${product.id}`,
+          product_id: product.id,
+          quantity: 0,
+          source: product.source || 'baked',
+          last_updated: null,
+          is_virtual: true,
+        },
+        product,
+      };
+    }), [products, inventory]);
 
-  const filteredInventory = inventory.filter((item) => {
-    const product = productById.get(Number(item.product_id));
-    if (!product || product.is_active === false) return false;
+  const getLowStockThreshold = (product) => {
+    const productThreshold = Number(product?.low_stock_threshold);
+    if (Number.isFinite(productThreshold) && productThreshold >= 0) return productThreshold;
+    return 5;
+  };
+
+  const outOfStockCount = useMemo(() => inventoryRows
+    .filter(({ item }) => Number(item.quantity || 0) <= 0)
+    .length, [inventoryRows]);
+
+  const lowStockCount = useMemo(() => inventoryRows
+    .filter(({ item, product }) => {
+      const qty = Number(item.quantity || 0);
+      const threshold = getLowStockThreshold(product);
+      return qty > 0 && qty <= threshold;
+    })
+    .length, [inventoryRows]);
+
+
+  const totalStockUnits = useMemo(() => inventoryRows
+    .reduce((sum, { item }) => sum + Number(item.quantity || 0), 0), [inventoryRows]);
+
+  const inStockCount = useMemo(() => inventoryRows
+    .filter(({ item }) => Number(item.quantity || 0) > 0)
+    .length, [inventoryRows]);
+
+  const filteredInventory = inventoryRows.filter(({ item, product }) => {
     const text = `${product?.group_name || product?.name || ''} ${product?.name || ''}`.toLowerCase();
     if (!text.includes(search.toLowerCase())) return false;
 
     const qty = Number(item.quantity || 0);
-    if (stockFilter === 'low') return qty > 0 && qty <= 5;
+    const threshold = getLowStockThreshold(product);
+    if (stockFilter === 'low') return qty > 0 && qty <= threshold;
     if (stockFilter === 'out') return qty <= 0;
     return true;
   });
 
-  const groupedInventory = filteredInventory.reduce((acc, item) => {
-    const product = products.find((p) => Number(p.id) === Number(item.product_id));
-    const group = product?.group_name || product?.name || 'Ungrouped';
+  const groupedInventory = filteredInventory.reduce((acc, row) => {
+    const group = row.product?.group_name || row.product?.name || 'Ungrouped';
     if (!acc[group]) acc[group] = [];
-    acc[group].push({ item, product });
+    acc[group].push(row);
     return acc;
   }, {});
 
@@ -236,9 +277,9 @@ export default function AdminInventory() {
 
 
       <div className="stats-grid mb-4">
-        <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><Package size={24} /></div><div className="stat-content"><h3>{inventory.reduce((sum, item) => sum + Number(item.quantity || 0), 0)}</h3><p>Total Items</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><TrendingUp size={24} /></div><div className="stat-content"><h3>{inventory.filter((item) => Number(item.quantity || 0) > 10).length}</h3><p>In Stock</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><TrendingDown size={24} /></div><div className="stat-content"><h3>{inventory.filter((item) => Number(item.quantity || 0) > 0 && Number(item.quantity || 0) <= 5).length}</h3><p>Low Stock</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><Package size={24} /></div><div className="stat-content"><h3>{totalStockUnits}</h3><p>Total Items</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><TrendingUp size={24} /></div><div className="stat-content"><h3>{inStockCount}</h3><p>In Stock</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><TrendingDown size={24} /></div><div className="stat-content"><h3>{lowStockCount}</h3><p>Low Stock</p></div></div>
         <div className="stat-card card bg-light"><div className="stat-icon bg-danger text-white"><TrendingDown size={24} /></div><div className="stat-content"><h3>{outOfStockCount}</h3><p>Out of Stock</p></div></div>
       </div>
 
@@ -248,12 +289,12 @@ export default function AdminInventory() {
             <tr key={item.id}>
               <td>{`INV-${String(item.id).padStart(6, '0')}`}</td>
               <td>{product?.name || item.product_id}{product?.is_active === false && <span className="badge badge-warning ms-2">Archived</span>}</td>
-              <td><span className={`badge ${Number(item.quantity) <= 5 ? 'badge-warning' : 'badge-success'}`}>{item.quantity}</span>{item.is_pending_sync && <span className="badge badge-info" style={{ marginLeft: '0.4rem' }}>Pending Sync</span>}</td>
-              <td>{new Date(item.last_updated).toLocaleDateString()}</td>
+              <td><span className={`badge ${Number(item.quantity) <= getLowStockThreshold(product) ? 'badge-warning' : 'badge-success'}`}>{item.quantity}</span>{item.is_pending_sync && <span className="badge badge-info" style={{ marginLeft: '0.4rem' }}>Pending Sync</span>}</td>
+              <td>{item.last_updated ? new Date(item.last_updated).toLocaleDateString() : '—'}</td>
               <td><span className={`badge ${item.source === 'baked' ? 'badge-info' : 'badge-secondary'}`}>{item.source}</span></td>
               <td><div className="btn-group" role="group">
                 <button className="btn btn-sm btn-outline-primary" onClick={() => { setEditingItem(item); setFormData({ product_id: item.product_id, quantity: item.quantity, source: item.source || 'baked' }); setShowForm(true); }}><Edit size={14} /></button>
-                <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(item.id)}><Trash2 size={14} /></button>
+                <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(item.id)} disabled={String(item.id).startsWith('virtual-')}><Trash2 size={14} /></button>
               </div></td>
             </tr>
           ))}

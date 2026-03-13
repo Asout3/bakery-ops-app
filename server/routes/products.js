@@ -52,6 +52,13 @@ function buildGroupExpr(hasGroupName) {
   return hasGroupName ? "COALESCE(p.group_name, p.name)" : 'p.name';
 }
 
+
+function normalizeLowStockThreshold(value) {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized)) return null;
+  return Math.max(0, Math.trunc(normalized));
+}
+
 router.get('/categories', authenticateToken, async (req, res) => {
   try {
     const result = await query('SELECT id, name FROM categories ORDER BY name ASC');
@@ -168,16 +175,16 @@ router.post('/', authenticateToken, authorizeRoles('admin', 'manager'), body('na
 
     const result = hasGroupName
       ? await query(
-          `INSERT INTO products (name, group_name, category_id, price, cost, unit, source, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          `INSERT INTO products (name, group_name, category_id, price, cost, unit, source, created_by, low_stock_threshold)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            RETURNING *`,
-          [name, effectiveGroup, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id]
+          [name, effectiveGroup, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, normalizeLowStockThreshold(req.body.low_stock_threshold)]
         )
       : await query(
-          `INSERT INTO products (name, category_id, price, cost, unit, source, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `INSERT INTO products (name, category_id, price, cost, unit, source, created_by, low_stock_threshold)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            RETURNING *`,
-          [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id]
+          [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, normalizeLowStockThreshold(req.body.low_stock_threshold)]
         );
 
     const createdProduct = result.rows[0];
@@ -205,8 +212,10 @@ router.post('/', authenticateToken, authorizeRoles('admin', 'manager'), body('na
 });
 
 router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
-  const { name, group_name, category_id, price, cost, unit, is_active, source } = req.body;
+  const { name, group_name, category_id, price, cost, unit, is_active, source, low_stock_threshold } = req.body;
   const { id } = req.params;
+  const shouldUpdateLowStockThreshold = Object.prototype.hasOwnProperty.call(req.body, 'low_stock_threshold');
+  const normalizedLowStockThreshold = normalizeLowStockThreshold(low_stock_threshold);
 
   try {
     const { hasGroupName } = await getProductSchemaSupport();
@@ -233,10 +242,11 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async 
                unit = COALESCE($6, unit),
                is_active = COALESCE($7, is_active),
                source = COALESCE($8, source),
+               low_stock_threshold = CASE WHEN $10::boolean THEN $9 ELSE low_stock_threshold END,
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = $9
+           WHERE id = $11
            RETURNING *`,
-          [name, group_name, category_id, price, cost, unit, is_active, source, id]
+          [name, group_name, category_id, price, cost, unit, is_active, source, normalizedLowStockThreshold, shouldUpdateLowStockThreshold, id]
         )
       : await query(
           `UPDATE products
@@ -247,10 +257,11 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async 
                unit = COALESCE($5, unit),
                is_active = COALESCE($6, is_active),
                source = COALESCE($7, source),
+               low_stock_threshold = CASE WHEN $9::boolean THEN $8 ELSE low_stock_threshold END,
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = $8
+           WHERE id = $10
            RETURNING *`,
-          [name, category_id, price, cost, unit, is_active, source, id]
+          [name, category_id, price, cost, unit, is_active, source, normalizedLowStockThreshold, shouldUpdateLowStockThreshold, id]
         );
 
     if (result.rows.length === 0) {
