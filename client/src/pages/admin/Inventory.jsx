@@ -39,15 +39,23 @@ export default function AdminInventory() {
 
     ops.forEach((op) => {
       if (op.method === 'post' && op.url === '/inventory') {
-        nextInventory.push({
-          id: op.id,
-          product_id: Number(op.data?.product_id),
+        const productId = Number(op.data?.product_id);
+        const existingIndex = nextInventory.findIndex((item) => Number(item.product_id) === productId);
+        const projectedRow = {
+          id: existingIndex >= 0 ? nextInventory[existingIndex].id : op.id,
+          product_id: productId,
           location_id: Number(op.data?.location_id || selectedLocationId),
           quantity: Number(op.data?.quantity || 0),
           source: op.data?.source || 'baked',
           is_pending_sync: true,
           last_updated: new Date().toISOString(),
-        });
+        };
+
+        if (existingIndex >= 0) {
+          nextInventory[existingIndex] = { ...nextInventory[existingIndex], ...projectedRow };
+        } else {
+          nextInventory.push(projectedRow);
+        }
       }
 
       if (op.method === 'put' && op.url?.startsWith('/inventory/')) {
@@ -210,6 +218,14 @@ export default function AdminInventory() {
     })
     .length, [inventoryRows]);
 
+
+  const totalStockUnits = useMemo(() => inventoryRows
+    .reduce((sum, { item }) => sum + Number(item.quantity || 0), 0), [inventoryRows]);
+
+  const inStockCount = useMemo(() => inventoryRows
+    .filter(({ item }) => Number(item.quantity || 0) > 0)
+    .length, [inventoryRows]);
+
   const filteredInventory = inventoryRows.filter(({ item, product }) => {
     const text = `${product?.group_name || product?.name || ''} ${product?.name || ''}`.toLowerCase();
     if (!text.includes(search.toLowerCase())) return false;
@@ -261,8 +277,8 @@ export default function AdminInventory() {
 
 
       <div className="stats-grid mb-4">
-        <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><Package size={24} /></div><div className="stat-content"><h3>{inventory.reduce((sum, item) => sum + Number(item.quantity || 0), 0)}</h3><p>Total Items</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><TrendingUp size={24} /></div><div className="stat-content"><h3>{inventory.filter((item) => Number(item.quantity || 0) > 10).length}</h3><p>In Stock</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><Package size={24} /></div><div className="stat-content"><h3>{totalStockUnits}</h3><p>Total Items</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><TrendingUp size={24} /></div><div className="stat-content"><h3>{inStockCount}</h3><p>In Stock</p></div></div>
         <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><TrendingDown size={24} /></div><div className="stat-content"><h3>{lowStockCount}</h3><p>Low Stock</p></div></div>
         <div className="stat-card card bg-light"><div className="stat-icon bg-danger text-white"><TrendingDown size={24} /></div><div className="stat-content"><h3>{outOfStockCount}</h3><p>Out of Stock</p></div></div>
       </div>
