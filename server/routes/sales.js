@@ -80,7 +80,7 @@ router.post(
         const saleItems = [];
 
         for (const item of items) {
-          const productResult = await tx.query('SELECT id, name, price FROM products WHERE id = $1', [item.product_id]);
+          const productResult = await tx.query('SELECT id, name, price, low_stock_threshold FROM products WHERE id = $1', [item.product_id]);
           if (productResult.rows.length === 0) {
             const err = new Error(`Product ${item.product_id} not found`);
             err.status = 404;
@@ -98,6 +98,7 @@ router.post(
             quantity: item.quantity,
             unit_price: unitPrice,
             subtotal,
+            low_stock_threshold: product.low_stock_threshold,
           });
         }
 
@@ -117,7 +118,7 @@ router.post(
            ORDER BY updated_at DESC LIMIT 1`,
           [locationId]
         );
-        const lowStockThreshold = Number(lowStockRule.rows[0]?.threshold || 5);
+        const defaultLowStockThreshold = Number(lowStockRule.rows[0]?.threshold || 5);
 
         for (const item of saleItems) {
           await tx.query(
@@ -149,7 +150,11 @@ router.post(
             [locationId, item.product_id, -item.quantity, createdSale.id, effectiveCashierId, JSON.stringify({ remaining_quantity: remainingQty, synced_by_user_id: req.user.id })]
           );
 
-          if (remainingQty < lowStockThreshold) {
+          const itemLowStockThreshold = Number.isFinite(Number(item.low_stock_threshold))
+            ? Number(item.low_stock_threshold)
+            : defaultLowStockThreshold;
+
+          if (remainingQty < itemLowStockThreshold) {
             await tx.query(
               `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
                SELECT id, $1, $2, $3, $4 FROM users WHERE role IN ('admin', 'manager') AND location_id = $1`,

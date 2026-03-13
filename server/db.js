@@ -270,6 +270,7 @@ export async function ensureProductCreatorSchema() {
 
   productCreatorSchemaPromise = (async () => {
     await query('ALTER TABLE products ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)');
+    await query('ALTER TABLE products ADD COLUMN IF NOT EXISTS low_stock_threshold INTEGER');
     await query('CREATE INDEX IF NOT EXISTS idx_products_created_by ON products(created_by)');
   })().catch((error) => {
     productCreatorSchemaPromise = null;

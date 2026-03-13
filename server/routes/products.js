@@ -168,16 +168,16 @@ router.post('/', authenticateToken, authorizeRoles('admin', 'manager'), body('na
 
     const result = hasGroupName
       ? await query(
-          `INSERT INTO products (name, group_name, category_id, price, cost, unit, source, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          `INSERT INTO products (name, group_name, category_id, price, cost, unit, source, created_by, low_stock_threshold)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            RETURNING *`,
-          [name, effectiveGroup, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id]
+          [name, effectiveGroup, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, Number.isFinite(Number(req.body.low_stock_threshold)) ? Math.max(0, Math.trunc(Number(req.body.low_stock_threshold))) : null]
         )
       : await query(
-          `INSERT INTO products (name, category_id, price, cost, unit, source, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `INSERT INTO products (name, category_id, price, cost, unit, source, created_by, low_stock_threshold)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            RETURNING *`,
-          [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id]
+          [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, Number.isFinite(Number(req.body.low_stock_threshold)) ? Math.max(0, Math.trunc(Number(req.body.low_stock_threshold))) : null]
         );
 
     const createdProduct = result.rows[0];
@@ -205,7 +205,7 @@ router.post('/', authenticateToken, authorizeRoles('admin', 'manager'), body('na
 });
 
 router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
-  const { name, group_name, category_id, price, cost, unit, is_active, source } = req.body;
+  const { name, group_name, category_id, price, cost, unit, is_active, source, low_stock_threshold } = req.body;
   const { id } = req.params;
 
   try {
@@ -233,10 +233,11 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async 
                unit = COALESCE($6, unit),
                is_active = COALESCE($7, is_active),
                source = COALESCE($8, source),
+               low_stock_threshold = COALESCE($9, low_stock_threshold),
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = $9
+           WHERE id = $10
            RETURNING *`,
-          [name, group_name, category_id, price, cost, unit, is_active, source, id]
+          [name, group_name, category_id, price, cost, unit, is_active, source, Number.isFinite(Number(low_stock_threshold)) ? Math.max(0, Math.trunc(Number(low_stock_threshold))) : null, id]
         )
       : await query(
           `UPDATE products
@@ -247,10 +248,11 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async 
                unit = COALESCE($5, unit),
                is_active = COALESCE($6, is_active),
                source = COALESCE($7, source),
+               low_stock_threshold = COALESCE($8, low_stock_threshold),
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = $8
+           WHERE id = $9
            RETURNING *`,
-          [name, category_id, price, cost, unit, is_active, source, id]
+          [name, category_id, price, cost, unit, is_active, source, Number.isFinite(Number(low_stock_threshold)) ? Math.max(0, Math.trunc(Number(low_stock_threshold))) : null, id]
         );
 
     if (result.rows.length === 0) {
