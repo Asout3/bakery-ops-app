@@ -1,5 +1,6 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
+import { isProductionRuntime } from './utils/runtime.js';
 
 dotenv.config();
 
@@ -7,7 +8,7 @@ const { Pool } = pg;
 
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
 const dbIpFamily = Number(process.env.DB_IP_FAMILY || 4);
-const isProduction = process.env.NODE_ENV === 'production';
+const isProduction = isProductionRuntime;
 
 const shouldRejectUnauthorized = process.env.SSL_REJECT_UNAUTHORIZED !== 'false';
 

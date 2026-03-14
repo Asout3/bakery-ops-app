@@ -1,7 +1,9 @@
 import rateLimit from 'express-rate-limit';
 import { ipKeyGenerator } from 'express-rate-limit';
 
-const isDevelopment = process.env.NODE_ENV !== 'production';
+import { isProductionRuntime } from '../utils/runtime.js';
+
+const isDevelopment = !isProductionRuntime;
 
 const authLimiter = rateLimit({
   windowMs: isDevelopment ? 60 * 1000 : 15 * 60 * 1000,
@@ -94,7 +96,7 @@ export function validateEnvironment() {
   const required = ['JWT_SECRET', 'DATABASE_URL'];
   const missing = required.filter(key => !process.env[key]);
   
-  if (missing.length > 0 && process.env.NODE_ENV === 'production') {
+  if (missing.length > 0 && isProductionRuntime) {
     console.error(`[FATAL] Missing required environment variables: ${missing.join(', ')}`);
     process.exit(1);
   }
@@ -104,7 +106,7 @@ export function validateEnvironment() {
     process.exit(1);
   }
   
-  if (process.env.NODE_ENV === 'production') {
+  if (isProductionRuntime) {
     const warnings = [];
     
     if (process.env.JWT_SECRET === 'your_super_secret_jwt_key_change-this-in-production-min-32-chars' || 
@@ -131,7 +133,7 @@ export function getCorsOptions() {
     ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
     : [];
   
-  if (process.env.NODE_ENV !== 'production') {
+  if (!isProductionRuntime) {
     return {
       origin: true,
       credentials: true,
@@ -149,8 +151,9 @@ export function getCorsOptions() {
       }
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Location-Id', 'X-Idempotency-Key', 'X-Retry-Count', 'X-Queued-Request', 'X-Queued-Created-At', 'X-Offline-Actor-Id', 'X-Skip-Auth-Redirect'],
     maxAge: 86400,
+    optionsSuccessStatus: 204,
   };
 }

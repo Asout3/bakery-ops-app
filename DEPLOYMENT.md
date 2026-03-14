@@ -16,10 +16,13 @@ Backend (`.env` / platform secrets):
 ```env
 PORT=5000
 NODE_ENV=production
+APP_ENV=production
 JWT_SECRET=<min-32-chars>
 DATABASE_URL=<postgresql-connection-string>
 ALLOWED_ORIGINS=https://your-frontend-domain.example
 ```
+
+`APP_ENV=production` is a safety override for platforms where `NODE_ENV` is not reliably set at runtime.
 
 Frontend (`client` build env):
 
@@ -38,6 +41,31 @@ npm run setup-db
 npm run build
 npm start
 ```
+
+
+## 3.1) Railway + Vercel Checklist
+
+Use this exact setup to prevent CORS/preflight issues:
+
+1. Railway backend variables:
+   - `NODE_ENV=production`
+   - `APP_ENV=production`
+   - `ALLOWED_ORIGINS=https://ops-nu-gold.vercel.app` (or your real Vercel URL)
+   - `JWT_SECRET` with 32+ chars
+   - `DATABASE_URL` with SSL enabled
+2. Vercel frontend variables:
+   - `VITE_API_URL=https://bakery-ops-app-production.up.railway.app`
+3. Redeploy backend first, then redeploy frontend.
+4. Verify preflight works:
+
+```bash
+curl -i -X OPTIONS https://bakery-ops-app-production.up.railway.app/api/auth/login \
+  -H 'Origin: https://ops-nu-gold.vercel.app' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: content-type'
+```
+
+Expected response headers include `Access-Control-Allow-Origin` and `Access-Control-Allow-Methods`.
 
 ## 4) Database Safety Notes
 

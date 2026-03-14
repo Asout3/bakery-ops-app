@@ -7,6 +7,7 @@ import pool, { ensureAuthSecuritySchema, ensureOrdersSchema, ensureProductCreato
 import { apiLimiter, validateEnvironment, getCorsOptions } from './middleware/security.js';
 import { attachRequestContext } from './middleware/requestContext.js';
 import { errorHandler } from './utils/errors.js';
+import { isProductionRuntime } from './utils/runtime.js';
 
 import authRoutes from './routes/auth.js';
 import productsRoutes from './routes/products.js';
@@ -33,7 +34,7 @@ await ensureOrdersSchema();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const isProduction = process.env.NODE_ENV === 'production';
+const isProduction = isProductionRuntime;
 
 app.set('trust proxy', isProduction ? 1 : 0);
 app.use(attachRequestContext);
