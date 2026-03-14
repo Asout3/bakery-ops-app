@@ -81,7 +81,21 @@ if (process.env.NODE_ENV !== 'test') {
   app.use(morgan(isProduction ? 'combined' : 'dev'));
 }
 
+// Health check endpoint with explicit CORS for connectivity checks
+// This endpoint is critical for offline detection - always allow access
+app.options('/api/health', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Accept, Content-Type');
+  res.header('Access-Control-Max-Age', '86400');
+  res.sendStatus(204);
+});
+
 app.get('/api/health', async (req, res) => {
+  // Set CORS headers explicitly for health check (important for connectivity detection)
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Cache-Control', 'no-store, no-cache, must-revalidate');
+  
   try {
     const dbStart = Date.now();
     await pool.query('SELECT 1');
@@ -121,8 +135,17 @@ app.get('/api/ready', async (req, res) => {
   }
 });
 
+// Simple liveness check - always accessible
+app.options('/api/live', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.sendStatus(204);
+});
+
 app.get('/api/live', (req, res) => {
-  res.status(200).json({ alive: true });
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Cache-Control', 'no-store');
+  res.status(200).json({ alive: true, timestamp: Date.now() });
 });
 
 app.use('/api/', apiLimiter);

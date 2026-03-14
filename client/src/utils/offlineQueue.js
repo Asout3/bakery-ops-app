@@ -498,8 +498,88 @@ export async function getSyncStats() {
   };
 }
 
+// Track actual backend connectivity state (not just navigator.onLine)
+let _backendReachable = navigator.onLine;
+let _lastBackendCheck = 0;
+const BACKEND_CHECK_INTERVAL_MS = 30000; // 30 seconds
+const BACKEND_CHECK_TIMEOUT_MS = 8000; // 8 second timeout
+
 export function isOnline() {
-  return navigator.onLine;
+  // Both browser AND backend must be reachable
+  return navigator.onLine && _backendReachable;
+}
+
+export function getBackendReachable() {
+  return _backendReachable;
+}
+
+export function setBackendReachable(reachable) {
+  const changed = _backendReachable !== reachable;
+  _backendReachable = reachable;
+  _lastBackendCheck = Date.now();
+  
+  if (changed) {
+    // Dispatch custom event so components can react
+    window.dispatchEvent(new CustomEvent('backend-connectivity-change', { 
+      detail: { reachable, timestamp: _lastBackendCheck } 
+    }));
+  }
+  
+  return changed;
+}
+
+// Active health check against the backend
+export async function checkBackendConnectivity(apiBaseUrl) {
+  if (!navigator.onLine) {
+    setBackendReachable(false);
+    return false;
+  }
+
+  const now = Date.now();
+  // Don't hammer the health endpoint
+  if (now - _lastBackendCheck < 5000 && _lastBackendCheck > 0) {
+    return _backendReachable;
+  }
+
+  // Try primary health check first, then fallback to simpler live endpoint
+  const endpoints = ['/health', '/live'];
+  
+  for (const endpoint of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), BACKEND_CHECK_TIMEOUT_MS);
+
+      const response = await fetch(`${apiBaseUrl}${endpoint}`, {
+        method: 'GET',
+        signal: controller.signal,
+        cache: 'no-store',
+        mode: 'cors',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        setBackendReachable(true);
+        console.log('[OfflineQueue] Backend reachable via', endpoint);
+        return true;
+      }
+    } catch (err) {
+      console.warn(`[OfflineQueue] Backend check via ${endpoint} failed:`, err.message);
+      // Continue to next endpoint
+    }
+  }
+
+  // All endpoints failed
+  console.warn('[OfflineQueue] Backend unreachable - all health endpoints failed');
+  setBackendReachable(false);
+  return false;
+}
+
+export function shouldCheckBackendConnectivity() {
+  return Date.now() - _lastBackendCheck > BACKEND_CHECK_INTERVAL_MS;
 }
 
 export function getConnectionQuality() {
@@ -514,7 +594,8 @@ export function getConnectionQuality() {
 }
 
 export function shouldUseOfflineMode() {
-  if (!navigator.onLine) return true;
+  // If backend is not reachable, use offline mode
+  if (!isOnline()) return true;
   
   const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
   if (!connection) return false;

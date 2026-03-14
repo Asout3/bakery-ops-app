@@ -1,12 +1,24 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { WifiOff, RefreshCw, AlertTriangle, CheckCircle, Minimize2, Maximize2 } from 'lucide-react';
+import { WifiOff, RefreshCw, AlertTriangle, CheckCircle, Minimize2, Maximize2, Cloud, CloudOff } from 'lucide-react';
 import { retryOperation, cancelOperation, listQueuedOperations } from '../utils/offlineQueue';
 import { useAuth } from '../context/AuthContext';
 import './OfflineIndicator.css';
 
 export default function OfflineIndicator({ sync }) {
   const { user, isAuthenticated } = useAuth();
-  const { isOnline, queueStats, syncInProgress, runSync, appInitialized, syncProgress, syncOutcome, lastSyncResult } = sync;
+  const { 
+    isOnline, 
+    backendReachable, 
+    queueStats, 
+    syncInProgress, 
+    runSync, 
+    checkBackend,
+    appInitialized, 
+    syncProgress, 
+    syncOutcome, 
+    lastSyncResult,
+    lastHealthCheck,
+  } = sync;
   const [expanded, setExpanded] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [conflictOps, setConflictOps] = useState([]);
@@ -15,14 +27,19 @@ export default function OfflineIndicator({ sync }) {
   const issueCount = isAdmin ? (queueStats.conflict + queueStats.failed + (queueStats.needsReview || 0)) : 0;
   const hasBacklog = queueStats.total > 0 || issueCount > 0;
 
+  // Determine if we're truly offline or just backend-unreachable
+  const browserOnline = navigator.onLine;
+  const serverUnreachable = browserOnline && !backendReachable;
+
   const statusLabel = useMemo(() => {
-    if (!isOnline) return 'Offline Mode';
+    if (!browserOnline) return 'Offline Mode';
+    if (serverUnreachable) return 'Server Unreachable';
     if (syncInProgress) return `Syncing ${syncProgress.done}/${syncProgress.total || queueStats.pending}`;
     if (syncOutcome === 'attention') return 'Needs Review';
     if (syncOutcome === 'retrying') return 'Retrying Pending Sync';
     if (hasBacklog) return `${queueStats.pending} pending`;
     return 'Synced';
-  }, [isOnline, syncInProgress, syncProgress.done, syncProgress.total, queueStats.pending, syncOutcome, hasBacklog]);
+  }, [browserOnline, serverUnreachable, syncInProgress, syncProgress.done, syncProgress.total, queueStats.pending, syncOutcome, hasBacklog]);
 
   const loadConflicts = useCallback(async () => {
     if (!isAdmin || !isAuthenticated) {
@@ -49,7 +66,8 @@ export default function OfflineIndicator({ sync }) {
 
   if (!appInitialized || !isAuthenticated) return null;
 
-  const shouldRender = !isOnline || syncInProgress || queueStats.total > 0 || issueCount > 0 || syncProgress.finished;
+  // Show indicator when: offline, server unreachable, syncing, has queue items, or just finished sync
+  const shouldRender = !browserOnline || serverUnreachable || syncInProgress || queueStats.total > 0 || issueCount > 0 || syncProgress.finished;
   if (!shouldRender) return null;
 
   const handleRetry = async (operationId) => {
@@ -63,13 +81,15 @@ export default function OfflineIndicator({ sync }) {
     await loadConflicts();
   };
 
-  const statusIcon = !isOnline
+  const statusIcon = !browserOnline
     ? <WifiOff size={16} />
-    : syncInProgress
-      ? <RefreshCw size={16} className="spinning" />
-      : issueCount > 0 || syncOutcome === 'attention'
-        ? <AlertTriangle size={16} />
-        : <CheckCircle size={16} />;
+    : serverUnreachable
+      ? <CloudOff size={16} />
+      : syncInProgress
+        ? <RefreshCw size={16} className="spinning" />
+        : issueCount > 0 || syncOutcome === 'attention'
+          ? <AlertTriangle size={16} />
+          : <CheckCircle size={16} />;
 
   if (collapsed) {
     return (
@@ -81,7 +101,7 @@ export default function OfflineIndicator({ sync }) {
   }
 
   return (
-    <div className={`offline-indicator ${!isOnline ? 'offline' : ''} ${issueCount > 0 ? 'has-conflicts' : ''}`}>
+    <div className={`offline-indicator ${!browserOnline ? 'offline' : ''} ${serverUnreachable ? 'server-unreachable' : ''} ${issueCount > 0 ? 'has-conflicts' : ''}`}>
       <div className="indicator-bar" onClick={() => setExpanded((prev) => !prev)}>
         {statusIcon}
         <span>{statusLabel}</span>
@@ -94,11 +114,19 @@ export default function OfflineIndicator({ sync }) {
       {expanded && (
         <div className="indicator-expanded">
           <div className="sync-status">
-            <div className="status-row"><span>Status:</span><span>{isOnline ? 'Online' : 'Offline'}</span></div>
+            <div className="status-row">
+              <span>Network:</span>
+              <span className={browserOnline ? 'text-success' : 'text-danger'}>{browserOnline ? 'Connected' : 'Disconnected'}</span>
+            </div>
+            <div className="status-row">
+              <span>Server:</span>
+              <span className={backendReachable ? 'text-success' : 'text-danger'}>{backendReachable ? 'Reachable' : 'Unreachable'}</span>
+            </div>
             <div className="status-row"><span>Pending:</span><span>{queueStats.pending}</span></div>
             <div className="status-row"><span>Outcome:</span><span>{syncOutcome}</span></div>
             {syncProgress.total > 0 && <div className="status-row"><span>Progress:</span><span>{syncProgress.done}/{syncProgress.total}</span></div>}
             {!!lastSyncResult?.at && <div className="status-row"><span>Last Sync:</span><span>{new Date(lastSyncResult.at).toLocaleTimeString()}</span></div>}
+            {!!lastHealthCheck && <div className="status-row"><span>Health Check:</span><span>{new Date(lastHealthCheck).toLocaleTimeString()}</span></div>}
             {isAdmin && <div className="status-row"><span>Needs Review:</span><span className={queueStats.needsReview > 0 ? 'text-warning' : ''}>{queueStats.needsReview || 0}</span></div>}
             {isAdmin && <div className="status-row"><span>Conflicts:</span><span className={queueStats.conflict > 0 ? 'text-warning' : ''}>{queueStats.conflict}</span></div>}
             {isAdmin && <div className="status-row"><span>Failed:</span><span className={queueStats.failed > 0 ? 'text-danger' : ''}>{queueStats.failed}</span></div>}
@@ -123,11 +151,19 @@ export default function OfflineIndicator({ sync }) {
             </div>
           )}
 
-          {isOnline && queueStats.pending > 0 && !syncInProgress && (
-            <button className="btn btn-primary btn-sm" onClick={runSync}>
-              Force Sync
-            </button>
-          )}
+          {/* Action buttons */}
+          <div className="indicator-actions">
+            {serverUnreachable && (
+              <button className="btn btn-warning btn-sm" onClick={checkBackend}>
+                <RefreshCw size={14} /> Check Server
+              </button>
+            )}
+            {isOnline && queueStats.pending > 0 && !syncInProgress && (
+              <button className="btn btn-primary btn-sm" onClick={runSync}>
+                Force Sync
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

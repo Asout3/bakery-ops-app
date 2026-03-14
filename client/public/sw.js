@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'bakery-ops-shell-v8';
+const CACHE_VERSION = 'bakery-ops-shell-v9';
 const SHELL_CACHE = `shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 const BASE_SHELL_ASSETS = ['/', '/index.html'];

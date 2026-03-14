@@ -2,10 +2,20 @@ import { useEffect, useCallback, useMemo, useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import api from '../api/axios';
-import { flushQueue, getSyncStats, isOnline, getConnectionQuality } from '../utils/offlineQueue';
+import { 
+  flushQueue, 
+  getSyncStats, 
+  isOnline, 
+  getConnectionQuality,
+  checkBackendConnectivity,
+  shouldCheckBackendConnectivity,
+  getBackendReachable,
+  setBackendReachable,
+} from '../utils/offlineQueue';
 
 const BASE_SYNC_INTERVAL_MS = 12000;
 const MIN_RETRY_GAP_MS = 15000;
+const BACKEND_HEALTH_CHECK_INTERVAL_MS = 45000; // Check backend health every 45 seconds
 
 function resolveSyncInterval(queueStats) {
   const quality = getConnectionQuality();
@@ -18,6 +28,7 @@ export function useOfflineSync() {
   const { user, isAuthenticated } = useAuth();
   const toast = useToast();
   const [isOnlineState, setIsOnlineState] = useState(() => isOnline());
+  const [backendReachable, setBackendReachableState] = useState(() => getBackendReachable());
   const [queueStats, setQueueStats] = useState({ total: 0, pending: 0, conflict: 0, needsReview: 0, failed: 0 });
   const [syncProgress, setSyncProgress] = useState({ total: 0, done: 0, active: false, finished: false });
   const [syncInProgress, setSyncInProgress] = useState(false);
@@ -31,10 +42,36 @@ export function useOfflineSync() {
     }
   });
   const [appInitialized, setAppInitialized] = useState(false);
+  const [lastHealthCheck, setLastHealthCheck] = useState(null);
   const initializedRef = useRef(false);
   const finishResetTimeoutRef = useRef(null);
   const lastSyncAttemptRef = useRef(0);
   const lastNotifiedPendingRef = useRef(0);
+  const healthCheckIntervalRef = useRef(null);
+  
+  // Get API base URL for health checks
+  const apiBaseUrl = api.defaults.baseURL || '/api';
+
+  // Actively check if backend is reachable
+  const checkBackend = useCallback(async () => {
+    if (!navigator.onLine) {
+      setBackendReachable(false);
+      setBackendReachableState(false);
+      setIsOnlineState(false);
+      return false;
+    }
+
+    const reachable = await checkBackendConnectivity(apiBaseUrl);
+    setBackendReachableState(reachable);
+    setIsOnlineState(navigator.onLine && reachable);
+    setLastHealthCheck(new Date().toISOString());
+    
+    if (!reachable && navigator.onLine) {
+      console.warn('[OfflineSync] Browser online but backend unreachable');
+    }
+    
+    return reachable;
+  }, [apiBaseUrl]);
 
   const runSync = useCallback(async (force = false) => {
     if (!isAuthenticated) return;
@@ -44,11 +81,25 @@ export function useOfflineSync() {
     if (!force && now - lastSyncAttemptRef.current < MIN_RETRY_GAP_MS) return;
     lastSyncAttemptRef.current = now;
 
+    // Check backend connectivity before attempting sync
     if (!navigator.onLine) {
+      setIsOnlineState(false);
       const stats = await getSyncStats();
       setQueueStats(stats);
-      if (stats.pending > lastNotifiedPendingRef.current && !navigator.onLine) {
+      if (stats.pending > lastNotifiedPendingRef.current) {
         toast.info('Action added to offline queue. It will sync when connection returns.');
+      }
+      lastNotifiedPendingRef.current = stats.pending;
+      return;
+    }
+
+    // Actively verify backend is reachable before sync
+    const backendOk = await checkBackend();
+    if (!backendOk) {
+      const stats = await getSyncStats();
+      setQueueStats(stats);
+      if (stats.pending > lastNotifiedPendingRef.current) {
+        toast.info('Server unreachable. Actions queued for sync when connection is restored.');
       }
       lastNotifiedPendingRef.current = stats.pending;
       return;
@@ -142,13 +193,26 @@ export function useOfflineSync() {
   }, [syncInProgress, isAuthenticated, toast]);
 
   const updateOnlineStatus = useCallback(async (eventType) => {
-    const online = navigator.onLine;
-    setIsOnlineState(online);
-
-    if (online && eventType === 'online' && isAuthenticated) {
-      await runSync(true);
+    if (!navigator.onLine) {
+      setBackendReachable(false);
+      setBackendReachableState(false);
+      setIsOnlineState(false);
+      return;
     }
-  }, [runSync, isAuthenticated]);
+
+    // When browser goes online, actively verify backend
+    if (eventType === 'online') {
+      toast.info('Network detected. Checking server connection...');
+      const reachable = await checkBackend();
+      
+      if (reachable && isAuthenticated) {
+        toast.success('Server connection restored. Syncing...');
+        await runSync(true);
+      } else if (!reachable) {
+        toast.warning('Network available but server is unreachable. Will retry automatically.');
+      }
+    }
+  }, [runSync, isAuthenticated, checkBackend, toast]);
 
   const updateQueueStats = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -170,8 +234,15 @@ export function useOfflineSync() {
     const init = async () => {
       await updateQueueStats();
       
-      if (isAuthenticated && navigator.onLine) {
-        await runSync(true);
+      // On init, actively check backend connectivity
+      if (navigator.onLine) {
+        const reachable = await checkBackend();
+        if (reachable && isAuthenticated) {
+          await runSync(true);
+        }
+      } else {
+        setIsOnlineState(false);
+        setBackendReachableState(false);
       }
       
       setAppInitialized(true);
@@ -183,12 +254,34 @@ export function useOfflineSync() {
   useEffect(() => {
     if (!appInitialized) return;
 
-    const interval = setInterval(() => {
+    // Sync interval - also includes backend check before sync
+    const interval = setInterval(async () => {
       if (navigator.onLine && isAuthenticated) {
-        runSync();
+        // Periodically verify backend is reachable
+        if (shouldCheckBackendConnectivity()) {
+          await checkBackend();
+        }
+        // Only sync if backend is confirmed reachable
+        if (getBackendReachable()) {
+          runSync();
+        }
       }
       updateQueueStats();
     }, syncInterval);
+
+    // Periodic backend health check (separate from sync)
+    healthCheckIntervalRef.current = setInterval(async () => {
+      if (navigator.onLine) {
+        const wasReachable = getBackendReachable();
+        const nowReachable = await checkBackend();
+        
+        // If backend just became reachable, trigger sync
+        if (!wasReachable && nowReachable && isAuthenticated) {
+          toast.success('Server connection restored.');
+          runSync(true);
+        }
+      }
+    }, BACKEND_HEALTH_CHECK_INTERVAL_MS);
 
     const handleOnline = () => updateOnlineStatus('online');
     const handleOffline = () => updateOnlineStatus('offline');
@@ -196,44 +289,67 @@ export function useOfflineSync() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    const handleVisibilityChange = () => {
+    // Listen for our custom backend connectivity event
+    const handleBackendChange = (event) => {
+      const { reachable } = event.detail;
+      setBackendReachableState(reachable);
+      setIsOnlineState(navigator.onLine && reachable);
+    };
+    window.addEventListener('backend-connectivity-change', handleBackendChange);
+
+    const handleVisibilityChange = async () => {
       if (document.visibilityState === 'visible') {
         updateQueueStats();
+        // When tab becomes visible, check backend and sync if possible
         if (navigator.onLine && isAuthenticated) {
-          runSync();
+          const reachable = await checkBackend();
+          if (reachable) {
+            runSync();
+          }
         }
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    const handleConnectionChange = () => {
+    const handleConnectionChange = async () => {
       updateQueueStats();
       if (navigator.onLine && isAuthenticated) {
-        runSync();
+        const reachable = await checkBackend();
+        if (reachable) {
+          runSync();
+        }
       }
     };
     connection?.addEventListener?.('change', handleConnectionChange);
 
     return () => {
       clearInterval(interval);
+      if (healthCheckIntervalRef.current) {
+        clearInterval(healthCheckIntervalRef.current);
+        healthCheckIntervalRef.current = null;
+      }
       if (finishResetTimeoutRef.current) {
         clearTimeout(finishResetTimeoutRef.current);
         finishResetTimeoutRef.current = null;
       }
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('backend-connectivity-change', handleBackendChange);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       connection?.removeEventListener?.('change', handleConnectionChange);
     };
-  }, [appInitialized, runSync, syncInterval, updateOnlineStatus, updateQueueStats, isAuthenticated]);
+  }, [appInitialized, runSync, syncInterval, updateOnlineStatus, updateQueueStats, isAuthenticated, checkBackend, toast]);
 
   return {
     isOnline: isOnlineState,
+    backendReachable,
     queueStats,
     syncInProgress,
     lastSyncResult,
+    lastHealthCheck,
     runSync: () => runSync(true),
+    checkBackend,
     connectionQuality: getConnectionQuality(),
     syncInterval,
     appInitialized,
