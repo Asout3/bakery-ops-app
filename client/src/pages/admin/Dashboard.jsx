@@ -264,8 +264,8 @@ export default function Dashboard() {
 
       <DataTable
         title="Cashier & Ground Manager Performance"
-        headers={['Team Member', 'Role', 'Sales', 'Txns', 'Items', 'Cash', 'Mobile']}
-        rows={cashierRows.map((r) => [r.cashier_name, r.cashier_role, formatMoney(r.total_sales), Number(r.transactions || 0), Number(r.items_sold || 0), formatMoney(r.cash_sales), formatMoney(r.mobile_sales)])}
+        headers={['Team Member', 'Role', 'Sales', 'Txns', 'Items', 'Cash', 'Mobile', 'Telebirr']}
+        rows={cashierRows.map((r) => [r.cashier_name, r.cashier_role, formatMoney(r.total_sales), Number(r.transactions || 0), Number(r.items_sold || 0), formatMoney(r.cash_sales), formatMoney(r.mobile_sales), formatMoney(r.telebirr_sales)])}
         empty="No cashier performance data in this period."
       />
       <DataTable

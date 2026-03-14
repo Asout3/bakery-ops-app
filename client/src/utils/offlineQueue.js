@@ -106,6 +106,11 @@ function getRequestTimeout(retries) {
 
 
 function resolveSyncErrorMessage(error) {
+  const errorCode = error?.response?.data?.code;
+  const details = error?.response?.data?.details;
+  if (errorCode === 'INSUFFICIENT_STOCK' && details?.product_name) {
+    return `${details.product_name} is out of stock (${Number(details.available_quantity || 0)} available, ${Number(details.requested_quantity || 0)} requested). Restock then retry sync.`;
+  }
   return error?.response?.data?.error || error?.userMessage || error?.message || 'Sync failed';
 }
 export async function enqueueOperation(operation) {
