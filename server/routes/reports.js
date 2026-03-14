@@ -152,6 +152,7 @@ router.get('/daily', authenticateToken, async (req, res) => {
               COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' THEN sb.total_amount ELSE 0 END), 0) as total_sales,
               COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'cash' THEN sb.total_amount ELSE 0 END), 0) as cash_sales,
               COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'mobile' THEN sb.total_amount ELSE 0 END), 0) as mobile_sales,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'telebirr' THEN sb.total_amount ELSE 0 END), 0) as telebirr_sales,
               COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' THEN COALESCE(it.items_sold, 0) ELSE 0 END), 0) as items_sold,
               COALESCE(SUM(CASE WHEN sb.sale_status = 'voided' THEN 1 ELSE 0 END), 0) as voided_transactions,
               COALESCE(SUM(CASE WHEN sb.is_offline = true THEN 1 ELSE 0 END), 0) as offline_synced_transactions
@@ -394,6 +395,7 @@ router.get('/weekly', authenticateToken, async (req, res) => {
               COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' THEN sb.total_amount ELSE 0 END), 0) as total_sales,
               COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'cash' THEN sb.total_amount ELSE 0 END), 0) as cash_sales,
               COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'mobile' THEN sb.total_amount ELSE 0 END), 0) as mobile_sales,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'telebirr' THEN sb.total_amount ELSE 0 END), 0) as telebirr_sales,
               COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' THEN COALESCE(it.items_sold, 0) ELSE 0 END), 0) as items_sold,
               COALESCE(SUM(CASE WHEN sb.sale_status = 'voided' THEN 1 ELSE 0 END), 0) as voided_transactions,
               COALESCE(SUM(CASE WHEN sb.is_offline = true THEN 1 ELSE 0 END), 0) as offline_synced_transactions
@@ -669,6 +671,7 @@ router.get('/monthly', authenticateToken, async (req, res) => {
               COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' THEN sb.total_amount ELSE 0 END), 0) as total_sales,
               COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'cash' THEN sb.total_amount ELSE 0 END), 0) as cash_sales,
               COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'mobile' THEN sb.total_amount ELSE 0 END), 0) as mobile_sales,
+              COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' AND sb.payment_method = 'telebirr' THEN sb.total_amount ELSE 0 END), 0) as telebirr_sales,
               COALESCE(SUM(CASE WHEN sb.sale_status <> 'voided' THEN COALESCE(it.items_sold, 0) ELSE 0 END), 0) as items_sold,
               COALESCE(SUM(CASE WHEN sb.sale_status = 'voided' THEN 1 ELSE 0 END), 0) as voided_transactions,
               COALESCE(SUM(CASE WHEN sb.is_offline = true THEN 1 ELSE 0 END), 0) as offline_synced_transactions

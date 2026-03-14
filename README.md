@@ -154,6 +154,8 @@ sequenceDiagram
 - Offline replay preserves the original actor identity (`X-Offline-Actor-Id`) so synced records remain attributed to the initiating cashier/manager, not the user who triggers replay later.
 - Staff account roles are immutable after account creation; updates can change credentials/location but not role.
 - API error envelope consistency (`error`, `code`, `requestId`) for client classification.
+- Sales stock failures now return structured `INSUFFICIENT_STOCK` details so offline sync can surface actionable retry guidance (`requested_quantity` vs `available_quantity`).
+- Admin dashboard cashier performance now includes Telebirr totals alongside Cash and Mobile splits for daily/weekly/monthly periods.
 - Cache fallback in key manager/cashier pages for continuity.
 - Single-flight offline queue flush locking to prevent overlapping replay runs.
 - Service-worker shell caching that discovers and caches current hashed build assets from `index.html`.
@@ -161,6 +163,16 @@ sequenceDiagram
 ### Important Development Note
 
 In development mode, service workers are intentionally unregistered to prevent stale production workers from interfering with Vite dev behavior. Validate offline refresh using production build/preview behavior (`npm run build` + `npm run preview` in `client/`).
+
+### Deployment Cache Consistency Checklist
+
+When a remote reviewer reports they cannot see merged changes, confirm the following in order:
+
+1. Verify both users are pointing to the same frontend URL and backend API URL (`VITE_API_URL` / rewrite target).
+2. Open DevTools Application tab and force-update the service worker, then hard-refresh once.
+3. Confirm `/index.html` and `/sw.js` are revalidated on each deploy while hashed `/assets/*` remain immutable.
+4. Check release parity by comparing dashboard-level behavior changes (e.g., Telebirr cashier split now visible).
+
 
 ---
 

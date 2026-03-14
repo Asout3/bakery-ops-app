@@ -136,8 +136,20 @@ router.post(
           );
 
           if (inventoryUpdateResult.rowCount === 0) {
+            const availableStockResult = await tx.query(
+              `SELECT quantity FROM inventory WHERE product_id = $1 AND location_id = $2`,
+              [item.product_id, locationId]
+            );
+            const availableQuantity = Number(availableStockResult.rows[0]?.quantity || 0);
             const stockError = new Error(`Insufficient stock for ${item.product_name}`);
             stockError.status = 400;
+            stockError.code = 'INSUFFICIENT_STOCK';
+            stockError.details = {
+              product_id: item.product_id,
+              product_name: item.product_name,
+              requested_quantity: Number(item.quantity),
+              available_quantity: availableQuantity,
+            };
             throw stockError;
           }
 
@@ -227,7 +239,7 @@ router.post(
       res.status(201).json(sale);
     } catch (err) {
       console.error('Create sale error:', err);
-      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: err.code || 'SALES_CREATE_ERROR', requestId: req.requestId });
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: err.code || 'SALES_CREATE_ERROR', details: err.details || null, requestId: req.requestId });
     }
   }
 );
@@ -274,7 +286,7 @@ router.get('/', authenticateToken, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('Get sales error:', err);
-    res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: err.code || 'SALES_CREATE_ERROR', requestId: req.requestId });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: err.code || 'SALES_CREATE_ERROR', details: err.details || null, requestId: req.requestId });
   }
 });
 
