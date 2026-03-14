@@ -23,6 +23,15 @@
   background: var(--error-bg);
 }
 
+.offline-indicator.server-unreachable {
+  border-color: rgba(180,100,50,0.6);
+  background: linear-gradient(135deg, var(--warning-bg) 0%, var(--card-bg) 100%);
+}
+
+.server-unreachable .indicator-bar {
+  color: #8b5a00;
+}
+
 .offline-chip {
   position: fixed;
   right: 1.25rem;
@@ -129,3 +138,24 @@
 .conflict-error { font-size: 0.7rem;  color: var(--text-error); }
 .conflict-time  { font-size: 0.68rem; color: var(--text-muted); }
 .conflict-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+.indicator-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--accent-border);
+}
+
+.indicator-actions .btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+/* Text colors for status */
+.text-success { color: #10b981 !important; }
+.text-danger { color: var(--text-error, #dc2626) !important; }
+.text-warning { color: #f59e0b !important; }
