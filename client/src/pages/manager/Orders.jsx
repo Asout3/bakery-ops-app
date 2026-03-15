@@ -49,7 +49,7 @@ export default function ManagerOrders() {
                 <tr key={order.id}>
                   <td>{order.order_code || `ORD-${String(order.id).padStart(6, '0')}`}</td>
                   <td>{order.customer_name}<div className="text-muted small">{order.customer_phone}</div></td>
-                  <td>{(order.items || []).map((item) => <div key={item.id}>{item.custom_item_name || `Product #${item.product_id}`} × {item.quantity}</div>)}</td>
+                  <td>{(order.items || []).map((item) => <div key={item.id}>{item.custom_item_name || item.product_name || `Product #${item.product_id}`} × {item.quantity}</div>)}</td>
                   <td><span className="badge badge-primary">{order.status}</span></td>
                   <td>
                     <input type="number" min="0" max="100" className="form-control form-control-sm" style={{ maxWidth: '110px' }} defaultValue={Number(order.prep_progress || 0)} onBlur={(e) => updateOrder(order, { prep_status: 'preparing', prep_progress: Number(e.target.value) })} />
