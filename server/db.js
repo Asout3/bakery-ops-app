@@ -119,7 +119,7 @@ pool.on('remove', () => {
   }
 });
 
-pool.on('error', (err, client) => {
+pool.on('error', (err) => {
   console.error('[DB ERROR] Unexpected error on idle client:', err.message);
   if (isProduction) {
     console.error('[DB ERROR] This may indicate a database connectivity issue');

@@ -174,7 +174,7 @@ export const verifyToken = (token) => {
     return jwt.verify(token, JWT_SECRET, {
       issuer: ISSUER
     });
-  } catch (err) {
+  } catch {
     return null;
   }
 };
@@ -182,7 +182,7 @@ export const verifyToken = (token) => {
 export const decodeToken = (token) => {
   try {
     return jwt.decode(token, { complete: true });
-  } catch (err) {
+  } catch {
     return null;
   }
 };

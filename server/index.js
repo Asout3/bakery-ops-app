@@ -112,7 +112,7 @@ app.get('/api/health', async (req, res) => {
       },
       version: process.env.npm_package_version || '1.0.0'
     });
-  } catch (err) {
+  } catch {
     res.status(503).json({
       status: 'degraded',
       timestamp: new Date().toISOString(),
@@ -130,7 +130,7 @@ app.get('/api/ready', async (req, res) => {
   try {
     await pool.query('SELECT 1');
     res.status(200).json({ ready: true });
-  } catch (err) {
+  } catch {
     res.status(503).json({ ready: false, reason: 'Database not ready' });
   }
 });

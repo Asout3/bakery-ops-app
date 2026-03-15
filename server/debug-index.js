@@ -12,7 +12,7 @@ console.log('NODE_ENV:', process.env.NODE_ENV);
 console.log('PORT:', process.env.PORT || 5000);
 
 // Import db module with debugging
-import { query, debugPool } from './db-debug.js';
+import { query } from './db-debug.js';
 
 console.log('Database module imported successfully');
 
@@ -77,7 +77,7 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/activity', activityRoutes);
 
 // Error handling middleware with more detailed logging
-app.use((err, req, res, next) => {
+app.use((err, req, res) => {
   console.error('=== SERVER ERROR ===');
   console.error('Error details:', {
     message: err.message,
