@@ -14,6 +14,7 @@ export default function Inventory() {
   const [loading, setLoading] = useState(false);
   const [groupFilter, setGroupFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [stockFilter, setStockFilter] = useState('all');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const toast = useToast();
 
@@ -167,19 +168,43 @@ export default function Inventory() {
     );
   };
 
+  const activeProducts = useMemo(() => products.filter((product) => product.is_active !== false), [products]);
+
+  const getLowStockThreshold = (product) => {
+    const threshold = Number(product?.low_stock_threshold);
+    if (Number.isFinite(threshold) && threshold >= 0) return threshold;
+    return 5;
+  };
+
+  const getStockStatus = (productId, product) => {
+    const qty = Number(inventory[productId]?.quantity || 0);
+    if (qty <= 0) return 'out';
+    if (qty <= getLowStockThreshold(product)) return 'low';
+    return 'healthy';
+  };
+
+  const stockCounts = useMemo(() => activeProducts
+    .reduce((acc, product) => {
+      const status = getStockStatus(product.id, product);
+      acc[status] += 1;
+      return acc;
+    }, { low: 0, out: 0, healthy: 0 }), [activeProducts, inventory]);
+
+
 
   const groupedProducts = useMemo(() => {
     const grouped = new Map();
-    products.filter((product) => product.is_active !== false).forEach((product) => {
+    activeProducts.forEach((product) => {
       const group = product.group_name || product.name;
       const matchesGroup = groupFilter === 'all' || group === groupFilter;
       const matchesCategory = categoryFilter === 'all' || String(product.category_name || 'Uncategorized') === categoryFilter;
-      if (!matchesGroup || !matchesCategory) return;
+      const matchesStock = stockFilter === 'all' || getStockStatus(product.id, product) === stockFilter;
+      if (!matchesGroup || !matchesCategory || !matchesStock) return;
       if (!grouped.has(group)) grouped.set(group, []);
       grouped.get(group).push(product);
     });
     return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [products, groupFilter, categoryFilter]);
+  }, [activeProducts, groupFilter, categoryFilter, stockFilter, inventory]);
 
   const handleSendBatch = async () => {
     if (cart.length === 0) {
@@ -232,8 +257,13 @@ export default function Inventory() {
           <div className="card">
             <div className="card-header" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <h3 style={{ margin: 0 }}>Products</h3>
-              <select className="form-select" style={{ maxWidth: '220px' }} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">All Groups</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.group_name || p.name))).sort().map((group) => <option key={group} value={group}>{group}</option>)}</select>
-              <select className="form-select" style={{ maxWidth: '220px' }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option value="all">All Categories</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.category_name || 'Uncategorized'))).sort().map((category) => <option key={category} value={category}>{category}</option>)}</select>
+              <select className="form-select" style={{ maxWidth: '220px' }} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">All Groups</option>{Array.from(new Set(activeProducts.map((p) => p.group_name || p.name))).sort().map((group) => <option key={group} value={group}>{group}</option>)}</select>
+              <select className="form-select" style={{ maxWidth: '220px' }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option value="all">All Categories</option>{Array.from(new Set(activeProducts.map((p) => p.category_name || 'Uncategorized'))).sort().map((category) => <option key={category} value={category}>{category}</option>)}</select>
+              <div className="manager-stock-filters">
+                <button type="button" className={`stock-filter-btn ${stockFilter === 'all' ? 'active all' : ''}`} aria-pressed={stockFilter === 'all'} onClick={() => setStockFilter('all')}>All ({activeProducts.length})</button>
+                <button type="button" className={`stock-filter-btn ${stockFilter === 'low' ? 'active low' : ''}`} aria-pressed={stockFilter === 'low'} onClick={() => setStockFilter('low')}>Low Stock ({stockCounts.low})</button>
+                <button type="button" className={`stock-filter-btn ${stockFilter === 'out' ? 'active out' : ''}`} aria-pressed={stockFilter === 'out'} onClick={() => setStockFilter('out')}>Out of Stock ({stockCounts.out})</button>
+              </div>
             </div>
             <div className="card-body">
               <div className="products-table-container">
@@ -247,6 +277,7 @@ export default function Inventory() {
                     </tr>
                   </thead>
                   <tbody>
+                    {groupedProducts.length === 0 && (<tr><td colSpan="4" className="text-center text-muted">No products match the selected filters.</td></tr>)}
                     {groupedProducts.map(([group, variants]) => (
                       <Fragment key={group}>
                         <tr key={`${group}-header`}><td colSpan="4" style={{ fontWeight: 700, background: 'var(--bg-secondary, #f7f7f7)' }}>{group}</td></tr>

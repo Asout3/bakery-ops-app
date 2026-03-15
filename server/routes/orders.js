@@ -59,10 +59,12 @@ async function getOrderById(orderId) {
   if (!orderResult.rows.length) return null;
 
   const itemsResult = await query(
-    `SELECT id, order_id, product_id, custom_item_name, quantity, unit_price, subtotal, prep_status
-     FROM order_items
-     WHERE order_id = $1
-     ORDER BY id ASC`,
+    `SELECT oi.id, oi.order_id, oi.product_id, oi.custom_item_name, p.name AS product_name,
+            oi.quantity, oi.unit_price, oi.subtotal, oi.prep_status
+     FROM order_items oi
+     LEFT JOIN products p ON p.id = oi.product_id
+     WHERE oi.order_id = $1
+     ORDER BY oi.id ASC`,
     [orderId]
   );
 
@@ -106,10 +108,12 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager', 'cashier')
 
     if (orderIds.length) {
       const itemsResult = await query(
-        `SELECT id, order_id, product_id, custom_item_name, quantity, unit_price, subtotal, prep_status
-         FROM order_items
-         WHERE order_id = ANY($1::int[])
-         ORDER BY id ASC`,
+        `SELECT oi.id, oi.order_id, oi.product_id, oi.custom_item_name, p.name AS product_name,
+                oi.quantity, oi.unit_price, oi.subtotal, oi.prep_status
+         FROM order_items oi
+         LEFT JOIN products p ON p.id = oi.product_id
+         WHERE oi.order_id = ANY($1::int[])
+         ORDER BY oi.id ASC`,
         [orderIds]
       );
 
