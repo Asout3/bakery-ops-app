@@ -41,12 +41,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     const loadReport = async () => {
-      if (user?.role === 'admin' && !selectedLocationId) {
-        setReport(null);
-        setLoading(false);
-        return;
-      }
-
       setLoading(true);
       setError('');
 
@@ -175,16 +169,6 @@ export default function Dashboard() {
 
   if (loading) {
     return <div className="loading-container"><div className="spinner"></div></div>;
-  }
-
-  if (user?.role === 'admin' && !selectedLocationId) {
-    return (
-      <div className="dashboard-page">
-        <div className="card"><div className="card-body">
-          <div className="alert alert-info mb-0">Select a branch from the top bar to load live dashboard data.</div>
-        </div></div>
-      </div>
-    );
   }
 
   if (error) {
