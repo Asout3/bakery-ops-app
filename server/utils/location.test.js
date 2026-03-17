@@ -48,7 +48,7 @@ test('admin forbidden location throws 403 when assignments exist', async () => {
   });
 });
 
-test('falls back to first location when no location is supplied', async () => {
+test('falls back to existing location when no location is supplied', async () => {
   const req = {
     headers: {},
     query: {},
@@ -58,7 +58,7 @@ test('falls back to first location when no location is supplied', async () => {
   const seenQueries = [];
   const locationId = await getTargetLocationId(req, async (sql) => {
     seenQueries.push(sql);
-    if (sql.includes('FROM locations')) {
+    if (sql.includes('FROM locations') && sql.includes('WHERE is_active = true')) {
       return { rows: [{ id: 7 }] };
     }
     return { rows: [] };
@@ -66,4 +66,27 @@ test('falls back to first location when no location is supplied', async () => {
 
   assert.equal(locationId, 7);
   assert.ok(seenQueries.some((sql) => sql.includes('FROM locations')));
+});
+
+test('creates default location when no active locations exist', async () => {
+  const req = {
+    headers: {},
+    query: {},
+    user: { id: 1, role: 'admin', location_id: null },
+  };
+
+  let insertCalled = false;
+  const locationId = await getTargetLocationId(req, async (sql) => {
+    if (sql.includes('FROM locations') && sql.includes('WHERE is_active = true')) {
+      return { rows: [] };
+    }
+    if (sql.includes('INSERT INTO locations')) {
+      insertCalled = true;
+      return { rows: [{ id: 11 }] };
+    }
+    return { rows: [] };
+  });
+
+  assert.equal(locationId, 11);
+  assert.equal(insertCalled, true);
 });

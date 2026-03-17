@@ -4,8 +4,7 @@ export async function getTargetLocationId(req, dbQuery) {
   let requestedLocationId = Number(headerLocationId || queryLocationId || req.user?.location_id || 0) || null;
 
   if (!requestedLocationId) {
-    const fallbackLocationResult = await dbQuery('SELECT id FROM locations ORDER BY id ASC LIMIT 1');
-    requestedLocationId = Number(fallbackLocationResult.rows[0]?.id || 0) || null;
+    requestedLocationId = await ensureDefaultLocationId(dbQuery);
   }
 
   if (!requestedLocationId) {
@@ -31,8 +30,6 @@ export async function getTargetLocationId(req, dbQuery) {
     throw err;
   });
 
-  // Backward-compatible behavior: if admin has no explicit branch assignments,
-  // allow access to any requested branch (legacy single-admin setups).
   if (accessResult.rows.length === 0) {
     return requestedLocationId;
   }
@@ -45,4 +42,31 @@ export async function getTargetLocationId(req, dbQuery) {
   }
 
   return requestedLocationId;
+}
+
+async function ensureDefaultLocationId(dbQuery) {
+  const existingResult = await dbQuery(
+    `SELECT id
+     FROM locations
+     WHERE is_active = true
+     ORDER BY id ASC
+     LIMIT 1`
+  );
+
+  if (existingResult.rows.length > 0) {
+    return Number(existingResult.rows[0].id) || null;
+  }
+
+  try {
+    const createdResult = await dbQuery(
+      `INSERT INTO locations (name, address, phone, is_active)
+       VALUES ($1, NULL, NULL, true)
+       RETURNING id`,
+      ['Main Branch']
+    );
+    return Number(createdResult.rows[0]?.id) || null;
+  } catch {
+    const retryResult = await dbQuery('SELECT id FROM locations ORDER BY id ASC LIMIT 1');
+    return Number(retryResult.rows[0]?.id) || null;
+  }
 }
