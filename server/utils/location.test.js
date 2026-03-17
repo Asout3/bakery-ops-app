@@ -47,3 +47,23 @@ test('admin forbidden location throws 403 when assignments exist', async () => {
     return true;
   });
 });
+
+test('falls back to first location when no location is supplied', async () => {
+  const req = {
+    headers: {},
+    query: {},
+    user: { id: 1, role: 'admin', location_id: null },
+  };
+
+  const seenQueries = [];
+  const locationId = await getTargetLocationId(req, async (sql) => {
+    seenQueries.push(sql);
+    if (sql.includes('FROM locations')) {
+      return { rows: [{ id: 7 }] };
+    }
+    return { rows: [] };
+  });
+
+  assert.equal(locationId, 7);
+  assert.ok(seenQueries.some((sql) => sql.includes('FROM locations')));
+});

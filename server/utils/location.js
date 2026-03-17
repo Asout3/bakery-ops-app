@@ -1,7 +1,12 @@
 export async function getTargetLocationId(req, dbQuery) {
   const headerLocationId = req.headers['x-location-id'];
   const queryLocationId = req.query.location_id;
-  const requestedLocationId = Number(headerLocationId || queryLocationId || req.user?.location_id || 0) || null;
+  let requestedLocationId = Number(headerLocationId || queryLocationId || req.user?.location_id || 0) || null;
+
+  if (!requestedLocationId) {
+    const fallbackLocationResult = await dbQuery('SELECT id FROM locations ORDER BY id ASC LIMIT 1');
+    requestedLocationId = Number(fallbackLocationResult.rows[0]?.id || 0) || null;
+  }
 
   if (!requestedLocationId) {
     return null;
