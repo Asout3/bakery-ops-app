@@ -59,12 +59,12 @@ function normalizeLowStockThreshold(value) {
   return Math.max(0, Math.trunc(normalized));
 }
 
-function normalizeExpirationDate(value) {
+function normalizeShelfLifeDays(value) {
   if (value === undefined) return undefined;
   if (value === null || value === '') return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return undefined;
-  return parsed.toISOString().slice(0, 10);
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized) || normalized < 0) return undefined;
+  return Math.trunc(normalized);
 }
 
 async function processExpiredForRequest(req) {
@@ -114,7 +114,7 @@ router.get('/', authenticateToken, async (req, res) => {
     const { hasGroupName } = await getProductSchemaSupport();
     const groupExpr = buildGroupExpr(hasGroupName);
     const groupSelect = `${groupExpr} as group_name`;
-    const expirationSelect = `CASE WHEN p.expiration_date IS NOT NULL AND p.expiration_date < CURRENT_DATE THEN true ELSE false END AS is_expired`;
+    const expirationSelect = 'NULL::boolean AS is_expired';
 
     const result = role === 'admin'
       ? await query(
@@ -156,7 +156,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const groupExpr = hasGroupName ? 'COALESCE(p.group_name, p.name)' : 'p.name';
     const result = await query(
       `SELECT p.*, ${groupExpr} as group_name,
-              CASE WHEN p.expiration_date IS NOT NULL AND p.expiration_date < CURRENT_DATE THEN true ELSE false END AS is_expired,
+              NULL::boolean AS is_expired,
               c.name as category_name, creator.username as created_by_name
        FROM products p
        LEFT JOIN categories c ON p.category_id = c.id
@@ -183,7 +183,7 @@ router.post(
   body('name').trim().notEmpty(),
   body('price').isFloat({ min: 0 }),
   body('source').optional().isIn(['baked', 'purchased']),
-  body('expiration_date').optional({ values: 'falsy' }).isISO8601(),
+  body('shelf_life_days').optional({ values: 'falsy' }).isInt({ min: 0 }),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -191,7 +191,7 @@ router.post(
     }
 
     const { name, group_name, category_id, price, cost, unit, source } = req.body;
-    const expirationDate = normalizeExpirationDate(req.body.expiration_date);
+    const shelfLifeDays = normalizeShelfLifeDays(req.body.shelf_life_days);
 
     try {
       const { hasGroupName } = await getProductSchemaSupport();
@@ -207,16 +207,16 @@ router.post(
 
       const result = hasGroupName
         ? await query(
-            `INSERT INTO products (name, group_name, category_id, price, cost, unit, source, created_by, low_stock_threshold, expiration_date)
+            `INSERT INTO products (name, group_name, category_id, price, cost, unit, source, created_by, low_stock_threshold, shelf_life_days)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              RETURNING *`,
-            [name, effectiveGroup, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, normalizeLowStockThreshold(req.body.low_stock_threshold), expirationDate ?? null]
+            [name, effectiveGroup, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, normalizeLowStockThreshold(req.body.low_stock_threshold), shelfLifeDays ?? null]
           )
         : await query(
-            `INSERT INTO products (name, category_id, price, cost, unit, source, created_by, low_stock_threshold, expiration_date)
+            `INSERT INTO products (name, category_id, price, cost, unit, source, created_by, low_stock_threshold, shelf_life_days)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              RETURNING *`,
-            [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, normalizeLowStockThreshold(req.body.low_stock_threshold), expirationDate ?? null]
+            [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, normalizeLowStockThreshold(req.body.low_stock_threshold), shelfLifeDays ?? null]
           );
 
       const createdProduct = result.rows[0];
@@ -244,13 +244,13 @@ router.post(
   }
 );
 
-router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), body('expiration_date').optional({ values: 'falsy' }).isISO8601(), async (req, res) => {
+router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), body('shelf_life_days').optional({ values: 'falsy' }).isInt({ min: 0 }), async (req, res) => {
   const { name, group_name, category_id, price, cost, unit, is_active, source, low_stock_threshold } = req.body;
   const { id } = req.params;
   const shouldUpdateLowStockThreshold = Object.prototype.hasOwnProperty.call(req.body, 'low_stock_threshold');
-  const shouldUpdateExpirationDate = Object.prototype.hasOwnProperty.call(req.body, 'expiration_date');
+  const shouldUpdateShelfLifeDays = Object.prototype.hasOwnProperty.call(req.body, 'shelf_life_days');
   const normalizedLowStockThreshold = normalizeLowStockThreshold(low_stock_threshold);
-  const normalizedExpirationDate = normalizeExpirationDate(req.body.expiration_date);
+  const normalizedShelfLifeDays = normalizeShelfLifeDays(req.body.shelf_life_days);
 
   try {
     const { hasGroupName } = await getProductSchemaSupport();
@@ -278,11 +278,11 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), body('
                is_active = COALESCE($7, is_active),
                source = COALESCE($8, source),
                low_stock_threshold = CASE WHEN $10::boolean THEN $9 ELSE low_stock_threshold END,
-               expiration_date = CASE WHEN $12::boolean THEN $11 ELSE expiration_date END,
+               shelf_life_days = CASE WHEN $12::boolean THEN $11 ELSE shelf_life_days END,
                updated_at = CURRENT_TIMESTAMP
            WHERE id = $13
            RETURNING *`,
-          [name, group_name, category_id, price, cost, unit, is_active, source, normalizedLowStockThreshold, shouldUpdateLowStockThreshold, normalizedExpirationDate, shouldUpdateExpirationDate, id]
+          [name, group_name, category_id, price, cost, unit, is_active, source, normalizedLowStockThreshold, shouldUpdateLowStockThreshold, normalizedShelfLifeDays, shouldUpdateShelfLifeDays, id]
         )
       : await query(
           `UPDATE products
@@ -294,11 +294,11 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), body('
                is_active = COALESCE($6, is_active),
                source = COALESCE($7, source),
                low_stock_threshold = CASE WHEN $9::boolean THEN $8 ELSE low_stock_threshold END,
-               expiration_date = CASE WHEN $11::boolean THEN $10 ELSE expiration_date END,
+               shelf_life_days = CASE WHEN $11::boolean THEN $10 ELSE shelf_life_days END,
                updated_at = CURRENT_TIMESTAMP
            WHERE id = $12
            RETURNING *`,
-          [name, category_id, price, cost, unit, is_active, source, normalizedLowStockThreshold, shouldUpdateLowStockThreshold, normalizedExpirationDate, shouldUpdateExpirationDate, id]
+          [name, category_id, price, cost, unit, is_active, source, normalizedLowStockThreshold, shouldUpdateLowStockThreshold, normalizedShelfLifeDays, shouldUpdateShelfLifeDays, id]
         );
 
     if (result.rows.length === 0) {
@@ -315,7 +315,7 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), body('
     res.json({
       ...updated,
       group_name: updated.group_name || updated.name,
-      is_expired: Boolean(updated.expiration_date && new Date(updated.expiration_date).getTime() < new Date(new Date().toISOString().slice(0, 10)).getTime()),
+      is_expired: false,
     });
   } catch (err) {
     console.error('Update product error:', err);

@@ -5,6 +5,7 @@ import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
 import { createLowStockNotificationIfNeeded } from '../services/stockAlertService.js';
 import { processExpiredInventoryForLocation } from '../services/wasteService.js';
+import { consumeStockBatches } from '../services/stockBatchService.js';
 
 const router = express.Router();
 
@@ -84,7 +85,7 @@ router.post(
         const saleItems = [];
 
         for (const item of items) {
-          const productResult = await tx.query(`SELECT id, name, price, low_stock_threshold, expiration_date, is_active
+          const productResult = await tx.query(`SELECT id, name, price, low_stock_threshold, is_active
                                                 FROM products
                                                 WHERE id = $1`, [item.product_id]);
           if (productResult.rows.length === 0) {
@@ -99,12 +100,6 @@ router.post(
             inactiveError.status = 400;
             inactiveError.code = 'PRODUCT_INACTIVE';
             throw inactiveError;
-          }
-          if (product.expiration_date && new Date(product.expiration_date).getTime() < new Date(new Date().toISOString().slice(0, 10)).getTime()) {
-            const expiredError = new Error(`${product.name} has expired and cannot be sold`);
-            expiredError.status = 400;
-            expiredError.code = 'PRODUCT_EXPIRED';
-            throw expiredError;
           }
           const unitPrice = Number(product.price);
           const subtotal = unitPrice * item.quantity;
@@ -145,39 +140,35 @@ router.post(
             [createdSale.id, item.product_id, item.quantity, item.unit_price, item.subtotal]
           );
 
-          const inventoryUpdateResult = await tx.query(
-            `UPDATE inventory
-             SET quantity = quantity - $1, last_updated = CURRENT_TIMESTAMP
-             WHERE product_id = $2 AND location_id = $3 AND quantity >= $1
-             RETURNING quantity`,
-            [item.quantity, item.product_id, locationId]
-          );
-
-          if (inventoryUpdateResult.rowCount === 0) {
-            const availableStockResult = await tx.query(
-              `SELECT quantity FROM inventory WHERE product_id = $1 AND location_id = $2`,
-              [item.product_id, locationId]
-            );
-            const availableQuantity = Number(availableStockResult.rows[0]?.quantity || 0);
-            const stockError = new Error(`Insufficient stock for ${item.product_name}`);
-            stockError.status = 400;
-            stockError.code = 'INSUFFICIENT_STOCK';
-            stockError.details = {
-              product_id: item.product_id,
-              product_name: item.product_name,
-              requested_quantity: Number(item.quantity),
-              available_quantity: availableQuantity,
-            };
+          let batchConsumption;
+          try {
+            batchConsumption = await consumeStockBatches(tx, {
+              productId: item.product_id,
+              locationId,
+              quantity: item.quantity,
+              createdBy: effectiveCashierId,
+              referenceType: 'sale',
+              referenceId: createdSale.id,
+              metadata: { synced_by_user_id: req.user.id },
+            });
+          } catch (stockError) {
+            if (stockError.code === 'INSUFFICIENT_STOCK') {
+              stockError.message = `Insufficient stock for ${item.product_name}`;
+              stockError.details = {
+                ...(stockError.details || {}),
+                product_name: item.product_name,
+              };
+            }
             throw stockError;
           }
 
-          const remainingQty = Number(inventoryUpdateResult.rows[0].quantity);
+          const remainingQty = Number(batchConsumption.remainingTotalQuantity || 0);
 
           await tx.query(
             `INSERT INTO inventory_movements
              (location_id, product_id, movement_type, quantity_change, source, reference_type, reference_id, created_by, metadata)
              VALUES ($1, $2, 'sale_out', $3, 'sale', 'sale', $4, $5, $6)`,
-            [locationId, item.product_id, -item.quantity, createdSale.id, effectiveCashierId, JSON.stringify({ remaining_quantity: remainingQty, synced_by_user_id: req.user.id })]
+            [locationId, item.product_id, -item.quantity, createdSale.id, effectiveCashierId, JSON.stringify({ remaining_quantity: remainingQty, stock_batches: batchConsumption.consumed, synced_by_user_id: req.user.id })]
           );
 
           const itemLowStockThreshold = Number.isFinite(Number(item.low_stock_threshold))

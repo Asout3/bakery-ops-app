@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS products (
     cost DECIMAL(10, 2),
     unit VARCHAR(20) DEFAULT 'piece',
     expiration_date DATE,
+    shelf_life_days INTEGER,
     is_active BOOLEAN DEFAULT true,
     created_by INTEGER REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -229,8 +230,25 @@ CREATE INDEX idx_activity_log_user ON activity_log(user_id);
 CREATE INDEX idx_notifications_user ON notifications(user_id, is_read);
 CREATE INDEX IF NOT EXISTS idx_waste_records_location_time ON waste_records(location_id, wasted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_waste_records_product_time ON waste_records(product_id, wasted_at DESC);
+CREATE TABLE IF NOT EXISTS inventory_stock_batches (
+    id BIGSERIAL PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    location_id INTEGER NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+    initial_quantity INTEGER NOT NULL CHECK (initial_quantity >= 0),
+    quantity_remaining INTEGER NOT NULL CHECK (quantity_remaining >= 0),
+    source VARCHAR(30) NOT NULL DEFAULT 'manual',
+    reference_type VARCHAR(30),
+    reference_id BIGINT,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
 CREATE INDEX idx_batch_items_batch ON batch_items(batch_id);
 CREATE INDEX idx_sale_items_sale ON sale_items(sale_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_stock_batches_lookup ON inventory_stock_batches(location_id, product_id, expires_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_inventory_stock_batches_reference ON inventory_stock_batches(reference_type, reference_id);
 
 -- Insert sample categories
 INSERT INTO categories (name, description) VALUES

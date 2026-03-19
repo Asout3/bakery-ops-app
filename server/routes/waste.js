@@ -47,7 +47,7 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (re
              p.name AS product_name,
              COALESCE(NULLIF(p.group_name, ''), p.name) AS group_name,
              p.unit,
-             p.expiration_date,
+             COALESCE(wr.metadata->>'expires_at', NULL) AS expires_at,
              l.name AS location_name,
              u.username AS created_by_name
       FROM waste_records wr

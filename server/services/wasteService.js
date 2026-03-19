@@ -1,7 +1,15 @@
 import { query } from '../db.js';
 import { createLowStockNotificationIfNeeded } from './stockAlertService.js';
+import { ensureStockBatchSchema, syncInventoryFromStockBatches } from './stockBatchService.js';
 
 let wasteSchemaPromise = null;
+
+function getDbExecutor(dbOrQuery) {
+  if (typeof dbOrQuery === 'function') {
+    return { query: dbOrQuery };
+  }
+  return dbOrQuery;
+}
 
 export async function ensureWasteSchema() {
   if (wasteSchemaPromise) {
@@ -9,7 +17,7 @@ export async function ensureWasteSchema() {
   }
 
   wasteSchemaPromise = (async () => {
-    await query('ALTER TABLE products ADD COLUMN IF NOT EXISTS expiration_date DATE');
+    await ensureStockBatchSchema();
     await query(
       `CREATE TABLE IF NOT EXISTS waste_records (
          id SERIAL PRIMARY KEY,
@@ -24,7 +32,6 @@ export async function ensureWasteSchema() {
          metadata JSONB NOT NULL DEFAULT '{}'::jsonb
        )`
     );
-    await query('CREATE INDEX IF NOT EXISTS idx_products_expiration_date ON products(expiration_date)');
     await query('CREATE INDEX IF NOT EXISTS idx_waste_records_location_time ON waste_records(location_id, wasted_at DESC)');
     await query('CREATE INDEX IF NOT EXISTS idx_waste_records_product_time ON waste_records(product_id, wasted_at DESC)');
   })().catch((error) => {
@@ -35,23 +42,6 @@ export async function ensureWasteSchema() {
   return wasteSchemaPromise;
 }
 
-function getDbExecutor(dbOrQuery) {
-  if (typeof dbOrQuery === 'function') {
-    return { query: dbOrQuery };
-  }
-  return dbOrQuery;
-}
-
-function buildWasteMetadata(row) {
-  return {
-    reason: 'expired',
-    expiration_date: row.expiration_date,
-    quantity_before_waste: Number(row.quantity || 0),
-    product_name: row.product_name,
-    group_name: row.group_name,
-  };
-}
-
 export async function processExpiredInventoryForLocation(dbOrQuery, locationId, actorUserId = null) {
   if (!locationId) {
     return { processedCount: 0, totalLoss: 0, items: [] };
@@ -59,21 +49,22 @@ export async function processExpiredInventoryForLocation(dbOrQuery, locationId, 
 
   const db = getDbExecutor(dbOrQuery);
   const expiredResult = await db.query(
-    `SELECT i.id AS inventory_id,
-            i.location_id,
-            i.product_id,
-            i.quantity,
+    `SELECT sb.id AS stock_batch_id,
+            sb.location_id,
+            sb.product_id,
+            sb.quantity_remaining AS quantity,
+            sb.expires_at,
+            COALESCE(p.group_name, p.name) AS group_name,
             p.name AS product_name,
-            COALESCE(NULLIF(p.group_name, ''), p.name) AS group_name,
             p.cost,
-            p.expiration_date
-     FROM inventory i
-     JOIN products p ON p.id = i.product_id
-     WHERE i.location_id = $1
-       AND i.quantity > 0
-       AND p.expiration_date IS NOT NULL
-       AND p.expiration_date < CURRENT_DATE
-     ORDER BY p.expiration_date ASC, p.name ASC`,
+            p.unit
+     FROM inventory_stock_batches sb
+     JOIN products p ON p.id = sb.product_id
+     WHERE sb.location_id = $1
+       AND sb.quantity_remaining > 0
+       AND sb.expires_at IS NOT NULL
+       AND sb.expires_at <= NOW()
+     ORDER BY sb.expires_at ASC, sb.id ASC`,
     [locationId]
   );
 
@@ -86,13 +77,18 @@ export async function processExpiredInventoryForLocation(dbOrQuery, locationId, 
 
   for (const row of expiredResult.rows) {
     const quantity = Number(row.quantity || 0);
-    if (quantity <= 0) {
-      continue;
-    }
+    if (quantity <= 0) continue;
 
     const costPerUnit = Number(row.cost || 0);
     const loss = Number((quantity * costPerUnit).toFixed(2));
-    const metadata = buildWasteMetadata(row);
+    const metadata = {
+      reason: 'expired',
+      stock_batch_id: row.stock_batch_id,
+      expires_at: row.expires_at,
+      quantity_before_waste: quantity,
+      product_name: row.product_name,
+      group_name: row.group_name,
+    };
 
     const wasteResult = await db.query(
       `INSERT INTO waste_records
@@ -103,12 +99,14 @@ export async function processExpiredInventoryForLocation(dbOrQuery, locationId, 
     );
 
     await db.query(
-      `UPDATE inventory
-       SET quantity = 0,
-           last_updated = CURRENT_TIMESTAMP
-       WHERE id = $1`,
-      [row.inventory_id]
+      `UPDATE inventory_stock_batches
+       SET quantity_remaining = 0,
+           metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+       WHERE id = $2`,
+      [JSON.stringify({ waste_record_id: wasteResult.rows[0].id, expired_processed_at: new Date().toISOString() }), row.stock_batch_id]
     );
+
+    await syncInventoryFromStockBatches(db, row.location_id, row.product_id);
 
     await db.query(
       `INSERT INTO inventory_movements
@@ -127,7 +125,7 @@ export async function processExpiredInventoryForLocation(dbOrQuery, locationId, 
       [
         row.location_id,
         'Expired stock moved to waste',
-        `${row.group_name} / ${row.product_name} expired on ${row.expiration_date} and ${quantity} unit(s) were moved to waste. Loss: ETB ${loss.toFixed(2)}.`,
+        `${row.group_name} / ${row.product_name} expired on ${new Date(row.expires_at).toLocaleDateString()} and ${quantity} unit(s) were moved to waste. Loss: ETB ${loss.toFixed(2)}.`,
       ]
     );
 
@@ -153,12 +151,11 @@ export async function processExpiredInventoryForLocation(dbOrQuery, locationId, 
 export async function processExpiredInventoryForAllLocations(dbOrQuery, actorUserId = null) {
   const db = getDbExecutor(dbOrQuery);
   const locationsResult = await db.query(
-    `SELECT DISTINCT i.location_id
-     FROM inventory i
-     JOIN products p ON p.id = i.product_id
-     WHERE i.quantity > 0
-       AND p.expiration_date IS NOT NULL
-       AND p.expiration_date < CURRENT_DATE`
+    `SELECT DISTINCT location_id
+     FROM inventory_stock_batches
+     WHERE quantity_remaining > 0
+       AND expires_at IS NOT NULL
+       AND expires_at <= NOW()`
   );
 
   const summaries = [];
