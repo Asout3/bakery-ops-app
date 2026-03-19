@@ -2,6 +2,19 @@ import { query, withTransaction } from '../db.js';
 import { JOB_LOCK_KEYS, withAdvisoryJobLock } from './jobLockService.js';
 
 const DEFAULT_CONFIRMATION_PHRASE = 'I CONFIRM TO ARCHIVE THE LAST 6 MONTH HISTORY';
+const ARCHIVE_TABLE_PAIRS = [
+  ['inventory_batches', 'inventory_batches_archive'],
+  ['batch_items', 'batch_items_archive'],
+  ['sales', 'sales_archive'],
+  ['sale_items', 'sale_items_archive'],
+  ['inventory_movements', 'inventory_movements_archive'],
+  ['activity_log', 'activity_log_archive'],
+  ['expenses', 'expenses_archive'],
+  ['waste_records', 'waste_records_archive'],
+  ['customer_orders', 'customer_orders_archive'],
+  ['order_items', 'order_items_archive'],
+  ['staff_payments', 'staff_payments_archive'],
+];
 
 function quoteIdentifier(value) {
   return `"${String(value).replaceAll('"', '""')}"`;
@@ -60,6 +73,12 @@ async function getTableColumns(tx, tableName) {
     [tableName]
   );
   return result.rows;
+}
+
+export async function ensureArchiveTables(tx) {
+  for (const [sourceTable, archiveTable] of ARCHIVE_TABLE_PAIRS) {
+    await ensureArchiveTable(tx, sourceTable, archiveTable);
+  }
 }
 
 async function ensureArchiveTable(tx, sourceTable, archiveTable) {
@@ -167,6 +186,8 @@ async function createArchiveNotification(tx, locationId, title, message, type = 
 async function moveRowsToArchive(tx, config) {
   const counts = {};
 
+  await ensureArchiveTables(tx);
+
   const batches = await insertArchiveRows(tx, {
     sourceTable: 'inventory_batches',
     archiveTable: 'inventory_batches_archive',
@@ -266,6 +287,17 @@ async function moveRowsToArchive(tx, config) {
     await tx.query('DELETE FROM expenses WHERE location_id = $1 AND expense_date < $2::date', [config.locationId, config.cutoffAt]);
   }
 
+  const wasteRecords = await insertArchiveRows(tx, {
+    sourceTable: 'waste_records',
+    archiveTable: 'waste_records_archive',
+    whereClause: 'location_id = $1 AND wasted_at < $2',
+    whereParams: [config.locationId, config.cutoffAt],
+  });
+  counts.waste_records = wasteRecords.rows[0].count;
+  if (counts.waste_records > 0) {
+    await tx.query('DELETE FROM waste_records WHERE location_id = $1 AND wasted_at < $2', [config.locationId, config.cutoffAt]);
+  }
+
 
   const archivedOrders = await insertArchiveRows(tx, {
     sourceTable: 'customer_orders',
@@ -359,7 +391,7 @@ export async function runArchiveForLocation({ locationId, userId = null, runType
         tx,
         locationId,
         'Archive run completed',
-        `History archiving finished. Batches: ${counts.inventory_batches}, Sales: ${counts.sales}, Inventory logs: ${counts.inventory_movements}, Activity logs: ${counts.activity_log}, Expenses: ${counts.expenses}, Staff payments: ${counts.staff_payments}, Pre-orders: ${counts.customer_orders || 0}.`,
+        `History archiving finished. Batches: ${counts.inventory_batches}, Sales: ${counts.sales}, Inventory logs: ${counts.inventory_movements}, Activity logs: ${counts.activity_log}, Expenses: ${counts.expenses}, Waste records: ${counts.waste_records || 0}, Staff payments: ${counts.staff_payments}, Pre-orders: ${counts.customer_orders || 0}.`,
         'archive_completed'
       );
 
@@ -425,6 +457,7 @@ export function startArchiveScheduler() {
 }
 
 export async function getArchiveDashboard(locationId) {
+  await ensureArchiveTables({ query });
   const settings = await ensureArchiveSettings(locationId);
   const recentRuns = await query(
     `SELECT id, run_type, status, cutoff_at, details, error_message, created_at
@@ -442,6 +475,7 @@ export async function getArchiveDashboard(locationId) {
       (SELECT COUNT(*)::int FROM inventory_movements_archive WHERE location_id = $1) AS inventory_movements,
       (SELECT COUNT(*)::int FROM activity_log_archive WHERE location_id = $1) AS activity_log,
       (SELECT COUNT(*)::int FROM expenses_archive WHERE location_id = $1) AS expenses,
+      (SELECT COUNT(*)::int FROM waste_records_archive WHERE location_id = $1) AS waste_records,
       (SELECT COUNT(*)::int FROM staff_payments_archive WHERE location_id = $1) AS staff_payments,
       (SELECT COUNT(*)::int FROM customer_orders_archive WHERE location_id = $1) AS customer_orders,
       (SELECT COUNT(*)::int FROM order_items_archive oia JOIN customer_orders_archive oa ON oa.id = oia.order_id WHERE oa.location_id = $1) AS order_items`,
@@ -474,6 +508,7 @@ export async function updateArchiveSettings({ locationId, userId, enabled, reten
 
 export { DEFAULT_CONFIRMATION_PHRASE };
 export const __private__ = {
+  ensureArchiveTables,
   ensureArchiveTable,
   getSharedColumns,
   moveRowsToArchive,

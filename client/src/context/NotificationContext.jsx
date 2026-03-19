@@ -5,8 +5,8 @@ import api from '../api/axios';
 
 const NotificationContext = createContext(null);
 
-const BASE_POLL_MS = 20000;
-const MAX_POLL_MS = 120000;
+const BASE_POLL_MS = 8000;
+const MAX_POLL_MS = 45000;
 const SHOWN_NOTIFICATION_CACHE_KEY = 'bakery_notification_seen_ids';
 
 function readSeenNotificationIds() {
@@ -74,6 +74,11 @@ export function NotificationProvider({ children }) {
     }
   }, []);
 
+  const openNotificationsCenter = useCallback(() => {
+    const targetPath = user?.role === 'manager' ? '/manager/notifications' : '/admin/notifications';
+    window.location.assign(targetPath);
+  }, [user?.role]);
+
   const handleIncomingNotifications = useCallback(async (list) => {
     const sorted = [...(list || [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     const unread = sorted.filter((item) => !item.is_read).length;
@@ -97,19 +102,24 @@ export function NotificationProvider({ children }) {
     persistSeenNotificationIds(seenIds);
 
     for (const notification of unseen.reverse()) {
-      toast.info(`${notification.title}: ${notification.message}`, { duration: 6000 });
+      toast.info(notification.message, {
+        title: notification.title,
+        duration: 7000,
+        actionLabel: 'Open',
+        onAction: openNotificationsCenter,
+      });
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
         await showSystemNotification(notification);
       }
     }
-  }, [toast]);
+  }, [openNotificationsCenter, toast]);
 
   const fetchNotifications = useCallback(async ({ silent = false } = {}) => {
     if (!isAuthenticated || authLoading) return false;
     if (!silent) setLoading(true);
 
     try {
-      const response = await api.get('/notifications', { headers: { 'X-Skip-Auth-Redirect': 'true' } });
+      const response = await api.get('/notifications', { params: { limit: 100 }, headers: { 'X-Skip-Auth-Redirect': 'true' } });
       await handleIncomingNotifications(response.data || []);
       return true;
     } catch (err) {
@@ -234,6 +244,15 @@ export function NotificationProvider({ children }) {
     };
   }, [authLoading, clearPollTimeout, fetchNotifications, isAuthenticated, schedulePolling, user?.id]);
 
+  const refresh = useCallback(async (options = {}) => {
+    const success = await fetchNotifications(options);
+    if (success) {
+      pollDelayRef.current = BASE_POLL_MS;
+      schedulePolling();
+    }
+    return success;
+  }, [fetchNotifications, schedulePolling]);
+
   const value = useMemo(() => ({
     notifications,
     unreadCount,
@@ -244,8 +263,8 @@ export function NotificationProvider({ children }) {
     markAllAsRead,
     deleteNotification,
     requestSystemPermission,
-    refresh: fetchNotifications,
-  }), [deleteNotification, fetchNotifications, loading, markAllAsRead, markAsRead, notifications, permission, requestSystemPermission, unreadCount]);
+    refresh,
+  }), [deleteNotification, fetchNotifications, loading, markAllAsRead, markAsRead, notifications, permission, refresh, requestSystemPermission, unreadCount]);
 
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
 }

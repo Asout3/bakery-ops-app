@@ -20,7 +20,7 @@ export function ToastProvider({ children }) {
 
   const pushToast = useCallback((toast) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const next = { id, type: 'info', duration: 4500, ...toast };
+    const next = { id, type: 'info', duration: 4500, title: '', ...toast };
     setToasts((prev) => [...prev, next]);
     window.setTimeout(() => removeToast(id), next.duration);
   }, [removeToast]);
@@ -39,13 +39,18 @@ export function ToastProvider({ children }) {
       <div className="toast-stack" role="status" aria-live="polite" aria-atomic="false">
         {toasts.map((toast) => (
           <div key={toast.id} className={`toast-item toast-${toast.type}`} role="alert">
-            <span style={{ flexShrink: 0, marginTop: '1px' }}>{ICONS[toast.type] || ICONS.info}</span>
-            <div style={{ flex: 1 }}>{toast.message}</div>
-            <button
-              className="toast-close"
-              onClick={() => removeToast(toast.id)}
-              aria-label="Dismiss notification"
-            >
+            <div className="toast-accent" />
+            <span className="toast-icon">{ICONS[toast.type] || ICONS.info}</span>
+            <div className="toast-copy">
+              {toast.title ? <div className="toast-title">{toast.title}</div> : null}
+              <div className="toast-message">{toast.message}</div>
+              {toast.actionLabel && typeof toast.onAction === 'function' ? (
+                <button className="toast-action" onClick={() => toast.onAction()}>
+                  {toast.actionLabel}
+                </button>
+              ) : null}
+            </div>
+            <button className="toast-close" onClick={() => removeToast(toast.id)} aria-label="Dismiss notification">
               <X size={14} />
             </button>
           </div>

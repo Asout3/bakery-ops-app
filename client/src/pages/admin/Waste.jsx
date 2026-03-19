@@ -8,6 +8,7 @@ const formatMoney = (value) => `ETB ${Number(value || 0).toFixed(2)}`;
 export default function WastePage() {
   const [wasteRows, setWasteRows] = useState([]);
   const [summary, setSummary] = useState({ daily_loss: 0, weekly_loss: 0, monthly_loss: 0, total_loss: 0, monthly_items: 0 });
+  const [period, setPeriod] = useState('daily');
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
@@ -68,6 +69,30 @@ export default function WastePage() {
   }, {}), [wasteRows]);
 
   const groupedRows = Object.values(groupedLoss).sort((a, b) => b.totalLoss - a.totalLoss);
+  const selectedWasteCard = useMemo(() => {
+    if (period === 'weekly') {
+      return {
+        label: 'Weekly waste loss',
+        value: summary.weekly_loss,
+        tone: 'bg-warning',
+        description: 'All waste recorded in the current week.',
+      };
+    }
+    if (period === 'monthly') {
+      return {
+        label: 'Monthly waste loss',
+        value: summary.monthly_loss,
+        tone: 'bg-primary',
+        description: 'All waste recorded in the current month.',
+      };
+    }
+    return {
+      label: 'Daily waste loss',
+      value: summary.daily_loss,
+      tone: 'bg-danger',
+      description: 'Waste moved today from expired inventory.',
+    };
+  }, [period, summary.daily_loss, summary.weekly_loss, summary.monthly_loss]);
 
   if (loading) {
     return <div className="loading-container"><div className="spinner"></div></div>;
@@ -92,10 +117,30 @@ export default function WastePage() {
 
       {error && <div className="alert alert-danger mb-3">{error}</div>}
 
+      <div className="card mb-3">
+        <div className="card-body d-flex justify-content-between align-items-center flex-wrap gap-3">
+          <div>
+            <h4 className="mb-1">Waste loss snapshot</h4>
+            <p className="text-muted mb-0">Switch the range to review the same waste card by day, week, or month.</p>
+          </div>
+          <div className="btn-group">
+            <button className={`btn btn-sm ${period === 'daily' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('daily')}>Daily</button>
+            <button className={`btn btn-sm ${period === 'weekly' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('weekly')}>Weekly</button>
+            <button className={`btn btn-sm ${period === 'monthly' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setPeriod('monthly')}>Monthly</button>
+          </div>
+        </div>
+      </div>
+
       <div className="stats-grid mb-4">
-        <div className="stat-card card bg-light"><div className="stat-icon bg-danger text-white"><AlertTriangle size={22} /></div><div className="stat-content"><h3>{formatMoney(summary.daily_loss)}</h3><p>Daily waste loss</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><AlertTriangle size={22} /></div><div className="stat-content"><h3>{formatMoney(summary.weekly_loss)}</h3><p>Weekly waste loss</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><AlertTriangle size={22} /></div><div className="stat-content"><h3>{formatMoney(summary.monthly_loss)}</h3><p>Monthly waste loss</p></div></div>
+        <div className="stat-card card bg-light">
+          <div className={`stat-icon ${selectedWasteCard.tone} text-white`}><AlertTriangle size={22} /></div>
+          <div className="stat-content">
+            <h3>{formatMoney(selectedWasteCard.value)}</h3>
+            <p>{selectedWasteCard.label}</p>
+            <small className="text-muted">{selectedWasteCard.description}</small>
+          </div>
+        </div>
+        <div className="stat-card card bg-light"><div className="stat-icon bg-danger text-white"><AlertTriangle size={22} /></div><div className="stat-content"><h3>{formatMoney(summary.total_loss)}</h3><p>Total waste loss</p><small className="text-muted">Cumulative waste captured in the ledger.</small></div></div>
         <div className="stat-card card bg-light"><div className="stat-icon bg-secondary text-white"><Trash2 size={22} /></div><div className="stat-content"><h3>{Number(summary.monthly_items || 0)}</h3><p>Waste entries this month</p></div></div>
       </div>
 

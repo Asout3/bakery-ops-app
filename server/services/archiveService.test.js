@@ -118,6 +118,16 @@ test('moveRowsToArchive builds explicit archive column lists instead of SELECT *
       { column_name: 'location_id', data_type: 'integer', udt_name: 'int4', character_maximum_length: null, numeric_precision: 32, numeric_scale: 0, datetime_precision: null },
       { column_name: 'expense_date', data_type: 'date', udt_name: 'date', character_maximum_length: null, numeric_precision: null, numeric_scale: null, datetime_precision: null },
     ],
+    waste_records: [
+      { column_name: 'id', data_type: 'integer', udt_name: 'int4', character_maximum_length: null, numeric_precision: 32, numeric_scale: 0, datetime_precision: null },
+      { column_name: 'location_id', data_type: 'integer', udt_name: 'int4', character_maximum_length: null, numeric_precision: 32, numeric_scale: 0, datetime_precision: null },
+      { column_name: 'wasted_at', data_type: 'timestamp with time zone', udt_name: 'timestamptz', character_maximum_length: null, numeric_precision: null, numeric_scale: null, datetime_precision: 6 },
+    ],
+    waste_records_archive: [
+      { column_name: 'id', data_type: 'integer', udt_name: 'int4', character_maximum_length: null, numeric_precision: 32, numeric_scale: 0, datetime_precision: null },
+      { column_name: 'location_id', data_type: 'integer', udt_name: 'int4', character_maximum_length: null, numeric_precision: 32, numeric_scale: 0, datetime_precision: null },
+      { column_name: 'wasted_at', data_type: 'timestamp with time zone', udt_name: 'timestamptz', character_maximum_length: null, numeric_precision: null, numeric_scale: null, datetime_precision: 6 },
+    ],
     customer_orders: [
       { column_name: 'id', data_type: 'integer', udt_name: 'int4', character_maximum_length: null, numeric_precision: 32, numeric_scale: 0, datetime_precision: null },
       { column_name: 'location_id', data_type: 'integer', udt_name: 'int4', character_maximum_length: null, numeric_precision: 32, numeric_scale: 0, datetime_precision: null },
@@ -164,11 +174,14 @@ test('moveRowsToArchive builds explicit archive column lists instead of SELECT *
     inventory_movements: 0,
     activity_log: 0,
     expenses: 0,
+    waste_records: 0,
     customer_orders: 0,
     staff_payments: 0,
   });
   assert.ok(calls.some((call) => call.text.includes('INSERT INTO "inventory_batches_archive" ("id", "location_id", "created_at")')));
+  assert.ok(calls.some((call) => call.text.includes('INSERT INTO "waste_records_archive" ("id", "location_id", "wasted_at")')));
   assert.ok(calls.some((call) => call.text.includes('SELECT "id", "location_id", "created_at"')));
+  assert.ok(calls.some((call) => call.text.includes("status IN ('picked_up', 'delivered', 'cancelled')")));
   assert.ok(calls.every((call) => !call.text.includes('SELECT * FROM inventory_batches')));
   assert.ok(calls.every((call) => !call.text.includes('INSERT INTO inventory_batches_archive\n      SELECT *')));
 });

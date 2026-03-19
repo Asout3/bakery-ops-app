@@ -62,11 +62,12 @@ router.put('/rules/:id', authenticateToken, authorizeRoles('admin'), async (req,
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const unreadOnly = req.query.unread_only === 'true';
-    const limit = parseInt(req.query.limit, 10) || 50;
+    const requestedLimit = Number.parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 100) : 50;
 
     let queryText = `SELECT * FROM notifications WHERE user_id = $1`;
     if (unreadOnly) queryText += ' AND is_read = false';
-    queryText += ' ORDER BY created_at DESC LIMIT $2';
+    queryText += ' ORDER BY is_read ASC, created_at DESC, id DESC LIMIT $2';
 
     const result = await query(queryText, [req.user.id, limit]);
     res.json(result.rows);

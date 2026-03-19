@@ -155,6 +155,7 @@ export default function HistoryLifecycle() {
           <span className="badge badge-primary">Inventory Logs: {data?.archive_counts?.inventory_movements || 0}</span>
           <span className="badge badge-primary">Activity Logs: {data?.archive_counts?.activity_log || 0}</span>
           <span className="badge badge-primary">Expenses: {data?.archive_counts?.expenses || 0}</span>
+          <span className="badge badge-primary">Waste Records: {data?.archive_counts?.waste_records || 0}</span>
           <span className="badge badge-primary">Staff Payments: {data?.archive_counts?.staff_payments || 0}</span>
           <span className="badge badge-primary">Pre-Orders: {data?.archive_counts?.customer_orders || 0}</span>
           <span className="badge badge-primary">Pre-Order Items: {data?.archive_counts?.order_items || 0}</span>
