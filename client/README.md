@@ -32,3 +32,6 @@ If you are developing a production application, we recommend using TypeScript wi
 - Offline sync UX now uses global toast notifications for queued actions, sync start, successful sync completion, retry states, and attention-needed outcomes.
 - Cashier sales checkout footer was reworked into a clear vertical stack (Payment Method, Total, Complete Sale button) and larger product/size selectors for faster touch interaction.
 - Admin sales page scroll behavior was hardened so long sales and batch-performance tables remain fully scrollable.
+
+- Products now support expiration dates, cashier sales block expired variants, and admins have a Waste page with daily/weekly/monthly loss visibility.
+- Notifications now deliver full-content in-app toasts and background browser alerts when permission is granted.

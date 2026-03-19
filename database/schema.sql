@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS products (
     price DECIMAL(10, 2) NOT NULL,
     cost DECIMAL(10, 2),
     unit VARCHAR(20) DEFAULT 'piece',
+    expiration_date DATE,
     is_active BOOLEAN DEFAULT true,
     created_by INTEGER REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -193,6 +194,19 @@ CREATE TABLE IF NOT EXISTS notifications (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS waste_records (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    location_id INTEGER REFERENCES locations(id) ON DELETE SET NULL,
+    quantity_wasted INTEGER NOT NULL CHECK (quantity_wasted > 0),
+    cost_per_unit NUMERIC(10,2) NOT NULL DEFAULT 0,
+    total_loss NUMERIC(12,2) NOT NULL DEFAULT 0,
+    reason VARCHAR(30) NOT NULL DEFAULT 'expired',
+    wasted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
 -- Sync queue (for offline operations)
 CREATE TABLE IF NOT EXISTS sync_queue (
     id SERIAL PRIMARY KEY,
@@ -213,6 +227,8 @@ CREATE INDEX idx_sales_location ON sales(location_id);
 CREATE INDEX idx_expenses_date ON expenses(expense_date);
 CREATE INDEX idx_activity_log_user ON activity_log(user_id);
 CREATE INDEX idx_notifications_user ON notifications(user_id, is_read);
+CREATE INDEX IF NOT EXISTS idx_waste_records_location_time ON waste_records(location_id, wasted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_waste_records_product_time ON waste_records(product_id, wasted_at DESC);
 CREATE INDEX idx_batch_items_batch ON batch_items(batch_id);
 CREATE INDEX idx_sale_items_sale ON sale_items(sale_id);
 

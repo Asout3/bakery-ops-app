@@ -1,0 +1,181 @@
+import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, RefreshCw, Trash2 } from 'lucide-react';
+import api, { getErrorMessage } from '../../api/axios';
+import './Waste.css';
+
+const formatMoney = (value) => `ETB ${Number(value || 0).toFixed(2)}`;
+
+export default function WastePage() {
+  const [wasteRows, setWasteRows] = useState([]);
+  const [summary, setSummary] = useState({ daily_loss: 0, weekly_loss: 0, monthly_loss: 0, total_loss: 0, monthly_items: 0 });
+  const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadWasteData = async () => {
+    setError('');
+    try {
+      const [rowsRes, summaryRes] = await Promise.all([
+        api.get('/waste', { params: { limit: 200 } }),
+        api.get('/waste/summary'),
+      ]);
+      setWasteRows(rowsRes.data || []);
+      setSummary(summaryRes.data || {});
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to load waste data.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadWasteData();
+  }, []);
+
+  const handleProcessExpired = async () => {
+    setProcessing(true);
+    try {
+      await api.post('/waste/process-expired');
+      await loadWasteData();
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to process expired inventory.'));
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const groupedLoss = useMemo(() => wasteRows.reduce((acc, row) => {
+    const key = `${row.group_name}::${row.product_name}`;
+    if (!acc[key]) {
+      acc[key] = {
+        key,
+        label: `${row.group_name} / ${row.product_name}`,
+        quantity: 0,
+        totalLoss: 0,
+        occurrences: 0,
+        lastWastedAt: row.wasted_at,
+        unit: row.unit,
+      };
+    }
+
+    acc[key].quantity += Number(row.quantity_wasted || 0);
+    acc[key].totalLoss += Number(row.total_loss || 0);
+    acc[key].occurrences += 1;
+    if (new Date(row.wasted_at).getTime() > new Date(acc[key].lastWastedAt).getTime()) {
+      acc[key].lastWastedAt = row.wasted_at;
+    }
+    return acc;
+  }, {}), [wasteRows]);
+
+  const groupedRows = Object.values(groupedLoss).sort((a, b) => b.totalLoss - a.totalLoss);
+
+  if (loading) {
+    return <div className="loading-container"><div className="spinner"></div></div>;
+  }
+
+  return (
+    <div className="waste-page">
+      <div className="page-header waste-header">
+        <div>
+          <h2>Waste Products</h2>
+          <p className="text-muted mb-0">Expired inventory is automatically moved here and included in loss reporting.</p>
+        </div>
+        <div className="d-flex gap-2 flex-wrap">
+          <button className="btn btn-outline-secondary" onClick={loadWasteData}>
+            <RefreshCw size={16} /> Refresh
+          </button>
+          <button className="btn btn-primary" onClick={handleProcessExpired} disabled={processing}>
+            <Trash2 size={16} /> {processing ? 'Processing...' : 'Run Expiry Check'}
+          </button>
+        </div>
+      </div>
+
+      {error && <div className="alert alert-danger mb-3">{error}</div>}
+
+      <div className="stats-grid mb-4">
+        <div className="stat-card card bg-light"><div className="stat-icon bg-danger text-white"><AlertTriangle size={22} /></div><div className="stat-content"><h3>{formatMoney(summary.daily_loss)}</h3><p>Daily waste loss</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><AlertTriangle size={22} /></div><div className="stat-content"><h3>{formatMoney(summary.weekly_loss)}</h3><p>Weekly waste loss</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><AlertTriangle size={22} /></div><div className="stat-content"><h3>{formatMoney(summary.monthly_loss)}</h3><p>Monthly waste loss</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-icon bg-secondary text-white"><Trash2 size={22} /></div><div className="stat-content"><h3>{Number(summary.monthly_items || 0)}</h3><p>Waste entries this month</p></div></div>
+      </div>
+
+      <div className="card mb-4">
+        <div className="card-header"><h3>Loss by item</h3></div>
+        <div className="card-body">
+          {!groupedRows.length ? (
+            <div className="empty-state">
+              <Trash2 size={40} className="text-muted" />
+              <h4>No waste recorded</h4>
+              <p>Expired products that are moved to waste will appear here.</p>
+            </div>
+          ) : (
+            <div className="table-responsive">
+              <table className="table table-hover">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Quantity Wasted</th>
+                    <th>Total Loss</th>
+                    <th>Occurrences</th>
+                    <th>Latest Waste Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupedRows.map((row) => (
+                    <tr key={row.key}>
+                      <td>{row.label}</td>
+                      <td>{row.quantity} {row.unit || 'unit'}</td>
+                      <td>{formatMoney(row.totalLoss)}</td>
+                      <td>{row.occurrences}</td>
+                      <td>{new Date(row.lastWastedAt).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header"><h3>Waste ledger</h3></div>
+        <div className="card-body">
+          {!wasteRows.length ? (
+            <div className="empty-state">
+              <Trash2 size={40} className="text-muted" />
+              <h4>No waste activity yet</h4>
+              <p>When inventory expires, detailed waste movements will be logged here.</p>
+            </div>
+          ) : (
+            <div className="table-responsive">
+              <table className="table table-hover">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Product</th>
+                    <th>Quantity</th>
+                    <th>Cost / Unit</th>
+                    <th>Total Loss</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {wasteRows.map((row) => (
+                    <tr key={row.id}>
+                      <td>{new Date(row.wasted_at).toLocaleString()}</td>
+                      <td>{row.group_name} / {row.product_name}</td>
+                      <td>{Number(row.quantity_wasted || 0)} {row.unit || 'unit'}</td>
+                      <td>{formatMoney(row.cost_per_unit)}</td>
+                      <td>{formatMoney(row.total_loss)}</td>
+                      <td><span className="badge badge-danger text-uppercase">{row.reason}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

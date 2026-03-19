@@ -84,7 +84,8 @@ export default function Sales() {
         const matchesSource = sourceFilter === 'all' || (product.source || 'baked') === sourceFilter;
         const matchesGroup = groupFilter === 'all' || groupKey === groupFilter;
         const matchesCategory = categoryFilter === 'all' || String(product.category_name || 'Uncategorized') === categoryFilter;
-        return product.is_active !== false && matchesSearch && matchesSource && matchesGroup && matchesCategory;
+        const isExpired = Boolean(product.expiration_date && new Date(product.expiration_date).getTime() < new Date(new Date().toISOString().slice(0, 10)).getTime());
+        return product.is_active !== false && !isExpired && matchesSearch && matchesSource && matchesGroup && matchesCategory;
       })
       .forEach((product) => {
         const key = product.group_name || product.name;
@@ -98,6 +99,11 @@ export default function Sales() {
   const getRemainingStock = (product) => Math.max(0, Number(product.stock_quantity || 0) - getCartQuantity(product.id));
 
   const addVariantToCart = (product) => {
+    const isExpired = Boolean(product.expiration_date && new Date(product.expiration_date).getTime() < new Date(new Date().toISOString().slice(0, 10)).getTime());
+    if (isExpired) {
+      toast.warning(`${product.name} has expired and cannot be sold.`);
+      return;
+    }
     if (getRemainingStock(product) <= 0) {
       toast.warning(`${product.name} is out of stock.`);
       return;
@@ -234,7 +240,8 @@ export default function Sales() {
               <div className="variant-grid">
                 {variantModal.variants.map((variant) => {
                   const remaining = getRemainingStock(variant);
-                  const outOfStock = remaining <= 0;
+                  const isExpired = Boolean(variant.expiration_date && new Date(variant.expiration_date).getTime() < new Date(new Date().toISOString().slice(0, 10)).getTime());
+                  const outOfStock = remaining <= 0 || isExpired;
                   return (
                     <button
                       key={variant.id}
@@ -244,7 +251,7 @@ export default function Sales() {
                       disabled={outOfStock}
                     >
                       <div className="variant-option-name">{variant.name}</div>
-                      <div className="variant-option-meta">ETB {Number(variant.price).toFixed(2)} • {outOfStock ? 'Out of stock' : `${remaining} left`}</div>
+                      <div className="variant-option-meta">ETB {Number(variant.price).toFixed(2)} • {isExpired ? 'Expired' : outOfStock ? 'Out of stock' : `${remaining} left`}</div>
                     </button>
                   );
                 })}

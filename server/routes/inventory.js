@@ -3,6 +3,8 @@ import { body, validationResult } from 'express-validator';
 import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
+import { createLowStockNotificationIfNeeded, createLowStockNotificationsForProducts } from '../services/stockAlertService.js';
+import { processExpiredInventoryForLocation } from '../services/wasteService.js';
 
 const router = express.Router();
 const BATCH_EDIT_WINDOW_MINUTES = 20;
@@ -93,8 +95,12 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
 
+    await processExpiredInventoryForLocation(query, locationId, req.user.id);
+
     const result = await query(
-      `SELECT i.*, p.name as product_name, p.price, p.cost, p.unit, c.name as category_name, u.username as last_updated_by_name
+      `SELECT i.*, p.name as product_name, p.price, p.cost, p.unit, p.expiration_date,
+              CASE WHEN p.expiration_date IS NOT NULL AND p.expiration_date < CURRENT_DATE THEN true ELSE false END AS is_expired,
+              c.name as category_name, u.username as last_updated_by_name
        FROM inventory i
        JOIN products p ON i.product_id = p.id
        LEFT JOIN categories c ON p.category_id = c.id
@@ -148,6 +154,8 @@ router.post(
          RETURNING *`,
         [product_id, locationId, quantity, source]
       );
+
+      await createLowStockNotificationIfNeeded({ query }, locationId, product_id);
 
       res.status(201).json(result.rows[0]);
     } catch (err) {
@@ -206,6 +214,8 @@ router.put(
           JSON.stringify({ product_id: productId, quantity, source }),
         ]
       );
+
+      await createLowStockNotificationIfNeeded({ query }, locationId, Number(productId));
 
       res.json(result.rows[0]);
     } catch (err) {
@@ -425,6 +435,8 @@ router.post(
             `${originalActorName} sent a batch with ${items.length} items (Total: ETB ${totalBatchValue.toFixed(2)})${isFromOfflineQueue ? ' [Synced from Offline]' : ''}`
           ]
         );
+
+        await createLowStockNotificationsForProducts(tx, locationId, items.map((item) => item.product_id));
 
         if (idempotencyKey) {
           await tx.query(

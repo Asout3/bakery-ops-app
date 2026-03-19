@@ -1,56 +1,48 @@
-import { useState, useEffect } from 'react';
-import api, { getErrorMessage } from '../../api/axios';
-import { useBranch } from '../../context/BranchContext';
-import { useAuth } from '../../context/AuthContext';
+import { useState, useEffect, useMemo } from 'react';
 import { useNotifications } from '../../context/NotificationContext';
-import { Bell, Check, X, Search, RefreshCw } from 'lucide-react';
+import { Bell, Check, X, Search, RefreshCw, Smartphone } from 'lucide-react';
 import './Notifications.css';
 
-export default function NotificationsPage() {
-  const { selectedLocationId } = useBranch();
-  const { user } = useAuth();
-  const { notifications, fetchNotifications, markAsRead, markAllAsRead, deleteNotification, unreadCount, refresh } = useNotifications();
-  const [loading, setLoading] = useState(true);
+function formatTypeLabel(type) {
+  return String(type || 'general').replace(/_/g, ' ');
+}
 
-  const [filters, setFilters] = useState({
-    type: '',
-    status: '',
-    search: ''
-  });
+export default function NotificationsPage() {
+  const {
+    notifications,
+    fetchNotifications,
+    markAsRead,
+    markAllAsRead,
+    deleteNotification,
+    permission,
+    requestSystemPermission,
+    refresh,
+  } = useNotifications();
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState({ type: '', status: '', search: '' });
 
   useEffect(() => {
-    fetchNotifications();
-    setLoading(false);
-  }, [user?.role]);
+    const load = async () => {
+      await fetchNotifications();
+      setLoading(false);
+    };
+    load();
+  }, [fetchNotifications]);
 
-  const handleMarkAsRead = async (id) => {
-    await markAsRead(id);
-  };
-
-  const handleMarkAllAsRead = async () => {
-    await markAllAsRead();
-  };
-
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this notification?')) {
-      await deleteNotification(id);
-    }
-  };
-
-
-  const filteredNotifications = notifications.filter(notification => {
+  const filteredNotifications = useMemo(() => notifications.filter((notification) => {
     const matchesType = !filters.type || notification.notification_type === filters.type;
-    const matchesStatus = !filters.status || 
-      (filters.status === 'unread' && !notification.is_read) || 
-      (filters.status === 'read' && notification.is_read);
-    const matchesSearch = !filters.search || 
-      notification.title.toLowerCase().includes(filters.search.toLowerCase()) ||
-      notification.message.toLowerCase().includes(filters.search.toLowerCase());
-    
-    return matchesType && matchesStatus && matchesSearch;
-  });
+    const matchesStatus = !filters.status
+      || (filters.status === 'unread' && !notification.is_read)
+      || (filters.status === 'read' && notification.is_read);
+    const searchValue = filters.search.toLowerCase();
+    const matchesSearch = !filters.search
+      || notification.title.toLowerCase().includes(searchValue)
+      || notification.message.toLowerCase().includes(searchValue);
 
-  const localUnreadCount = notifications.filter(n => !n.is_read).length;
+    return matchesType && matchesStatus && matchesSearch;
+  }), [filters, notifications]);
+
+  const unreadCount = notifications.filter((item) => !item.is_read).length;
 
   if (loading) {
     return (
@@ -65,13 +57,13 @@ export default function NotificationsPage() {
       <div className="page-header">
         <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
           <h2>Notifications</h2>
-          <div className="d-flex gap-2">
+          <div className="d-flex gap-2 flex-wrap">
             <button className="btn btn-outline-secondary btn-sm" onClick={() => refresh()}>
               <RefreshCw size={16} /> Refresh
             </button>
-            {localUnreadCount > 0 && (
-              <button className="btn btn-outline-primary" onClick={handleMarkAllAsRead}>
-                Mark All as Read ({localUnreadCount})
+            {unreadCount > 0 && (
+              <button className="btn btn-outline-primary" onClick={markAllAsRead}>
+                Mark All as Read ({unreadCount})
               </button>
             )}
           </div>
@@ -80,8 +72,30 @@ export default function NotificationsPage() {
 
       <div className="notifications-summary mb-4">
         <div className="summary-chip">Total: {notifications.length}</div>
-        <div className="summary-chip summary-chip-warning">Unread: {localUnreadCount}</div>
-        <div className="summary-chip">Read: {notifications.length - localUnreadCount}</div>
+        <div className="summary-chip summary-chip-warning">Unread: {unreadCount}</div>
+        <div className="summary-chip">Read: {notifications.length - unreadCount}</div>
+      </div>
+
+      <div className="card mb-4">
+        <div className="card-body d-flex justify-content-between align-items-center flex-wrap gap-3">
+          <div>
+            <h5 className="mb-1">Browser alerts</h5>
+            <p className="mb-0 text-muted">
+              {permission === 'granted' && 'Enabled. Background notifications will appear when new events arrive.'}
+              {permission === 'default' && 'Enable OS-level alerts for low stock, waste, sales, and operational events.'}
+              {permission === 'denied' && 'Blocked by the browser. Re-enable notifications from browser site settings.'}
+              {permission === 'unsupported' && 'This browser does not support the Notifications API.'}
+            </p>
+          </div>
+          <button
+            className="btn btn-primary"
+            onClick={requestSystemPermission}
+            disabled={permission === 'granted' || permission === 'unsupported'}
+          >
+            <Smartphone size={16} />
+            {permission === 'granted' ? 'Enabled' : permission === 'denied' ? 'Blocked' : 'Enable Alerts'}
+          </button>
+        </div>
       </div>
 
       <div className="card mb-4">
@@ -95,7 +109,7 @@ export default function NotificationsPage() {
                   className="form-control"
                   placeholder="Search notifications..."
                   value={filters.search}
-                  onChange={(e) => setFilters({...filters, search: e.target.value})}
+                  onChange={(e) => setFilters({ ...filters, search: e.target.value })}
                 />
               </div>
             </div>
@@ -103,11 +117,11 @@ export default function NotificationsPage() {
               <select
                 className="form-select"
                 value={filters.type}
-                onChange={(e) => setFilters({...filters, type: e.target.value})}
+                onChange={(e) => setFilters({ ...filters, type: e.target.value })}
               >
                 <option value="">All Types</option>
                 {[...new Set(notifications.map((n) => n.notification_type).filter(Boolean))].map((type) => (
-                  <option key={type} value={type}>{type}</option>
+                  <option key={type} value={type}>{formatTypeLabel(type)}</option>
                 ))}
               </select>
             </div>
@@ -115,7 +129,7 @@ export default function NotificationsPage() {
               <select
                 className="form-select"
                 value={filters.status}
-                onChange={(e) => setFilters({...filters, status: e.target.value})}
+                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
               >
                 <option value="">All Status</option>
                 <option value="unread">Unread</option>
@@ -126,18 +140,17 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-
       <div className="notifications-list">
         {filteredNotifications.length === 0 ? (
           <div className="empty-state">
             <Bell size={48} className="text-muted" />
             <h4>No notifications</h4>
-            <p>All caught up! You have no {filters.status || 'new'} notifications.</p>
+            <p>All caught up! You have no matching notifications.</p>
           </div>
         ) : (
-          filteredNotifications.map(notification => (
-            <div 
-              key={notification.id} 
+          filteredNotifications.map((notification) => (
+            <div
+              key={notification.id}
               className={`notification-item card ${!notification.is_read ? 'unread' : ''}`}
             >
               <div className="notification-header">
@@ -148,7 +161,7 @@ export default function NotificationsPage() {
                   </h5>
                   <div className="notification-meta">
                     <span className="notification-type badge badge-secondary">
-                      {notification.notification_type || 'General'}
+                      {formatTypeLabel(notification.notification_type)}
                     </span>
                     <span className="notification-date">
                       {new Date(notification.created_at).toLocaleString()}
@@ -157,17 +170,17 @@ export default function NotificationsPage() {
                 </div>
                 <div className="notification-actions">
                   {!notification.is_read && (
-                    <button 
+                    <button
                       className="btn btn-sm btn-outline-success"
-                      onClick={() => handleMarkAsRead(notification.id)}
+                      onClick={() => markAsRead(notification.id)}
                       title="Mark as read"
                     >
                       <Check size={14} />
                     </button>
                   )}
-                  <button 
+                  <button
                     className="btn btn-sm btn-outline-danger"
-                    onClick={() => handleDelete(notification.id)}
+                    onClick={() => deleteNotification(notification.id)}
                     title="Delete"
                   >
                     <X size={14} />

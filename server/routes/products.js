@@ -3,6 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { query } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
+import { processExpiredInventoryForAllLocations, processExpiredInventoryForLocation } from '../services/wasteService.js';
 
 const router = express.Router();
 
@@ -52,11 +53,28 @@ function buildGroupExpr(hasGroupName) {
   return hasGroupName ? "COALESCE(p.group_name, p.name)" : 'p.name';
 }
 
-
 function normalizeLowStockThreshold(value) {
   const normalized = Number(value);
   if (!Number.isFinite(normalized)) return null;
   return Math.max(0, Math.trunc(normalized));
+}
+
+function normalizeExpirationDate(value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  return parsed.toISOString().slice(0, 10);
+}
+
+async function processExpiredForRequest(req) {
+  if (req.user?.role === 'admin' && !req.headers['x-location-id'] && !req.user?.location_id) {
+    await processExpiredInventoryForAllLocations(query, req.user.id);
+    return;
+  }
+
+  const locationId = await getTargetLocationId(req, query);
+  await processExpiredInventoryForLocation(query, locationId, req.user.id);
 }
 
 router.get('/categories', authenticateToken, async (req, res) => {
@@ -90,15 +108,17 @@ router.post('/categories', authenticateToken, authorizeRoles('admin', 'manager')
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
+    await processExpiredForRequest(req);
     const locationId = await getTargetLocationId(req, query);
     const role = req.user?.role;
     const { hasGroupName } = await getProductSchemaSupport();
     const groupExpr = buildGroupExpr(hasGroupName);
     const groupSelect = `${groupExpr} as group_name`;
+    const expirationSelect = `CASE WHEN p.expiration_date IS NOT NULL AND p.expiration_date < CURRENT_DATE THEN true ELSE false END AS is_expired`;
 
     const result = role === 'admin'
       ? await query(
-          `SELECT p.*, ${groupSelect}, c.name as category_name, creator.username as created_by_name,
+          `SELECT p.*, ${groupSelect}, ${expirationSelect}, c.name as category_name, creator.username as created_by_name,
                   CASE WHEN p.is_active = false THEN 'inactive'
                        WHEN EXISTS (SELECT 1 FROM inventory i WHERE i.product_id = p.id AND i.quantity > 0) THEN 'active'
                        ELSE 'out_of_stock'
@@ -109,7 +129,7 @@ router.get('/', authenticateToken, async (req, res) => {
            ORDER BY ${groupExpr}, p.name`
         )
       : await query(
-          `SELECT DISTINCT p.*, ${groupSelect}, c.name as category_name, creator.username as created_by_name,
+          `SELECT DISTINCT p.*, ${groupSelect}, ${expirationSelect}, c.name as category_name, creator.username as created_by_name,
                   CASE WHEN p.is_active = false THEN 'inactive'
                        WHEN EXISTS (SELECT 1 FROM inventory i2 WHERE i2.product_id = p.id AND i2.location_id = $1 AND i2.quantity > 0) THEN 'active'
                        ELSE 'out_of_stock'
@@ -131,10 +151,13 @@ router.get('/', authenticateToken, async (req, res) => {
 
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
+    await processExpiredForRequest(req);
     const { hasGroupName } = await getProductSchemaSupport();
     const groupExpr = hasGroupName ? 'COALESCE(p.group_name, p.name)' : 'p.name';
     const result = await query(
-      `SELECT p.*, ${groupExpr} as group_name, c.name as category_name, creator.username as created_by_name
+      `SELECT p.*, ${groupExpr} as group_name,
+              CASE WHEN p.expiration_date IS NOT NULL AND p.expiration_date < CURRENT_DATE THEN true ELSE false END AS is_expired,
+              c.name as category_name, creator.username as created_by_name
        FROM products p
        LEFT JOIN categories c ON p.category_id = c.id
        LEFT JOIN users creator ON creator.id = p.created_by
@@ -153,69 +176,81 @@ router.get('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-router.post('/', authenticateToken, authorizeRoles('admin', 'manager'), body('name').trim().notEmpty(), body('price').isFloat({ min: 0 }), body('source').optional().isIn(['baked', 'purchased']), async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
-  }
-
-  const { name, group_name, category_id, price, cost, unit, source } = req.body;
-
-  try {
-    const { hasGroupName } = await getProductSchemaSupport();
-    const effectiveGroup = String(group_name || name).trim();
-
-    const existing = hasGroupName
-      ? await query(`SELECT id FROM products WHERE LOWER(name) = LOWER($1) AND LOWER(COALESCE(group_name, '')) = LOWER($2) LIMIT 1`, [name, effectiveGroup])
-      : await query('SELECT id FROM products WHERE LOWER(name) = LOWER($1) LIMIT 1', [name]);
-
-    if (existing.rows.length > 0) {
-      return res.status(409).json({ error: 'Product name already exists', code: 'DUPLICATE_PRODUCT_NAME', requestId: req.requestId });
+router.post(
+  '/',
+  authenticateToken,
+  authorizeRoles('admin', 'manager'),
+  body('name').trim().notEmpty(),
+  body('price').isFloat({ min: 0 }),
+  body('source').optional().isIn(['baked', 'purchased']),
+  body('expiration_date').optional({ values: 'falsy' }).isISO8601(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
     }
 
-    const result = hasGroupName
-      ? await query(
-          `INSERT INTO products (name, group_name, category_id, price, cost, unit, source, created_by, low_stock_threshold)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           RETURNING *`,
-          [name, effectiveGroup, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, normalizeLowStockThreshold(req.body.low_stock_threshold)]
-        )
-      : await query(
-          `INSERT INTO products (name, category_id, price, cost, unit, source, created_by, low_stock_threshold)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           RETURNING *`,
-          [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, normalizeLowStockThreshold(req.body.low_stock_threshold)]
-        );
+    const { name, group_name, category_id, price, cost, unit, source } = req.body;
+    const expirationDate = normalizeExpirationDate(req.body.expiration_date);
 
-    const createdProduct = result.rows[0];
+    try {
+      const { hasGroupName } = await getProductSchemaSupport();
+      const effectiveGroup = String(group_name || name).trim();
 
-    await query(
-      `INSERT INTO inventory (product_id, location_id, quantity, source)
-       SELECT $1, l.id, 0, $2
-       FROM locations l
-       WHERE l.is_active = true
-       ON CONFLICT (product_id, location_id) DO NOTHING`,
-      [createdProduct.id, source || 'baked']
-    );
+      const existing = hasGroupName
+        ? await query(`SELECT id FROM products WHERE LOWER(name) = LOWER($1) AND LOWER(COALESCE(group_name, '')) = LOWER($2) LIMIT 1`, [name, effectiveGroup])
+        : await query('SELECT id FROM products WHERE LOWER(name) = LOWER($1) LIMIT 1', [name]);
 
-    await query(
-      `INSERT INTO activity_log (user_id, location_id, activity_type, description)
-       VALUES ($1, $2, $3, $4)`,
-      [req.user.id, req.user.location_id, 'product_created', `Created product: ${effectiveGroup} / ${name}`]
-    );
+      if (existing.rows.length > 0) {
+        return res.status(409).json({ error: 'Product name already exists', code: 'DUPLICATE_PRODUCT_NAME', requestId: req.requestId });
+      }
 
-    res.status(201).json({ ...createdProduct, group_name: effectiveGroup });
-  } catch (err) {
-    console.error('Create product error:', err);
-    res.status(500).json({ error: 'Internal server error', code: 'PRODUCT_CREATE_ERROR', requestId: req.requestId });
+      const result = hasGroupName
+        ? await query(
+            `INSERT INTO products (name, group_name, category_id, price, cost, unit, source, created_by, low_stock_threshold, expiration_date)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             RETURNING *`,
+            [name, effectiveGroup, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, normalizeLowStockThreshold(req.body.low_stock_threshold), expirationDate ?? null]
+          )
+        : await query(
+            `INSERT INTO products (name, category_id, price, cost, unit, source, created_by, low_stock_threshold, expiration_date)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             RETURNING *`,
+            [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, normalizeLowStockThreshold(req.body.low_stock_threshold), expirationDate ?? null]
+          );
+
+      const createdProduct = result.rows[0];
+
+      await query(
+        `INSERT INTO inventory (product_id, location_id, quantity, source)
+         SELECT $1, l.id, 0, $2
+         FROM locations l
+         WHERE l.is_active = true
+         ON CONFLICT (product_id, location_id) DO NOTHING`,
+        [createdProduct.id, source || 'baked']
+      );
+
+      await query(
+        `INSERT INTO activity_log (user_id, location_id, activity_type, description)
+         VALUES ($1, $2, $3, $4)`,
+        [req.user.id, req.user.location_id, 'product_created', `Created product: ${effectiveGroup} / ${name}`]
+      );
+
+      res.status(201).json({ ...createdProduct, group_name: effectiveGroup, is_expired: false });
+    } catch (err) {
+      console.error('Create product error:', err);
+      res.status(500).json({ error: 'Internal server error', code: 'PRODUCT_CREATE_ERROR', requestId: req.requestId });
+    }
   }
-});
+);
 
-router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
+router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), body('expiration_date').optional({ values: 'falsy' }).isISO8601(), async (req, res) => {
   const { name, group_name, category_id, price, cost, unit, is_active, source, low_stock_threshold } = req.body;
   const { id } = req.params;
   const shouldUpdateLowStockThreshold = Object.prototype.hasOwnProperty.call(req.body, 'low_stock_threshold');
+  const shouldUpdateExpirationDate = Object.prototype.hasOwnProperty.call(req.body, 'expiration_date');
   const normalizedLowStockThreshold = normalizeLowStockThreshold(low_stock_threshold);
+  const normalizedExpirationDate = normalizeExpirationDate(req.body.expiration_date);
 
   try {
     const { hasGroupName } = await getProductSchemaSupport();
@@ -243,10 +278,11 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async 
                is_active = COALESCE($7, is_active),
                source = COALESCE($8, source),
                low_stock_threshold = CASE WHEN $10::boolean THEN $9 ELSE low_stock_threshold END,
+               expiration_date = CASE WHEN $12::boolean THEN $11 ELSE expiration_date END,
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = $11
+           WHERE id = $13
            RETURNING *`,
-          [name, group_name, category_id, price, cost, unit, is_active, source, normalizedLowStockThreshold, shouldUpdateLowStockThreshold, id]
+          [name, group_name, category_id, price, cost, unit, is_active, source, normalizedLowStockThreshold, shouldUpdateLowStockThreshold, normalizedExpirationDate, shouldUpdateExpirationDate, id]
         )
       : await query(
           `UPDATE products
@@ -258,10 +294,11 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async 
                is_active = COALESCE($6, is_active),
                source = COALESCE($7, source),
                low_stock_threshold = CASE WHEN $9::boolean THEN $8 ELSE low_stock_threshold END,
+               expiration_date = CASE WHEN $11::boolean THEN $10 ELSE expiration_date END,
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = $10
+           WHERE id = $12
            RETURNING *`,
-          [name, category_id, price, cost, unit, is_active, source, normalizedLowStockThreshold, shouldUpdateLowStockThreshold, id]
+          [name, category_id, price, cost, unit, is_active, source, normalizedLowStockThreshold, shouldUpdateLowStockThreshold, normalizedExpirationDate, shouldUpdateExpirationDate, id]
         );
 
     if (result.rows.length === 0) {
@@ -274,7 +311,12 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async 
       [req.user.id, req.user.location_id, 'product_updated', `Updated product: ${name || id}`]
     );
 
-    res.json({ ...result.rows[0], group_name: result.rows[0].group_name || result.rows[0].name });
+    const updated = result.rows[0];
+    res.json({
+      ...updated,
+      group_name: updated.group_name || updated.name,
+      is_expired: Boolean(updated.expiration_date && new Date(updated.expiration_date).getTime() < new Date(new Date().toISOString().slice(0, 10)).getTime()),
+    });
   } catch (err) {
     console.error('Update product error:', err);
     res.status(500).json({ error: 'Internal server error', code: 'PRODUCT_UPDATE_ERROR', requestId: req.requestId });

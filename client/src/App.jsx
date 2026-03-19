@@ -19,6 +19,7 @@ import ExpensesPage from './pages/admin/Expenses';
 import StaffPaymentsPage from './pages/admin/StaffPayments';
 import ReportsPage from './pages/admin/Reports';
 import NotificationsPage from './pages/admin/Notifications';
+import WastePage from './pages/admin/Waste';
 import SyncQueuePage from './pages/admin/SyncQueue';
 import BranchesAndStaffPage from './pages/admin/BranchesAndStaff';
 import StaffManagementPage from './pages/admin/StaffManagement';
@@ -47,6 +48,7 @@ function AppInner() {
             <Route path="staff-payments" element={<StaffPaymentsPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="waste" element={<WastePage />} />
             <Route path="sync" element={<SyncQueuePage />} />
             <Route path="team" element={<BranchesAndStaffPage />} />
             <Route path="staff" element={<StaffManagementPage />} />
@@ -78,15 +80,15 @@ function App() {
     <LanguageProvider>
       <AuthProvider>
         <BranchProvider>
-          <NotificationProvider>
-            <ToastProvider>
+          <ToastProvider>
+            <NotificationProvider>
               <ConfirmProvider>
                 <AppErrorBoundary>
                   <AppInner />
                 </AppErrorBoundary>
               </ConfirmProvider>
-            </ToastProvider>
-          </NotificationProvider>
+            </NotificationProvider>
+          </ToastProvider>
         </BranchProvider>
       </AuthProvider>
     </LanguageProvider>

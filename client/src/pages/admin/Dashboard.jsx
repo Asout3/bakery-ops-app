@@ -36,6 +36,7 @@ export default function Dashboard() {
 
   const [report, setReport] = useState(null);
   const [orders, setOrders] = useState([]);
+  const [wasteSummary, setWasteSummary] = useState({ daily_loss: 0, weekly_loss: 0, monthly_loss: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -55,6 +56,9 @@ export default function Dashboard() {
           reportRes = await api.get(`/reports/monthly?year=${year}&month=${Number(month)}`);
         }
         setReport(reportRes.data || null);
+
+        const wasteRes = await api.get('/waste/summary');
+        setWasteSummary(wasteRes.data || { daily_loss: 0, weekly_loss: 0, monthly_loss: 0 });
 
         if (user?.role === 'admin') {
           const ordersRes = await api.get('/orders', { params: { include_completed: true } });
@@ -207,6 +211,12 @@ export default function Dashboard() {
         <StatCard icon={<Receipt size={18} />} label="Total Batch Cost" value={formatMoney(totals.batchCosts)} sub={`${Number(report?.details?.batches?.batch_count || 0)} batches`} tone="warning" />
         <StatCard icon={<Wallet size={18} />} label="Net Profit" value={formatMoney(totals.netProfit)} sub="Revenue - all costs" tone={totals.netProfit >= 0 ? 'success' : 'danger'} />
         <StatCard icon={<Receipt size={18} />} label="Order Revenue" value={formatMoney(totals.orderRevenue)} sub={`${totals.orderCount} picked-up`} tone="info" />
+      </div>
+
+      <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
+        <StatCard icon={<Receipt size={18} />} label="Daily Waste Loss" value={formatMoney(wasteSummary.daily_loss)} sub="Expired stock moved to waste today" tone="danger" />
+        <StatCard icon={<Receipt size={18} />} label="Weekly Waste Loss" value={formatMoney(wasteSummary.weekly_loss)} sub="Current week waste exposure" tone="warning" />
+        <StatCard icon={<Receipt size={18} />} label="Monthly Waste Loss" value={formatMoney(wasteSummary.monthly_loss)} sub="Current month waste exposure" tone="danger" />
       </div>
 
       <div className="details-grid">

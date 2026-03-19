@@ -3,6 +3,8 @@ import { body, validationResult } from 'express-validator';
 import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
+import { createLowStockNotificationIfNeeded } from '../services/stockAlertService.js';
+import { processExpiredInventoryForLocation } from '../services/wasteService.js';
 
 const router = express.Router();
 
@@ -76,11 +78,15 @@ router.post(
           }
         }
 
+        await processExpiredInventoryForLocation(tx, locationId, effectiveCashierId);
+
         let totalAmount = 0;
         const saleItems = [];
 
         for (const item of items) {
-          const productResult = await tx.query('SELECT id, name, price, low_stock_threshold FROM products WHERE id = $1', [item.product_id]);
+          const productResult = await tx.query(`SELECT id, name, price, low_stock_threshold, expiration_date, is_active
+                                                FROM products
+                                                WHERE id = $1`, [item.product_id]);
           if (productResult.rows.length === 0) {
             const err = new Error(`Product ${item.product_id} not found`);
             err.status = 404;
@@ -88,6 +94,18 @@ router.post(
           }
 
           const product = productResult.rows[0];
+          if (product.is_active === false) {
+            const inactiveError = new Error(`${product.name} is inactive and cannot be sold`);
+            inactiveError.status = 400;
+            inactiveError.code = 'PRODUCT_INACTIVE';
+            throw inactiveError;
+          }
+          if (product.expiration_date && new Date(product.expiration_date).getTime() < new Date(new Date().toISOString().slice(0, 10)).getTime()) {
+            const expiredError = new Error(`${product.name} has expired and cannot be sold`);
+            expiredError.status = 400;
+            expiredError.code = 'PRODUCT_EXPIRED';
+            throw expiredError;
+          }
           const unitPrice = Number(product.price);
           const subtotal = unitPrice * item.quantity;
           totalAmount += subtotal;
@@ -166,17 +184,8 @@ router.post(
             ? Number(item.low_stock_threshold)
             : defaultLowStockThreshold;
 
-          if (remainingQty < itemLowStockThreshold) {
-            await tx.query(
-              `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-               SELECT id, $1, $2, $3, $4 FROM users WHERE role IN ('admin', 'manager') AND location_id = $1`,
-              [
-                locationId,
-                'Low Stock Alert',
-                `${item.product_name} is running low (${remainingQty} remaining)`,
-                'low_stock',
-              ]
-            );
+          if (remainingQty <= itemLowStockThreshold) {
+            await createLowStockNotificationIfNeeded(tx, locationId, item.product_id);
           }
         }
 
