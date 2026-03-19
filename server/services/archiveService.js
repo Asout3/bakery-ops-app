@@ -2,7 +2,6 @@ import { query, withTransaction } from '../db.js';
 import { JOB_LOCK_KEYS, withAdvisoryJobLock } from './jobLockService.js';
 
 const DEFAULT_CONFIRMATION_PHRASE = 'I CONFIRM TO ARCHIVE THE LAST 6 MONTH HISTORY';
-const archiveColumnCache = new Map();
 
 function quoteIdentifier(value) {
   return `"${String(value).replaceAll('"', '""')}"`;
@@ -46,11 +45,6 @@ function getColumnTypeDefinition(column) {
 }
 
 async function getTableColumns(tx, tableName) {
-  const cacheKey = tableName;
-  if (archiveColumnCache.has(cacheKey)) {
-    return archiveColumnCache.get(cacheKey);
-  }
-
   const result = await tx.query(
     `SELECT column_name,
             data_type,
@@ -65,8 +59,6 @@ async function getTableColumns(tx, tableName) {
      ORDER BY ordinal_position`,
     [tableName]
   );
-
-  archiveColumnCache.set(cacheKey, result.rows);
   return result.rows;
 }
 
@@ -83,10 +75,6 @@ async function ensureArchiveTable(tx, sourceTable, archiveTable) {
       `ALTER TABLE ${quoteIdentifier(archiveTable)}
        ADD COLUMN IF NOT EXISTS ${quoteIdentifier(column.column_name)} ${getColumnTypeDefinition(column)}`
     );
-  }
-
-  if (missingColumns.length > 0) {
-    archiveColumnCache.delete(archiveTable);
   }
 }
 
@@ -488,4 +476,5 @@ export { DEFAULT_CONFIRMATION_PHRASE };
 export const __private__ = {
   ensureArchiveTable,
   getSharedColumns,
+  moveRowsToArchive,
 };
