@@ -59,6 +59,8 @@ export async function ensureStockBatchSchema() {
 
   stockBatchSchemaPromise = (async () => {
     await query('ALTER TABLE products ADD COLUMN IF NOT EXISTS shelf_life_days INTEGER');
+    await query('ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_source_check');
+    await query(`ALTER TABLE inventory ADD CONSTRAINT inventory_source_check CHECK (source IN ('baked', 'purchased', 'manual'))`);
     await query(
       `CREATE TABLE IF NOT EXISTS inventory_stock_batches (
          id BIGSERIAL PRIMARY KEY,
@@ -131,6 +133,36 @@ export async function ensureInventoryCoverageBatch(dbOrQuery, locationId, produc
 export async function syncInventoryFromStockBatches(dbOrQuery, locationId, productId, source = 'manual') {
   const db = getDbExecutor(dbOrQuery);
   const quantity = await getAvailableBatchQuantity(db, locationId, productId);
+  const resolvedSourceResult = await db.query(
+    `SELECT COALESCE(
+        (
+          SELECT source
+          FROM inventory_stock_batches
+          WHERE location_id = $1
+            AND product_id = $2
+            AND quantity_remaining > 0
+          ORDER BY created_at DESC, id DESC
+          LIMIT 1
+        ),
+        (
+          SELECT source
+          FROM inventory
+          WHERE location_id = $1
+            AND product_id = $2
+          LIMIT 1
+        ),
+        (
+          SELECT source
+          FROM products
+          WHERE id = $2
+          LIMIT 1
+        ),
+        $3,
+        'baked'
+      ) AS source`,
+    [locationId, productId, source]
+  );
+  const resolvedSource = resolvedSourceResult.rows[0]?.source || 'baked';
 
   const result = await db.query(
     `INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)
@@ -138,7 +170,7 @@ export async function syncInventoryFromStockBatches(dbOrQuery, locationId, produ
      ON CONFLICT (product_id, location_id)
      DO UPDATE SET quantity = EXCLUDED.quantity, source = EXCLUDED.source, last_updated = CURRENT_TIMESTAMP
      RETURNING *`,
-    [productId, locationId, quantity, source]
+    [productId, locationId, quantity, resolvedSource]
   );
 
   return result.rows[0];

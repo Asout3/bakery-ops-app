@@ -8,6 +8,7 @@ import {
   DEFAULT_CONFIRMATION_PHRASE,
   getArchiveDashboard,
   runArchiveForLocation,
+  ensureArchiveTables,
   updateArchiveSettings,
 } from '../services/archiveService.js';
 
@@ -64,14 +65,16 @@ router.post('/run', authenticateToken, authorizeRoles('admin'), asyncHandler(asy
 
 router.get('/export', authenticateToken, authorizeRoles('admin'), asyncHandler(async (req, res) => {
   const locationId = await getTargetLocationId(req, query);
+  await ensureArchiveTables({ query });
 
-  const [sales, expenses, inventoryMovements, activityLog, staffPayments, batches, preOrders, preOrderItems] = await Promise.all([
+  const [sales, expenses, inventoryMovements, activityLog, staffPayments, batches, wasteRecords, preOrders, preOrderItems] = await Promise.all([
     query('SELECT * FROM sales_archive WHERE location_id = $1 ORDER BY sale_date DESC, id DESC', [locationId]),
     query('SELECT * FROM expenses_archive WHERE location_id = $1 ORDER BY expense_date DESC, id DESC', [locationId]),
     query('SELECT * FROM inventory_movements_archive WHERE location_id = $1 ORDER BY created_at DESC, id DESC', [locationId]),
     query('SELECT * FROM activity_log_archive WHERE location_id = $1 ORDER BY created_at DESC, id DESC', [locationId]),
     query('SELECT * FROM staff_payments_archive WHERE location_id = $1 ORDER BY payment_date DESC, id DESC', [locationId]),
     query('SELECT * FROM inventory_batches_archive WHERE location_id = $1 ORDER BY created_at DESC, id DESC', [locationId]),
+    query('SELECT * FROM waste_records_archive WHERE location_id = $1 ORDER BY wasted_at DESC, id DESC', [locationId]),
     query('SELECT * FROM customer_orders_archive WHERE location_id = $1 ORDER BY pickup_at DESC, id DESC', [locationId]),
     query('SELECT oia.* FROM order_items_archive oia JOIN customer_orders_archive coa ON coa.id = oia.order_id WHERE coa.location_id = $1 ORDER BY oia.id DESC', [locationId]),
   ]);
@@ -83,6 +86,7 @@ router.get('/export', authenticateToken, authorizeRoles('admin'), asyncHandler(a
     ['activity_log_archive', activityLog.rows],
     ['staff_payments_archive', staffPayments.rows],
     ['inventory_batches_archive', batches.rows],
+    ['waste_records_archive', wasteRecords.rows],
     ['customer_orders_archive', preOrders.rows],
     ['order_items_archive', preOrderItems.rows],
   ];

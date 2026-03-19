@@ -24,6 +24,7 @@ import './Dashboard.css';
 
 const formatMoney = (value) => `ETB ${Number(value || 0).toFixed(2)}`;
 const formatShortDate = (value) => new Date(value).toLocaleDateString();
+
 export default function Dashboard() {
   const { selectedLocationId } = useBranch();
   const { user } = useAuth();
@@ -164,6 +165,30 @@ export default function Dashboard() {
   const expenseRows = report?.details?.expenses || [];
   const staffPaymentRows = report?.details?.staff_payments || [];
   const cashierRows = report?.details?.cashier_performance || [];
+  const selectedWasteCard = useMemo(() => {
+    if (period === 'weekly') {
+      return {
+        label: 'Weekly Waste Loss',
+        value: wasteSummary.weekly_loss,
+        sub: 'Current week waste exposure',
+        tone: 'warning',
+      };
+    }
+    if (period === 'monthly') {
+      return {
+        label: 'Monthly Waste Loss',
+        value: wasteSummary.monthly_loss,
+        sub: 'Current month waste exposure',
+        tone: 'danger',
+      };
+    }
+    return {
+      label: 'Daily Waste Loss',
+      value: wasteSummary.daily_loss,
+      sub: 'Expired stock moved to waste today',
+      tone: 'danger',
+    };
+  }, [period, wasteSummary.daily_loss, wasteSummary.weekly_loss, wasteSummary.monthly_loss]);
 
   const periodLabel = period === 'daily'
     ? formatShortDate(dailyDate)
@@ -214,9 +239,13 @@ export default function Dashboard() {
       </div>
 
       <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
-        <StatCard icon={<Receipt size={18} />} label="Daily Waste Loss" value={formatMoney(wasteSummary.daily_loss)} sub="Expired stock moved to waste today" tone="danger" />
-        <StatCard icon={<Receipt size={18} />} label="Weekly Waste Loss" value={formatMoney(wasteSummary.weekly_loss)} sub="Current week waste exposure" tone="warning" />
-        <StatCard icon={<Receipt size={18} />} label="Monthly Waste Loss" value={formatMoney(wasteSummary.monthly_loss)} sub="Current month waste exposure" tone="danger" />
+        <StatCard
+          icon={<Receipt size={18} />}
+          label={selectedWasteCard.label}
+          value={formatMoney(selectedWasteCard.value)}
+          sub={selectedWasteCard.sub}
+          tone={selectedWasteCard.tone}
+        />
       </div>
 
       <div className="details-grid">

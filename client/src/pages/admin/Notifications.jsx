@@ -40,6 +40,11 @@ export default function NotificationsPage() {
       || notification.message.toLowerCase().includes(searchValue);
 
     return matchesType && matchesStatus && matchesSearch;
+  }).sort((left, right) => {
+    if (left.is_read !== right.is_read) {
+      return left.is_read ? 1 : -1;
+    }
+    return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
   }), [filters, notifications]);
 
   const unreadCount = notifications.filter((item) => !item.is_read).length;
@@ -56,7 +61,10 @@ export default function NotificationsPage() {
     <div className="notifications-page">
       <div className="page-header">
         <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
-          <h2>Notifications</h2>
+          <div>
+            <h2>Notifications</h2>
+            <p className="text-muted mb-0">Unread alerts stay pinned to the top and new events surface as in-app popups.</p>
+          </div>
           <div className="d-flex gap-2 flex-wrap">
             <button className="btn btn-outline-secondary btn-sm" onClick={() => refresh()}>
               <RefreshCw size={16} /> Refresh
@@ -71,6 +79,7 @@ export default function NotificationsPage() {
       </div>
 
       <div className="notifications-summary mb-4">
+        <div className="summary-chip summary-chip-live">Live feed</div>
         <div className="summary-chip">Total: {notifications.length}</div>
         <div className="summary-chip summary-chip-warning">Unread: {unreadCount}</div>
         <div className="summary-chip">Read: {notifications.length - unreadCount}</div>
@@ -175,7 +184,7 @@ export default function NotificationsPage() {
                       onClick={() => markAsRead(notification.id)}
                       title="Mark as read"
                     >
-                      <Check size={14} />
+                      <Check size={14} /> Read
                     </button>
                   )}
                   <button
@@ -183,7 +192,7 @@ export default function NotificationsPage() {
                     onClick={() => deleteNotification(notification.id)}
                     title="Delete"
                   >
-                    <X size={14} />
+                    <X size={14} /> Delete
                   </button>
                 </div>
               </div>
