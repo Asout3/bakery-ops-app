@@ -2,6 +2,149 @@ import { query, withTransaction } from '../db.js';
 import { JOB_LOCK_KEYS, withAdvisoryJobLock } from './jobLockService.js';
 
 const DEFAULT_CONFIRMATION_PHRASE = 'I CONFIRM TO ARCHIVE THE LAST 6 MONTH HISTORY';
+const archiveColumnCache = new Map();
+
+function quoteIdentifier(value) {
+  return `"${String(value).replaceAll('"', '""')}"`;
+}
+
+function getColumnTypeDefinition(column) {
+  if (column.data_type === 'ARRAY') {
+    return `${column.udt_name.replace(/^_/, '')}[]`;
+  }
+  if (column.data_type === 'USER-DEFINED') {
+    return quoteIdentifier(column.udt_name);
+  }
+  if (column.data_type === 'character varying') {
+    return column.character_maximum_length ? `VARCHAR(${column.character_maximum_length})` : 'VARCHAR';
+  }
+  if (column.data_type === 'character') {
+    return column.character_maximum_length ? `CHAR(${column.character_maximum_length})` : 'CHAR';
+  }
+  if (column.data_type === 'numeric') {
+    if (column.numeric_precision && column.numeric_scale !== null) {
+      return `NUMERIC(${column.numeric_precision},${column.numeric_scale})`;
+    }
+    if (column.numeric_precision) {
+      return `NUMERIC(${column.numeric_precision})`;
+    }
+    return 'NUMERIC';
+  }
+  if (column.data_type === 'timestamp without time zone') {
+    return column.datetime_precision !== null ? `TIMESTAMP(${column.datetime_precision})` : 'TIMESTAMP';
+  }
+  if (column.data_type === 'timestamp with time zone') {
+    return column.datetime_precision !== null ? `TIMESTAMPTZ(${column.datetime_precision})` : 'TIMESTAMPTZ';
+  }
+  if (column.data_type === 'time without time zone') {
+    return column.datetime_precision !== null ? `TIME(${column.datetime_precision})` : 'TIME';
+  }
+  if (column.data_type === 'time with time zone') {
+    return column.datetime_precision !== null ? `TIMETZ(${column.datetime_precision})` : 'TIMETZ';
+  }
+  return column.data_type;
+}
+
+async function getTableColumns(tx, tableName) {
+  const cacheKey = tableName;
+  if (archiveColumnCache.has(cacheKey)) {
+    return archiveColumnCache.get(cacheKey);
+  }
+
+  const result = await tx.query(
+    `SELECT column_name,
+            data_type,
+            udt_name,
+            character_maximum_length,
+            numeric_precision,
+            numeric_scale,
+            datetime_precision
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = $1
+     ORDER BY ordinal_position`,
+    [tableName]
+  );
+
+  archiveColumnCache.set(cacheKey, result.rows);
+  return result.rows;
+}
+
+async function ensureArchiveTable(tx, sourceTable, archiveTable) {
+  await tx.query(`CREATE TABLE IF NOT EXISTS ${quoteIdentifier(archiveTable)} (LIKE ${quoteIdentifier(sourceTable)} INCLUDING ALL)`);
+
+  const sourceColumns = await getTableColumns(tx, sourceTable);
+  const archiveColumns = await getTableColumns(tx, archiveTable);
+  const archiveColumnNames = new Set(archiveColumns.map((column) => column.column_name));
+  const missingColumns = sourceColumns.filter((column) => !archiveColumnNames.has(column.column_name));
+
+  for (const column of missingColumns) {
+    await tx.query(
+      `ALTER TABLE ${quoteIdentifier(archiveTable)}
+       ADD COLUMN IF NOT EXISTS ${quoteIdentifier(column.column_name)} ${getColumnTypeDefinition(column)}`
+    );
+  }
+
+  if (missingColumns.length > 0) {
+    archiveColumnCache.delete(archiveTable);
+  }
+}
+
+async function getSharedColumns(tx, sourceTable, archiveTable) {
+  await ensureArchiveTable(tx, sourceTable, archiveTable);
+  const sourceColumns = await getTableColumns(tx, sourceTable);
+  const archiveColumns = await getTableColumns(tx, archiveTable);
+  const archiveColumnNames = new Set(archiveColumns.map((column) => column.column_name));
+  return sourceColumns
+    .map((column) => column.column_name)
+    .filter((columnName) => archiveColumnNames.has(columnName));
+}
+
+async function insertArchiveRows(tx, {
+  sourceTable,
+  archiveTable,
+  whereClause,
+  whereParams = [],
+  cteName = 'moved',
+}) {
+  const sharedColumns = await getSharedColumns(tx, sourceTable, archiveTable);
+  const columnList = sharedColumns.map((columnName) => quoteIdentifier(columnName)).join(', ');
+  return tx.query(
+    `WITH ${cteName} AS (
+       INSERT INTO ${quoteIdentifier(archiveTable)} (${columnList})
+       SELECT ${columnList}
+       FROM ${quoteIdentifier(sourceTable)}
+       WHERE ${whereClause}
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id
+     )
+     SELECT COUNT(*)::int AS count FROM ${cteName}`,
+    whereParams
+  );
+}
+
+async function insertArchiveRowsFromJoin(tx, {
+  sourceTable,
+  archiveTable,
+  sourceAlias,
+  joinClause,
+  whereClause,
+  whereParams = [],
+}) {
+  const sharedColumns = await getSharedColumns(tx, sourceTable, archiveTable);
+  const sourceColumns = sharedColumns
+    .map((columnName) => `${sourceAlias}.${quoteIdentifier(columnName)}`)
+    .join(', ');
+  const archiveColumns = sharedColumns.map((columnName) => quoteIdentifier(columnName)).join(', ');
+  return tx.query(
+    `INSERT INTO ${quoteIdentifier(archiveTable)} (${archiveColumns})
+     SELECT ${sourceColumns}
+     FROM ${quoteIdentifier(sourceTable)} ${sourceAlias}
+     ${joinClause}
+     WHERE ${whereClause}`,
+    whereParams
+  );
+}
 
 async function getLocationsToProcess(locationId = null) {
   if (locationId) {
@@ -36,32 +179,25 @@ async function createArchiveNotification(tx, locationId, title, message, type = 
 async function moveRowsToArchive(tx, config) {
   const counts = {};
 
-  await tx.query('CREATE TABLE IF NOT EXISTS customer_orders_archive (LIKE customer_orders INCLUDING ALL)');
-  await tx.query('CREATE TABLE IF NOT EXISTS order_items_archive (LIKE order_items INCLUDING ALL)');
-
-
-  const batches = await tx.query(
-    `WITH moved AS (
-      INSERT INTO inventory_batches_archive
-      SELECT * FROM inventory_batches
-      WHERE location_id = $1 AND created_at < $2
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    )
-    SELECT COUNT(*)::int AS count FROM moved`,
-    [config.locationId, config.cutoffAt]
-  );
+  const batches = await insertArchiveRows(tx, {
+    sourceTable: 'inventory_batches',
+    archiveTable: 'inventory_batches_archive',
+    whereClause: 'location_id = $1 AND created_at < $2',
+    whereParams: [config.locationId, config.cutoffAt],
+  });
   counts.inventory_batches = batches.rows[0].count;
 
   if (counts.inventory_batches > 0) {
-    await tx.query(
-      `INSERT INTO batch_items_archive
-       SELECT bi.* FROM batch_items bi
+    await insertArchiveRowsFromJoin(tx, {
+      sourceTable: 'batch_items',
+      archiveTable: 'batch_items_archive',
+      sourceAlias: 'bi',
+      joinClause: `
        JOIN inventory_batches_archive iba ON iba.id = bi.batch_id
-       LEFT JOIN batch_items_archive bia ON bia.id = bi.id
-       WHERE iba.location_id = $1 AND bia.id IS NULL`,
-      [config.locationId]
-    );
+       LEFT JOIN batch_items_archive bia ON bia.id = bi.id`,
+      whereClause: 'iba.location_id = $1 AND bia.id IS NULL',
+      whereParams: [config.locationId],
+    });
 
     await tx.query(
       `DELETE FROM batch_items
@@ -77,28 +213,26 @@ async function moveRowsToArchive(tx, config) {
     );
   }
 
-  const sales = await tx.query(
-    `WITH moved_sales AS (
-      INSERT INTO sales_archive
-      SELECT * FROM sales
-      WHERE location_id = $1 AND sale_date < $2
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    )
-    SELECT COUNT(*)::int AS count FROM moved_sales`,
-    [config.locationId, config.cutoffAt]
-  );
+  const sales = await insertArchiveRows(tx, {
+    sourceTable: 'sales',
+    archiveTable: 'sales_archive',
+    whereClause: 'location_id = $1 AND sale_date < $2',
+    whereParams: [config.locationId, config.cutoffAt],
+    cteName: 'moved_sales',
+  });
   counts.sales = sales.rows[0].count;
 
   if (counts.sales > 0) {
-    await tx.query(
-      `INSERT INTO sale_items_archive
-       SELECT si.* FROM sale_items si
+    await insertArchiveRowsFromJoin(tx, {
+      sourceTable: 'sale_items',
+      archiveTable: 'sale_items_archive',
+      sourceAlias: 'si',
+      joinClause: `
        JOIN sales_archive sa ON sa.id = si.sale_id
-       LEFT JOIN sale_items_archive sia ON sia.id = si.id
-       WHERE sa.location_id = $1 AND sia.id IS NULL`,
-      [config.locationId]
-    );
+       LEFT JOIN sale_items_archive sia ON sia.id = si.id`,
+      whereClause: 'sa.location_id = $1 AND sia.id IS NULL',
+      whereParams: [config.locationId],
+    });
 
     await tx.query(
       `DELETE FROM sale_items
@@ -111,78 +245,60 @@ async function moveRowsToArchive(tx, config) {
     await tx.query('DELETE FROM sales WHERE location_id = $1 AND sale_date < $2', [config.locationId, config.cutoffAt]);
   }
 
-  const movements = await tx.query(
-    `WITH moved AS (
-      INSERT INTO inventory_movements_archive
-      SELECT * FROM inventory_movements
-      WHERE location_id = $1 AND created_at < $2
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    )
-    SELECT COUNT(*)::int AS count FROM moved`,
-    [config.locationId, config.cutoffAt]
-  );
+  const movements = await insertArchiveRows(tx, {
+    sourceTable: 'inventory_movements',
+    archiveTable: 'inventory_movements_archive',
+    whereClause: 'location_id = $1 AND created_at < $2',
+    whereParams: [config.locationId, config.cutoffAt],
+  });
   counts.inventory_movements = movements.rows[0].count;
   if (counts.inventory_movements > 0) {
     await tx.query('DELETE FROM inventory_movements WHERE location_id = $1 AND created_at < $2', [config.locationId, config.cutoffAt]);
   }
 
-  const activities = await tx.query(
-    `WITH moved AS (
-      INSERT INTO activity_log_archive
-      SELECT * FROM activity_log
-      WHERE location_id = $1 AND created_at < $2
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    )
-    SELECT COUNT(*)::int AS count FROM moved`,
-    [config.locationId, config.cutoffAt]
-  );
+  const activities = await insertArchiveRows(tx, {
+    sourceTable: 'activity_log',
+    archiveTable: 'activity_log_archive',
+    whereClause: 'location_id = $1 AND created_at < $2',
+    whereParams: [config.locationId, config.cutoffAt],
+  });
   counts.activity_log = activities.rows[0].count;
   if (counts.activity_log > 0) {
     await tx.query('DELETE FROM activity_log WHERE location_id = $1 AND created_at < $2', [config.locationId, config.cutoffAt]);
   }
 
-  const expenses = await tx.query(
-    `WITH moved AS (
-      INSERT INTO expenses_archive
-      SELECT * FROM expenses
-      WHERE location_id = $1 AND expense_date < $2::date
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    )
-    SELECT COUNT(*)::int AS count FROM moved`,
-    [config.locationId, config.cutoffAt]
-  );
+  const expenses = await insertArchiveRows(tx, {
+    sourceTable: 'expenses',
+    archiveTable: 'expenses_archive',
+    whereClause: 'location_id = $1 AND expense_date < $2::date',
+    whereParams: [config.locationId, config.cutoffAt],
+  });
   counts.expenses = expenses.rows[0].count;
   if (counts.expenses > 0) {
     await tx.query('DELETE FROM expenses WHERE location_id = $1 AND expense_date < $2::date', [config.locationId, config.cutoffAt]);
   }
 
 
-  const archivedOrders = await tx.query(
-    `WITH moved AS (
-      INSERT INTO customer_orders_archive
-      SELECT * FROM customer_orders
-      WHERE location_id = $1
+  const archivedOrders = await insertArchiveRows(tx, {
+    sourceTable: 'customer_orders',
+    archiveTable: 'customer_orders_archive',
+    whereClause: `location_id = $1
         AND pickup_at < $2
-        AND status IN ('picked_up', 'delivered', 'cancelled')
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    )
-    SELECT COUNT(*)::int AS count FROM moved`,
-    [config.locationId, config.cutoffAt]
-  );
+        AND status IN ('picked_up', 'delivered', 'cancelled')`,
+    whereParams: [config.locationId, config.cutoffAt],
+  });
   counts.customer_orders = archivedOrders.rows[0].count;
   if (counts.customer_orders > 0) {
-    await tx.query(
-      `INSERT INTO order_items_archive
-       SELECT oi.* FROM order_items oi
+    await insertArchiveRowsFromJoin(tx, {
+      sourceTable: 'order_items',
+      archiveTable: 'order_items_archive',
+      sourceAlias: 'oi',
+      joinClause: `
        JOIN customer_orders_archive oa ON oa.id = oi.order_id
-       LEFT JOIN order_items_archive oia ON oia.id = oi.id
-       WHERE oa.location_id = $1 AND oia.id IS NULL`,
-      [config.locationId]
-    );
+       LEFT JOIN order_items_archive oia ON oia.id = oi.id`,
+      whereClause: 'oa.location_id = $1 AND oia.id IS NULL',
+      whereParams: [config.locationId],
+    });
 
     await tx.query(
       `DELETE FROM order_items
@@ -202,17 +318,12 @@ async function moveRowsToArchive(tx, config) {
     );
   }
 
-  const staffPayments = await tx.query(
-    `WITH moved AS (
-      INSERT INTO staff_payments_archive
-      SELECT * FROM staff_payments
-      WHERE location_id = $1 AND payment_date < $2::date
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    )
-    SELECT COUNT(*)::int AS count FROM moved`,
-    [config.locationId, config.cutoffAt]
-  );
+  const staffPayments = await insertArchiveRows(tx, {
+    sourceTable: 'staff_payments',
+    archiveTable: 'staff_payments_archive',
+    whereClause: 'location_id = $1 AND payment_date < $2::date',
+    whereParams: [config.locationId, config.cutoffAt],
+  });
   counts.staff_payments = staffPayments.rows[0].count;
   if (counts.staff_payments > 0) {
     await tx.query('DELETE FROM staff_payments WHERE location_id = $1 AND payment_date < $2::date', [config.locationId, config.cutoffAt]);
@@ -374,3 +485,7 @@ export async function updateArchiveSettings({ locationId, userId, enabled, reten
 }
 
 export { DEFAULT_CONFIRMATION_PHRASE };
+export const __private__ = {
+  ensureArchiveTable,
+  getSharedColumns,
+};

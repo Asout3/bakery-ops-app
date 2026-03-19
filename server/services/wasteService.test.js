@@ -29,8 +29,11 @@ test('processExpiredInventoryForLocation moves expired stock batches into waste 
       if (text.includes('SELECT COALESCE(SUM(quantity_remaining), 0) AS quantity')) {
         return { rows: [{ quantity: 0 }] };
       }
+      if (text.includes('SELECT COALESCE(')) {
+        return { rows: [{ source: 'baked' }] };
+      }
       if (text.includes('INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)')) {
-        return { rows: [{ product_id: 7, location_id: 3, quantity: 0, source: 'manual' }] };
+        return { rows: [{ product_id: 7, location_id: 3, quantity: 0, source: 'baked' }] };
       }
       if (text.includes('COALESCE(') && text.includes('low_stock_threshold')) {
         return {

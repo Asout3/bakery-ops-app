@@ -213,7 +213,6 @@ const translations = {
     notificationsLabel: 'notifications',
     markAsRead: 'Mark as read',
     deleteNotification: 'Delete',
-    total: 'Total',
     unreadLabel: 'Unread',
     readLabel: 'Read',
     // Account management
@@ -500,7 +499,6 @@ const translations = {
     notificationsLabel: 'ማሳወቂያ የለም',
     markAsRead: 'እንዳነበቡ ምልክት አድርግ',
     deleteNotification: 'ሰርዝ',
-    total: 'ጠቅላላ',
     unreadLabel: 'ያልተነበቡ',
     readLabel: 'የተነበቡ',
     activeAccounts: 'ንቁ አካውንቶች',
