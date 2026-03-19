@@ -4,6 +4,7 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 import pool, { ensureAuthSecuritySchema, ensureOrdersSchema, ensureProductCreatorSchema, isTransientDbError } from './db.js';
+import { ensureWasteSchema } from './services/wasteService.js';
 import { apiLimiter, validateEnvironment, getCorsOptions } from './middleware/security.js';
 import { attachRequestContext } from './middleware/requestContext.js';
 import { errorHandler } from './utils/errors.js';
@@ -23,6 +24,7 @@ import adminRoutes from './routes/admin.js';
 import syncRoutes from './routes/sync.js';
 import archiveRoutes from './routes/archive.js';
 import ordersRoutes from './routes/orders.js';
+import wasteRoutes from './routes/waste.js';
 import { startArchiveScheduler } from './services/archiveService.js';
 
 dotenv.config();
@@ -31,6 +33,7 @@ validateEnvironment();
 await ensureAuthSecuritySchema();
 await ensureProductCreatorSchema();
 await ensureOrdersSchema();
+await ensureWasteSchema();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -164,6 +167,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/archive', archiveRoutes);
 app.use('/api/orders', ordersRoutes);
+app.use('/api/waste', wasteRoutes);
 
 app.use(errorHandler);
 

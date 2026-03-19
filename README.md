@@ -61,10 +61,12 @@ flowchart TB
 
 ### Core Business Capabilities
 
-- Sales, expenses, payments, inventory management, and pre-order lifecycle orchestration.
+- Sales, expenses, payments, inventory management, waste tracking, and pre-order lifecycle orchestration.
 - Grouped product variants across admin, manager, and cashier workflows (group card -> variant selection).
+- Expiration-date aware inventory that automatically moves expired stock into a waste ledger and blocks expired sales.
 - Dynamic expense categories with audit-friendly expense codes and creator attribution.
 - Branch-aware access via role and location constraints.
+- In-app and browser-level operational notifications with polling + service-worker delivery for background alerts.
 - Scheduled archive jobs.
 - Addis Ababa timezone-consistent UI presentation.
 
@@ -79,20 +81,24 @@ flowchart LR
     Router[React Router]
     APIClient[Axios API client]
     OfflineQ[Offline queue and replay]
+    Toasts[Toast notification center]
     SW[Service Worker]
-    Cache[Local indexed cache]
+    Cache[Local cache]
   end
 
   subgraph Backend[API Layer Express]
     MW[Security auth middleware]
     Routes[Route Handlers]
     Services[Domain Services]
+    Waste[Expiry and waste processor]
     Errors[Central Error Handler]
     Jobs[Schedulers and job locks]
   end
 
   subgraph Data[Data Layer PostgreSQL]
     Core[(Core transactional tables)]
+    WasteLedger[(waste_records)]
+    Alerts[(notifications and alert_rules)]
     Idem[(idempotency_keys)]
     Archive[(archive tables)]
     Audit[(activity and sync audit logs)]
@@ -100,10 +106,15 @@ flowchart LR
 
   UI --> Router --> APIClient --> MW --> Routes --> Services --> Data
   APIClient --> OfflineQ --> APIClient
+  APIClient --> Toasts --> UI
   SW --> Cache --> UI
+  Routes --> Waste --> WasteLedger
+  Routes --> Alerts
   Routes --> Errors
   Jobs --> Services --> Data
   Data --> Core
+  Data --> WasteLedger
+  Data --> Alerts
   Data --> Idem
   Data --> Archive
   Data --> Audit
@@ -148,7 +159,8 @@ sequenceDiagram
 
 ### Reliability Mechanisms
 
-- Cashier sales now block add/increase actions when stock is exhausted and still show variants as out-of-stock in the selector for better operator clarity.
+- Cashier sales now block add/increase actions when stock is exhausted, hide expired variants, and reject expired product checkout server-side.
+- Expired inventory is automatically converted into waste records with quantity, unit cost, total loss, and timestamp preservation.
 - Idempotent write headers for retry-safe replay.
 - Replay status model (`synced`, `failed`, `conflict`, `needs_review`, `ignored`, `resolved`).
 - Offline replay preserves the original actor identity (`X-Offline-Actor-Id`) so synced records remain attributed to the initiating cashier/manager, not the user who triggers replay later.
@@ -171,11 +183,24 @@ When a remote reviewer reports they cannot see merged changes, confirm the follo
 1. Verify both users are pointing to the same frontend URL and backend API URL (`VITE_API_URL` / rewrite target).
 2. Open DevTools Application tab and force-update the service worker, then hard-refresh once.
 3. Confirm `/index.html` and `/sw.js` are revalidated on each deploy while hashed `/assets/*` remain immutable.
-4. Check release parity by comparing dashboard-level behavior changes (e.g., Telebirr cashier split now visible).
-
+4. Check release parity by comparing dashboard-level behavior changes (e.g., waste dashboard cards and notifications page browser-alert toggle are visible).
 
 ---
 
+## Waste Tracking and Alerts
+
+- Products now store an optional `expiration_date`; once that date is older than the current day, remaining on-hand inventory is automatically moved into `waste_records`.
+- Each waste record stores `product_id`, `location_id`, `quantity_wasted`, `cost_per_unit`, `total_loss`, `reason`, `wasted_at`, and related metadata for auditing.
+- Expired inventory processing runs before product, inventory, dashboard, and waste reads, and before sale creation, keeping operational screens accurate without needing a manual cleanup job.
+- Admins have a dedicated Waste page that surfaces grouped loss by item plus current-day, current-week, and current-month waste-loss cards.
+- Inventory low-stock notifications are triggered after manual stock edits, sales, and expiry-driven waste movements.
+
+## Notification Delivery Model
+
+- Notifications are fetched as full content records instead of only an unread count.
+- New server notifications trigger in-app toast banners while the app is open.
+- When the tab is in the background and browser permission is granted, the service worker displays OS-level browser notifications using the Notifications API.
+- Duplicate alerts are suppressed client-side by tracking seen notification IDs and service-worker notification tags.
 
 ## Pre-Order Workflow
 
@@ -317,6 +342,7 @@ X-Retry-Count: <retry-number>
 - `/api/auth` for authentication and account operations.
 - `/api/sales` for checkout and revenue records.
 - `/api/inventory` for stock and batch operations.
+- `/api/waste` for waste ledger queries, dashboard summaries, and manual expiry processing.
 - `/api/archive` for retention policy and archive execution.
 - Manual Danger-Zone archive runs now force a `cutoffAt=now` execution for the selected branch, so admins can archive currently available history immediately (while keeping scheduled retention behavior unchanged).
 - `/api/sync` for offline audit status and reconciliation metadata.

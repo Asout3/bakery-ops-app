@@ -3,6 +3,9 @@ import { body, validationResult } from 'express-validator';
 import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
+import { createLowStockNotificationIfNeeded, createLowStockNotificationsForProducts } from '../services/stockAlertService.js';
+import { processExpiredInventoryForLocation } from '../services/wasteService.js';
+import { addStockBatch, clearProductStock, replaceProductStock, syncInventoryFromStockBatches } from '../services/stockBatchService.js';
 
 const router = express.Router();
 const BATCH_EDIT_WINDOW_MINUTES = 20;
@@ -84,6 +87,45 @@ async function getInventoryBatchColumns(db) {
   return inventoryBatchColumnsCache;
 }
 
+async function getBatchStockRows(db, batchId) {
+  const result = await db.query(
+    `SELECT id, product_id, initial_quantity, quantity_remaining, source
+     FROM inventory_stock_batches
+     WHERE reference_type = 'batch' AND reference_id = $1
+     ORDER BY id ASC
+     FOR UPDATE`,
+    [batchId]
+  );
+  return result.rows;
+}
+
+async function assertBatchStockEditable(db, batchId) {
+  const stockRows = await getBatchStockRows(db, batchId);
+  const consumedRow = stockRows.find((row) => Number(row.quantity_remaining || 0) < Number(row.initial_quantity || 0));
+  if (consumedRow) {
+    const err = new Error('This batch has already been partially sold or adjusted and can no longer be edited or voided.');
+    err.status = 409;
+    err.code = 'BATCH_ALREADY_CONSUMED';
+    throw err;
+  }
+  return stockRows;
+}
+
+async function voidBatchStock(db, locationId, batchId) {
+  const stockRows = await assertBatchStockEditable(db, batchId);
+
+  for (const row of stockRows) {
+    await db.query(
+      `UPDATE inventory_stock_batches
+       SET quantity_remaining = 0,
+           metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+       WHERE id = $2`,
+      [JSON.stringify({ voided_batch_id: batchId, voided_at: new Date().toISOString() }), row.id]
+    );
+    await syncInventoryFromStockBatches(db, locationId, row.product_id, row.source || 'baked');
+  }
+}
+
 export async function warmInventoryRouteCaches() {
   await ensureInventoryBatchStatusConstraint({ query });
   await getInventoryBatchColumns({ query });
@@ -93,8 +135,13 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
 
+    await processExpiredInventoryForLocation(query, locationId, req.user.id);
+
     const result = await query(
-      `SELECT i.*, p.name as product_name, p.price, p.cost, p.unit, c.name as category_name, u.username as last_updated_by_name
+      `SELECT i.*, p.name as product_name, p.price, p.cost, p.unit, p.shelf_life_days,
+              sb.next_expires_at,
+              CASE WHEN sb.next_expires_at IS NOT NULL AND sb.next_expires_at <= NOW() THEN true ELSE false END AS is_expired,
+              c.name as category_name, u.username as last_updated_by_name
        FROM inventory i
        JOIN products p ON i.product_id = p.id
        LEFT JOIN categories c ON p.category_id = c.id
@@ -105,6 +152,11 @@ router.get('/', authenticateToken, async (req, res) => {
          ORDER BY im.created_at DESC
          LIMIT 1
        ) latest ON true
+       LEFT JOIN LATERAL (
+         SELECT MIN(stock.expires_at) FILTER (WHERE stock.quantity_remaining > 0 AND stock.expires_at > NOW()) AS next_expires_at
+         FROM inventory_stock_batches stock
+         WHERE stock.location_id = i.location_id AND stock.product_id = i.product_id
+       ) sb ON true
        LEFT JOIN users u ON u.id = latest.created_by
        WHERE i.location_id = $1 AND p.is_active = true
        ORDER BY c.name, p.name`,
@@ -140,14 +192,24 @@ router.post(
       }
       const source = productRes.rows[0].source || 'baked';
 
-      const result = await query(
-        `INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)
-         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-         ON CONFLICT (product_id, location_id)
-         DO UPDATE SET quantity = EXCLUDED.quantity, source = EXCLUDED.source, last_updated = CURRENT_TIMESTAMP
-         RETURNING *`,
-        [product_id, locationId, quantity, source]
-      );
+      const result = await withTransaction(async (tx) => {
+        await replaceProductStock(tx, {
+          productId: Number(product_id),
+          locationId,
+          quantity: Number(quantity),
+          source,
+          createdBy: req.user.id,
+          metadata: { created_from_inventory_route: true, synced_by_user_id: req.user.id },
+        });
+        return tx.query(
+          `SELECT *
+           FROM inventory
+           WHERE product_id = $1 AND location_id = $2`,
+          [product_id, locationId]
+        );
+      });
+
+      await createLowStockNotificationIfNeeded({ query }, locationId, product_id);
 
       res.status(201).json(result.rows[0]);
     } catch (err) {
@@ -179,35 +241,41 @@ router.put(
       }
       const source = productRes.rows[0].source || 'baked';
       const effectiveActor = await resolveEffectiveActor({ query }, req, locationId);
-      const result = await query(
-        `INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)
-         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-         ON CONFLICT (product_id, location_id)
-         DO UPDATE SET quantity = $3, source = $4, last_updated = CURRENT_TIMESTAMP
-         RETURNING *`,
-        [productId, locationId, quantity, source]
-      );
-
-      await query(
-        `INSERT INTO inventory_movements
-         (location_id, product_id, movement_type, quantity_change, source, reference_type, created_by, metadata)
-         VALUES ($1, $2, 'manual_adjustment', $3, $4, 'manual', $5, $6)`,
-        [locationId, productId, quantity, source, effectiveActor.actorId, JSON.stringify({ absolute_quantity: quantity, synced_by_user_id: req.user.id })]
-      );
-
-      await query(
-        `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [
-          effectiveActor.actorId,
+      const result = await withTransaction(async (tx) => {
+        const updatedInventory = await replaceProductStock(tx, {
+          productId: Number(productId),
           locationId,
-          'inventory_updated',
-          `Updated inventory for product ${productId}`,
-          JSON.stringify({ product_id: productId, quantity, source }),
-        ]
-      );
+          quantity: Number(quantity),
+          source,
+          createdBy: effectiveActor.actorId,
+          metadata: { absolute_quantity: Number(quantity), synced_by_user_id: req.user.id },
+        });
 
-      res.json(result.rows[0]);
+        await tx.query(
+          `INSERT INTO inventory_movements
+           (location_id, product_id, movement_type, quantity_change, source, reference_type, created_by, metadata)
+           VALUES ($1, $2, 'manual_adjustment', $3, $4, 'manual', $5, $6)`,
+          [locationId, productId, Number(quantity), source, effectiveActor.actorId, JSON.stringify({ absolute_quantity: Number(quantity), synced_by_user_id: req.user.id })]
+        );
+
+        await tx.query(
+          `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            effectiveActor.actorId,
+            locationId,
+            'inventory_updated',
+            `Updated inventory for product ${productId}`,
+            JSON.stringify({ product_id: productId, quantity: Number(quantity), source }),
+          ]
+        );
+
+        return updatedInventory;
+      });
+
+      await createLowStockNotificationIfNeeded({ query }, locationId, Number(productId));
+
+      res.json(result);
     } catch (err) {
       console.error('Update inventory error:', err);
       res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
@@ -230,14 +298,23 @@ router.delete('/:id', authenticateToken, authorizeRoles('admin', 'manager'), asy
 
     const item = target.rows[0];
     const effectiveActor = await resolveEffectiveActor({ query }, req, locationId);
-    await query(`DELETE FROM inventory WHERE id = $1`, [item.id]);
 
-    await query(
-      `INSERT INTO inventory_movements
-       (location_id, product_id, movement_type, quantity_change, source, reference_type, created_by, metadata)
-       VALUES ($1, $2, 'manual_adjustment', $3, $4, 'manual', $5, $6)`,
-      [locationId, item.product_id, -Number(item.quantity || 0), item.source || 'baked', effectiveActor.actorId, JSON.stringify({ deleted_inventory_row: true, synced_by_user_id: req.user.id })]
-    );
+    await withTransaction(async (tx) => {
+      await clearProductStock(tx, {
+        productId: Number(item.product_id),
+        locationId,
+        source: item.source || 'baked',
+        metadata: { deleted_inventory_row: true, synced_by_user_id: req.user.id },
+      });
+      await tx.query(`DELETE FROM inventory WHERE id = $1`, [item.id]);
+
+      await tx.query(
+        `INSERT INTO inventory_movements
+         (location_id, product_id, movement_type, quantity_change, source, reference_type, created_by, metadata)
+         VALUES ($1, $2, 'manual_adjustment', $3, $4, 'manual', $5, $6)`,
+        [locationId, item.product_id, -Number(item.quantity || 0), item.source || 'baked', effectiveActor.actorId, JSON.stringify({ deleted_inventory_row: true, synced_by_user_id: req.user.id })]
+      );
+    });
 
     return res.json({ message: 'Inventory item deleted successfully', deleted: item });
   } catch (err) {
@@ -366,22 +443,23 @@ router.post(
             [createdBatch.id, item.product_id, item.quantity, itemSource]
           );
 
-          await tx.query(
-            `INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)
-             VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-             ON CONFLICT (product_id, location_id)
-             DO UPDATE SET
-               quantity = inventory.quantity + $3,
-               source = $4,
-               last_updated = CURRENT_TIMESTAMP`,
-            [item.product_id, locationId, item.quantity, itemSource]
-          );
+          const stockBatch = await addStockBatch(tx, {
+            productId: Number(item.product_id),
+            locationId,
+            quantity: Number(item.quantity),
+            source: itemSource,
+            referenceType: 'batch',
+            referenceId: createdBatch.id,
+            createdBy: effectiveCreatedBy,
+            createdAt: effectiveCreatedAt,
+            metadata: { notes: notes || null, synced_by_user_id: req.user.id },
+          });
 
           await tx.query(
             `INSERT INTO inventory_movements
              (location_id, product_id, movement_type, quantity_change, source, reference_type, reference_id, created_by, metadata)
              VALUES ($1, $2, 'batch_in', $3, $4, 'batch', $5, $6, $7)`,
-            [locationId, item.product_id, item.quantity, itemSource, createdBatch.id, effectiveCreatedBy, JSON.stringify({ notes: notes || null, synced_by_user_id: req.user.id })]
+            [locationId, item.product_id, item.quantity, itemSource, createdBatch.id, effectiveCreatedBy, JSON.stringify({ notes: notes || null, stock_batch_id: stockBatch?.id || null, synced_by_user_id: req.user.id })]
           );
         }
 
@@ -425,6 +503,8 @@ router.post(
             `${originalActorName} sent a batch with ${items.length} items (Total: ETB ${totalBatchValue.toFixed(2)})${isFromOfflineQueue ? ' [Synced from Offline]' : ''}`
           ]
         );
+
+        await createLowStockNotificationsForProducts(tx, locationId, items.map((item) => item.product_id));
 
         if (idempotencyKey) {
           await tx.query(
@@ -569,9 +649,18 @@ router.get('/batches/:id', authenticateToken, async (req, res) => {
     }
 
     const itemsResult = await query(
-      `SELECT bi.*, p.name as product_name, p.unit, COALESCE(p.cost, 0) as unit_cost, (bi.quantity * COALESCE(p.cost, 0)) as line_cost
+      `SELECT bi.*, p.name as product_name, p.unit, p.shelf_life_days, COALESCE(p.cost, 0) as unit_cost,
+              (bi.quantity * COALESCE(p.cost, 0)) as line_cost,
+              sb.expires_at
        FROM batch_items bi
        JOIN products p ON bi.product_id = p.id
+       LEFT JOIN LATERAL (
+         SELECT MIN(expires_at) AS expires_at
+         FROM inventory_stock_batches stock
+         WHERE stock.reference_type = 'batch'
+           AND stock.reference_id = bi.batch_id
+           AND stock.product_id = bi.product_id
+       ) sb ON true
        WHERE bi.batch_id = $1`,
       [req.params.id]
     );
@@ -628,11 +717,7 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
         throw err;
       }
 
-      const oldItemsRes = await tx.query('SELECT * FROM batch_items WHERE batch_id = $1', [req.params.id]);
-      for (const item of oldItemsRes.rows) {
-        await tx.query(`UPDATE inventory SET quantity = GREATEST(0, quantity - $1), last_updated = CURRENT_TIMESTAMP WHERE location_id = $2 AND product_id = $3`, [item.quantity, locationId, item.product_id]);
-      }
-
+      await voidBatchStock(tx, locationId, req.params.id);
       await tx.query('DELETE FROM batch_items WHERE batch_id = $1', [req.params.id]);
 
       const uniqueProductIds = [...new Set(items.map((item) => Number(item.product_id)))];
@@ -659,11 +744,16 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
         }
 
         await tx.query(`INSERT INTO batch_items (batch_id, product_id, quantity, source) VALUES ($1, $2, $3, $4)`, [req.params.id, item.product_id, item.quantity, itemSource]);
-        await tx.query(`INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)
-                        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-                        ON CONFLICT (product_id, location_id)
-                        DO UPDATE SET quantity = inventory.quantity + $3, source = $4, last_updated = CURRENT_TIMESTAMP`,
-          [item.product_id, locationId, item.quantity, itemSource]);
+        await addStockBatch(tx, {
+          productId: Number(item.product_id),
+          locationId,
+          quantity: Number(item.quantity),
+          source: itemSource,
+          referenceType: 'batch',
+          referenceId: Number(req.params.id),
+          createdBy: req.user.id,
+          metadata: { edited_batch_id: Number(req.params.id) },
+        });
       }
 
       const updated = await tx.query(`UPDATE inventory_batches SET status = 'edited', notes = COALESCE($1, notes) WHERE id = $2 RETURNING *`, [notes || null, req.params.id]);
@@ -708,10 +798,7 @@ router.post('/batches/:id/void', authenticateToken, authorizeRoles('admin', 'man
         return batch;
       }
 
-      const itemsRes = await tx.query('SELECT * FROM batch_items WHERE batch_id = $1', [req.params.id]);
-      for (const item of itemsRes.rows) {
-        await tx.query(`UPDATE inventory SET quantity = GREATEST(0, quantity - $1), last_updated = CURRENT_TIMESTAMP WHERE location_id = $2 AND product_id = $3`, [item.quantity, locationId, item.product_id]);
-      }
+      await voidBatchStock(tx, locationId, req.params.id);
 
       const updated = await tx.query(`UPDATE inventory_batches SET status = 'voided' WHERE id = $1 RETURNING *`, [req.params.id]);
       return updated.rows[0];

@@ -272,7 +272,11 @@ export async function ensureProductCreatorSchema() {
   productCreatorSchemaPromise = (async () => {
     await query('ALTER TABLE products ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id)');
     await query('ALTER TABLE products ADD COLUMN IF NOT EXISTS low_stock_threshold INTEGER');
+    await query('ALTER TABLE products ADD COLUMN IF NOT EXISTS expiration_date DATE');
+    await query('ALTER TABLE products ADD COLUMN IF NOT EXISTS shelf_life_days INTEGER');
     await query('CREATE INDEX IF NOT EXISTS idx_products_created_by ON products(created_by)');
+    await query('CREATE INDEX IF NOT EXISTS idx_products_expiration_date ON products(expiration_date)');
+    await query('CREATE INDEX IF NOT EXISTS idx_products_shelf_life_days ON products(shelf_life_days)');
   })().catch((error) => {
     productCreatorSchemaPromise = null;
     throw error;

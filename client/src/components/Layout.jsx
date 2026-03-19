@@ -4,7 +4,7 @@ import { useNotifications } from '../context/NotificationContext';
 import {
   LayoutDashboard, Package, ShoppingCart, DollarSign, Users,
   BarChart3, Bell, LogOut, Menu, X, Moon, Sun, ClipboardList,
-  Layers, History, RefreshCw,
+  Layers, History, RefreshCw, Trash2,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
@@ -82,6 +82,7 @@ export default function Layout() {
         { to: '/admin/staff-payments',    icon: Users,           label: t('staffPayments') },
         { to: '/admin/reports',           icon: BarChart3,       label: t('reports') },
         { to: '/admin/notifications',     icon: Bell,            label: t('notifications'), showBadge: true },
+        { to: '/admin/waste',             icon: Trash2,          label: 'Waste' },
         { to: '/admin/sync',              icon: RefreshCw,       label: t('syncQueue') },
         { to: '/admin/team',              icon: Users,           label: t('accountManagement') },
         { to: '/admin/staff',             icon: Users,           label: t('staffManagement') },

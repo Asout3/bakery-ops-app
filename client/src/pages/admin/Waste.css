@@ -1,0 +1,8 @@
+.waste-page .empty-state {
+  padding: 2.5rem 1rem;
+  text-align: center;
+}
+
+.waste-header {
+  align-items: flex-start;
+}
