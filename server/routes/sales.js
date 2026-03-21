@@ -6,6 +6,16 @@ import { getTargetLocationId } from '../utils/location.js';
 import { createLowStockNotificationIfNeeded } from '../services/stockAlertService.js';
 import { processExpiredInventoryForLocation } from '../services/wasteService.js';
 import { consumeStockBatches } from '../services/stockBatchService.js';
+import {
+  buildReceiptPayload,
+  createDefaultReceiptTemplatePayload,
+  getReceiptConfig,
+  getReceiptDefaults,
+  listReceiptTemplates,
+  normalizeReceiptSettings,
+  normalizeReceiptTemplateSchema,
+  summarizePrintEvents,
+} from '../services/receiptService.js';
 
 const router = express.Router();
 
@@ -29,6 +39,229 @@ async function notifyLocationAdmins(tx, locationId, title, message, notification
   );
 }
 
+function createServerReceiptNumber() {
+  const now = new Date();
+  const y = now.getUTCFullYear();
+  const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(now.getUTCDate()).padStart(2, '0');
+  const time = String(now.getUTCHours()).padStart(2, '0') + String(now.getUTCMinutes()).padStart(2, '0') + String(now.getUTCSeconds()).padStart(2, '0');
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `RC-${y}${m}${d}-${time}-${suffix}`;
+}
+
+
+function getReceiptScopeKey(locationId = null) {
+  return locationId ? `location:${Number(locationId)}` : 'global';
+}
+
+function canManualReprint({ sale, settings, existingEvents, actorRole, initiatedAt }) {
+  const normalizedSettings = normalizeReceiptSettings(settings || {});
+  const windowMinutes = Number(normalizedSettings.reprintPolicy.windowMinutes || 20);
+  const maxManualReprints = Number(normalizedSettings.reprintPolicy.maxManualReprints || 2);
+  const allowedOverrideRoles = normalizedSettings.reprintPolicy.adminOverrideRoles || ['admin'];
+  const manualReprints = existingEvents.filter((event) => event.attempt_type === 'manual_reprint' && event.status === 'success').length;
+  const saleTs = new Date(sale.sale_date).getTime();
+  const attemptTs = Number.isFinite(new Date(initiatedAt).getTime()) ? new Date(initiatedAt).getTime() : Date.now();
+  const inWindow = attemptTs <= saleTs + (windowMinutes * 60 * 1000);
+  if (manualReprints >= maxManualReprints) {
+    return { allowed: false, code: 'REPRINT_LIMIT_REACHED', error: `Maximum of ${maxManualReprints} manual reprints reached.` };
+  }
+  if (inWindow) {
+    return { allowed: true };
+  }
+  if (normalizedSettings.reprintPolicy.adminOverrideAfterWindow && allowedOverrideRoles.includes(actorRole)) {
+    return { allowed: true };
+  }
+  return { allowed: false, code: 'REPRINT_WINDOW_EXPIRED', error: `Manual reprints are only allowed within ${windowMinutes} minutes of sale completion.` };
+}
+
+router.get('/receipt-config', authenticateToken, authorizeRoles('admin', 'cashier', 'manager'), async (req, res) => {
+  try {
+    const locationId = await getTargetLocationId(req, query);
+    const config = await getReceiptConfig(locationId || null);
+    res.json(config);
+  } catch (err) {
+    console.error('Get receipt config error:', err);
+    res.status(500).json({ error: 'Failed to load receipt configuration', code: 'RECEIPT_CONFIG_ERROR', requestId: req.requestId });
+  }
+});
+
+router.get('/receipt-admin', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    const locationId = await getTargetLocationId(req, query);
+    const [config, templates] = await Promise.all([getReceiptConfig(locationId || null), listReceiptTemplates(locationId || null)]);
+    res.json({ ...config, templates, defaults: getReceiptDefaults() });
+  } catch (err) {
+    console.error('Get receipt admin error:', err);
+    res.status(500).json({ error: 'Failed to load receipt admin data', code: 'RECEIPT_ADMIN_ERROR', requestId: req.requestId });
+  }
+});
+
+router.post('/receipt-templates', authenticateToken, authorizeRoles('admin'), body('name').trim().isLength({ min: 2, max: 120 }), async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
+  }
+
+  try {
+    const locationId = await getTargetLocationId(req, query);
+    const template = createDefaultReceiptTemplatePayload({ schema: req.body.schema || {} });
+    const inserted = await query(
+      `INSERT INTO receipt_templates (location_id, name, status, is_active, version, schema, created_by, updated_by)
+       VALUES ($1, $2, 'draft', false, 1, $3, $4, $4)
+       RETURNING *`,
+      [locationId || null, req.body.name.trim(), JSON.stringify(template.schema), req.user.id]
+    );
+    res.status(201).json({ ...inserted.rows[0], schema: normalizeReceiptTemplateSchema(inserted.rows[0].schema) });
+  } catch (err) {
+    console.error('Create receipt template error:', err);
+    res.status(500).json({ error: 'Failed to create receipt template', code: 'RECEIPT_TEMPLATE_CREATE_ERROR', requestId: req.requestId });
+  }
+});
+
+router.put('/receipt-templates/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    const templateId = Number(req.params.id);
+    if (!Number.isInteger(templateId)) {
+      return res.status(400).json({ error: 'Invalid template id', code: 'INVALID_TEMPLATE_ID', requestId: req.requestId });
+    }
+
+    const current = await query('SELECT * FROM receipt_templates WHERE id = $1', [templateId]);
+    if (!current.rows.length) {
+      return res.status(404).json({ error: 'Receipt template not found', code: 'RECEIPT_TEMPLATE_NOT_FOUND', requestId: req.requestId });
+    }
+
+    const nextSchema = normalizeReceiptTemplateSchema(req.body.schema || current.rows[0].schema || {});
+    const updated = await query(
+      `UPDATE receipt_templates
+       SET name = COALESCE($1, name),
+           status = COALESCE($2, status),
+           version = CASE WHEN $3 = true THEN version + 1 ELSE version END,
+           schema = $4,
+           updated_by = $5,
+           updated_at = NOW()
+       WHERE id = $6
+       RETURNING *`,
+      [req.body.name?.trim() || null, req.body.status || null, req.body.bumpVersion === true, JSON.stringify(nextSchema), req.user.id, templateId]
+    );
+    res.json({ ...updated.rows[0], schema: normalizeReceiptTemplateSchema(updated.rows[0].schema) });
+  } catch (err) {
+    console.error('Update receipt template error:', err);
+    res.status(500).json({ error: 'Failed to update receipt template', code: 'RECEIPT_TEMPLATE_UPDATE_ERROR', requestId: req.requestId });
+  }
+});
+
+router.post('/receipt-templates/:id/publish', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    const templateId = Number(req.params.id);
+    if (!Number.isInteger(templateId)) {
+      return res.status(400).json({ error: 'Invalid template id', code: 'INVALID_TEMPLATE_ID', requestId: req.requestId });
+    }
+    const updated = await query(
+      `UPDATE receipt_templates
+       SET status = 'published',
+           version = version + 1,
+           updated_by = $1,
+           updated_at = NOW()
+       WHERE id = $2
+       RETURNING *`,
+      [req.user.id, templateId]
+    );
+    if (!updated.rows.length) {
+      return res.status(404).json({ error: 'Receipt template not found', code: 'RECEIPT_TEMPLATE_NOT_FOUND', requestId: req.requestId });
+    }
+    res.json({ ...updated.rows[0], schema: normalizeReceiptTemplateSchema(updated.rows[0].schema) });
+  } catch (err) {
+    console.error('Publish receipt template error:', err);
+    res.status(500).json({ error: 'Failed to publish receipt template', code: 'RECEIPT_TEMPLATE_PUBLISH_ERROR', requestId: req.requestId });
+  }
+});
+
+router.post('/receipt-templates/:id/activate', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    const templateId = Number(req.params.id);
+    if (!Number.isInteger(templateId)) {
+      return res.status(400).json({ error: 'Invalid template id', code: 'INVALID_TEMPLATE_ID', requestId: req.requestId });
+    }
+    const locationId = await getTargetLocationId(req, query);
+    await withTransaction(async (tx) => {
+      const templateResult = await tx.query('SELECT * FROM receipt_templates WHERE id = $1', [templateId]);
+      if (!templateResult.rows.length) {
+        const error = new Error('Receipt template not found');
+        error.status = 404;
+        error.code = 'RECEIPT_TEMPLATE_NOT_FOUND';
+        throw error;
+      }
+      await tx.query('UPDATE receipt_templates SET is_active = false WHERE location_id IS NOT DISTINCT FROM $1', [locationId || null]);
+      await tx.query('UPDATE receipt_templates SET is_active = true, updated_by = $1, updated_at = NOW() WHERE id = $2', [req.user.id, templateId]);
+      await tx.query(
+        `INSERT INTO receipt_settings (scope_key, location_id, active_template_id, settings, updated_by)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (scope_key)
+         DO UPDATE SET active_template_id = EXCLUDED.active_template_id,
+                       updated_by = EXCLUDED.updated_by,
+                       updated_at = NOW()`,
+        [getReceiptScopeKey(locationId || null), locationId || null, templateId, JSON.stringify(normalizeReceiptSettings(req.body.settings || {})), req.user.id]
+      );
+    });
+    const config = await getReceiptConfig(locationId || null);
+    res.json(config);
+  } catch (err) {
+    console.error('Activate receipt template error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to activate receipt template', code: err.code || 'RECEIPT_TEMPLATE_ACTIVATE_ERROR', requestId: req.requestId });
+  }
+});
+
+router.post('/receipt-templates/:id/reset', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    const templateId = Number(req.params.id);
+    if (!Number.isInteger(templateId)) {
+      return res.status(400).json({ error: 'Invalid template id', code: 'INVALID_TEMPLATE_ID', requestId: req.requestId });
+    }
+    const resetSchema = normalizeReceiptTemplateSchema();
+    const updated = await query(
+      `UPDATE receipt_templates
+       SET schema = $1,
+           version = version + 1,
+           updated_by = $2,
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING *`,
+      [JSON.stringify(resetSchema), req.user.id, templateId]
+    );
+    if (!updated.rows.length) {
+      return res.status(404).json({ error: 'Receipt template not found', code: 'RECEIPT_TEMPLATE_NOT_FOUND', requestId: req.requestId });
+    }
+    res.json({ ...updated.rows[0], schema: normalizeReceiptTemplateSchema(updated.rows[0].schema) });
+  } catch (err) {
+    console.error('Reset receipt template error:', err);
+    res.status(500).json({ error: 'Failed to reset receipt template', code: 'RECEIPT_TEMPLATE_RESET_ERROR', requestId: req.requestId });
+  }
+});
+
+router.put('/receipt-settings', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+  try {
+    const locationId = await getTargetLocationId(req, query);
+    const normalized = normalizeReceiptSettings(req.body.settings || {});
+    const templateId = Number(req.body.active_template_id || 0) || null;
+    const updated = await query(
+      `INSERT INTO receipt_settings (scope_key, location_id, active_template_id, settings, updated_by)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (scope_key)
+       DO UPDATE SET active_template_id = COALESCE(EXCLUDED.active_template_id, receipt_settings.active_template_id),
+                     settings = EXCLUDED.settings,
+                     updated_by = EXCLUDED.updated_by,
+                     updated_at = NOW()
+       RETURNING *`,
+      [getReceiptScopeKey(locationId || null), locationId || null, templateId, JSON.stringify(normalized), req.user.id]
+    );
+    res.json(updated.rows[0]);
+  } catch (err) {
+    console.error('Update receipt settings error:', err);
+    res.status(500).json({ error: 'Failed to update receipt settings', code: 'RECEIPT_SETTINGS_UPDATE_ERROR', requestId: req.requestId });
+  }
+});
+
 router.post(
   '/',
   authenticateToken,
@@ -37,13 +270,15 @@ router.post(
   body('items.*.product_id').isInt({ min: 1 }),
   body('items.*.quantity').isInt({ min: 1 }),
   body('payment_method').optional().isIn(['cash', 'card', 'mobile', 'telebirr']),
+  body('receipt_number').optional().isLength({ min: 6, max: 50 }),
+  body('client_transaction_id').optional().isLength({ min: 10, max: 80 }),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
     }
 
-    const { items, payment_method, cashier_timing_ms } = req.body;
+    const { items, payment_method, cashier_timing_ms, receipt_number, client_transaction_id, receipt_context, receipt_template_snapshot } = req.body;
     const queuedActorIdHeader = req.headers['x-offline-actor-id'];
     const idempotencyKey = req.headers['x-idempotency-key'];
     const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
@@ -76,6 +311,16 @@ router.post(
               return JSON.parse(existingPayload);
             }
             return existingPayload;
+          }
+        }
+
+        if (client_transaction_id) {
+          const existingByClientId = await tx.query(
+            'SELECT id FROM sales WHERE client_transaction_id = $1 LIMIT 1',
+            [client_transaction_id]
+          );
+          if (existingByClientId.rows.length > 0) {
+            return getSaleWithItems(existingByClientId.rows[0].id, tx);
           }
         }
 
@@ -115,12 +360,12 @@ router.post(
           });
         }
 
-        const receiptNumber = `RCP-${Date.now().toString().slice(-8)}`;
+        const receiptNumber = receipt_number || createServerReceiptNumber();
         const saleResult = await tx.query(
-          `INSERT INTO sales (location_id, cashier_id, total_amount, payment_method, receipt_number, is_offline)
-           VALUES ($1, $2, $3, $4, $5, $6)
+          `INSERT INTO sales (location_id, cashier_id, total_amount, payment_method, receipt_number, is_offline, client_transaction_id, receipt_template_snapshot, receipt_generated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
            RETURNING *`,
-          [locationId, effectiveCashierId, totalAmount, payment_method || 'cash', receiptNumber, isFromOfflineQueue]
+          [locationId, effectiveCashierId, totalAmount, payment_method || 'cash', receiptNumber, isFromOfflineQueue, client_transaction_id || null, JSON.stringify(normalizeReceiptTemplateSchema(receipt_template_snapshot || {}))]
         );
 
         const createdSale = saleResult.rows[0];
@@ -180,6 +425,29 @@ router.post(
           }
         }
 
+        const cashierResult = await tx.query('SELECT username FROM users WHERE id = $1', [effectiveCashierId]);
+        const { settings, activeTemplate } = await getReceiptConfig(locationId || null);
+        const resolvedTemplate = normalizeReceiptTemplateSchema(receipt_template_snapshot || activeTemplate?.schema || {});
+        const receiptPayload = buildReceiptPayload({
+          sale: {
+            ...createdSale,
+            receipt_context,
+            cashier_name: cashierResult.rows[0]?.username || req.user.username,
+          },
+          items: saleItems,
+          template: resolvedTemplate,
+          settings,
+        });
+
+        await tx.query(
+          `UPDATE sales
+           SET receipt_payload = $1,
+               receipt_template_snapshot = $2,
+               receipt_generated_at = NOW()
+           WHERE id = $3`,
+          [JSON.stringify(receiptPayload), JSON.stringify(resolvedTemplate), createdSale.id]
+        );
+
         await tx.query(
           `INSERT INTO kpi_events (location_id, user_id, event_type, event_value, metric_key, duration_ms, metadata)
            VALUES ($1, $2, 'sale_created', $3, $4, $5, $6)`,
@@ -189,7 +457,7 @@ router.post(
             totalAmount,
             'cashier_order_processing_time',
             Number(cashier_timing_ms) || null,
-            JSON.stringify({ sale_id: createdSale.id, items_count: items.length })
+            JSON.stringify({ sale_id: createdSale.id, items_count: items.length, client_transaction_id: client_transaction_id || null })
           ]
         );
 
@@ -218,11 +486,11 @@ router.post(
             locationId,
             'sale_created',
             `Sale ${receiptNumber} - Total: ${totalAmount}`,
-            JSON.stringify({ sale_id: createdSale.id, receipt_number: receiptNumber, items_count: items.length }),
+            JSON.stringify({ sale_id: createdSale.id, receipt_number: receiptNumber, items_count: items.length, client_transaction_id: client_transaction_id || null }),
           ]
         );
 
-        const completeSale = await getSaleWithItems(createdSale.id, tx);
+        const completeSale = await getSaleWithItems(createdSale.id, tx, settings);
 
         if (idempotencyKey) {
           await tx.query(
@@ -244,6 +512,98 @@ router.post(
   }
 );
 
+router.post('/print-events', authenticateToken, authorizeRoles('admin', 'cashier', 'manager'), async (req, res) => {
+  try {
+    const locationId = await getTargetLocationId(req, query);
+    const { event_id, sale_id, client_transaction_id, receipt_number, attempt_type, adapter_mode, status, initiated_at, completed_at, error_message, metadata } = req.body;
+
+    if (!event_id || !attempt_type || !adapter_mode || !status) {
+      return res.status(400).json({ error: 'Missing print event fields', code: 'PRINT_EVENT_INVALID', requestId: req.requestId });
+    }
+
+    const result = await withTransaction(async (tx) => {
+      const existing = await tx.query('SELECT * FROM sale_print_events WHERE event_id = $1', [event_id]);
+      if (existing.rows.length > 0) {
+        return existing.rows[0];
+      }
+
+      let sale;
+      if (sale_id) {
+        const saleById = await tx.query('SELECT * FROM sales WHERE id = $1 AND location_id = $2', [sale_id, locationId]);
+        sale = saleById.rows[0] || null;
+      } else if (client_transaction_id) {
+        const saleByClientId = await tx.query('SELECT * FROM sales WHERE client_transaction_id = $1 AND location_id = $2', [client_transaction_id, locationId]);
+        sale = saleByClientId.rows[0] || null;
+      } else if (receipt_number) {
+        const saleByReceipt = await tx.query('SELECT * FROM sales WHERE receipt_number = $1 AND location_id = $2', [receipt_number, locationId]);
+        sale = saleByReceipt.rows[0] || null;
+      }
+
+      if (!sale) {
+        const error = new Error('Sale not found for print event');
+        error.status = 404;
+        error.code = 'SALE_NOT_FOUND_FOR_PRINT_EVENT';
+        throw error;
+      }
+
+      const { settings } = await getReceiptConfig(locationId || null);
+      const existingEventsResult = await tx.query('SELECT * FROM sale_print_events WHERE sale_id = $1 ORDER BY initiated_at DESC', [sale.id]);
+      const existingEvents = existingEventsResult.rows;
+
+      if (attempt_type === 'manual_reprint') {
+        const permission = canManualReprint({ sale, settings, existingEvents, actorRole: req.user.role, initiatedAt: initiated_at || Date.now() });
+        if (!permission.allowed) {
+          const error = new Error(permission.error);
+          error.status = 403;
+          error.code = permission.code;
+          throw error;
+        }
+      }
+
+      const inserted = await tx.query(
+        `INSERT INTO sale_print_events (event_id, sale_id, client_transaction_id, receipt_number, location_id, actor_user_id, actor_name, attempt_type, adapter_mode, status, initiated_at, completed_at, error_message, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, NOW()), $12, $13, $14)
+         RETURNING *`,
+        [
+          event_id,
+          sale.id,
+          client_transaction_id || sale.client_transaction_id || null,
+          receipt_number || sale.receipt_number,
+          locationId,
+          req.user.id,
+          req.user.username,
+          attempt_type,
+          adapter_mode,
+          status,
+          initiated_at || null,
+          completed_at || null,
+          error_message || null,
+          JSON.stringify(metadata || {}),
+        ]
+      );
+
+      await tx.query(
+        `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          req.user.id,
+          locationId,
+          attempt_type === 'manual_reprint' ? 'sale_reprinted' : 'sale_print_event',
+          `${attempt_type === 'manual_reprint' ? 'Reprint' : 'Print'} ${status} for ${sale.receipt_number}`,
+          JSON.stringify({ sale_id: sale.id, receipt_number: sale.receipt_number, print_event_id: event_id, attempt_type, status, adapter_mode })
+        ]
+      );
+
+      return inserted.rows[0];
+    });
+
+    res.status(201).json(result);
+  } catch (err) {
+    console.error('Create print event error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to record print event', code: err.code || 'PRINT_EVENT_ERROR', requestId: req.requestId });
+  }
+});
+
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
@@ -261,7 +621,16 @@ router.get('/', authenticateToken, async (req, res) => {
 
     let queryText = `
       SELECT s.*, u.username as cashier_name,
-             (SELECT COUNT(*) FROM sale_items WHERE sale_id = s.id) as items_count
+             (SELECT COUNT(*) FROM sale_items WHERE sale_id = s.id) as items_count,
+             (
+               SELECT COUNT(*)::int FROM sale_print_events spe WHERE spe.sale_id = s.id
+             ) as print_attempts,
+             (
+               SELECT COUNT(*)::int FROM sale_print_events spe WHERE spe.sale_id = s.id AND spe.attempt_type = 'manual_reprint' AND spe.status = 'success'
+             ) as reprint_count,
+             (
+               SELECT spe.status FROM sale_print_events spe WHERE spe.sale_id = s.id ORDER BY spe.initiated_at DESC LIMIT 1
+             ) as last_print_result
       FROM sales s
       JOIN users u ON s.cashier_id = u.id
       WHERE s.location_id = $1
@@ -292,8 +661,10 @@ router.get('/', authenticateToken, async (req, res) => {
 
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const sale = await getSaleWithItems(req.params.id);
-    if (!sale) {
+    const locationId = await getTargetLocationId(req, query);
+    const config = await getReceiptConfig(locationId || null);
+    const sale = await getSaleWithItems(req.params.id, null, config.settings);
+    if (!sale || Number(sale.location_id) !== Number(locationId)) {
       return res.status(404).json({ error: 'Sale not found', code: 'SALE_NOT_FOUND', requestId: req.requestId });
     }
     res.json(sale);
@@ -425,7 +796,8 @@ router.post('/:id/void', authenticateToken, authorizeRoles('admin', 'cashier', '
         ]
       );
       
-      const voidedSale = await getSaleWithItems(saleId, tx);
+      const config = await getReceiptConfig(locationId || null);
+      const voidedSale = await getSaleWithItems(saleId, tx, config.settings);
       voidedSale.voided = true;
       voidedSale.void_reason = voidedSale.void_reason || reason || 'No reason provided';
       voidedSale.voided_at = voidedSale.voided_at || now.toISOString();
@@ -444,7 +816,7 @@ router.post('/:id/void', authenticateToken, authorizeRoles('admin', 'cashier', '
   }
 });
 
-async function getSaleWithItems(saleId, tx = null) {
+async function getSaleWithItems(saleId, tx = null, settings = null) {
   const executor = tx || { query };
 
   const saleResult = await executor.query(
@@ -467,8 +839,21 @@ async function getSaleWithItems(saleId, tx = null) {
     [saleId]
   );
 
+  const printEventsResult = await executor.query(
+    `SELECT * FROM sale_print_events WHERE sale_id = $1 ORDER BY initiated_at DESC, id DESC`,
+    [saleId]
+  );
+
   const sale = saleResult.rows[0];
   sale.items = itemsResult.rows;
+  sale.receipt_payload = sale.receipt_payload || buildReceiptPayload({
+    sale,
+    items: sale.items,
+    template: normalizeReceiptTemplateSchema(sale.receipt_template_snapshot || {}),
+    settings: normalizeReceiptSettings(settings || {}),
+  });
+  sale.receipt_template_snapshot = normalizeReceiptTemplateSchema(sale.receipt_template_snapshot || {});
+  sale.print_summary = summarizePrintEvents(printEventsResult.rows, sale, settings || {});
   return sale;
 }
 

@@ -4,6 +4,7 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 import pool, { ensureAuthSecuritySchema, ensureOrdersSchema, ensureProductCreatorSchema, isTransientDbError } from './db.js';
+import { ensureReceiptSchema } from './services/receiptService.js';
 import { ensureWasteSchema } from './services/wasteService.js';
 import { apiLimiter, validateEnvironment, getCorsOptions } from './middleware/security.js';
 import { attachRequestContext } from './middleware/requestContext.js';
@@ -34,6 +35,7 @@ await ensureAuthSecuritySchema();
 await ensureProductCreatorSchema();
 await ensureOrdersSchema();
 await ensureWasteSchema();
+await ensureReceiptSchema();
 
 const app = express();
 const PORT = process.env.PORT || 5000;

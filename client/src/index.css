@@ -894,3 +894,5 @@ textarea, textarea.form-control, .form-note-input {
   .page-header { flex-direction: column; align-items: stretch; }
   .table th, .table td { padding: 0.65rem 0.6rem; font-size: 0.8rem; }
 }
+
+.spin { animation: spin .65s linear infinite; }

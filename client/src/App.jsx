@@ -25,6 +25,7 @@ import BranchesAndStaffPage from './pages/admin/BranchesAndStaff';
 import StaffManagementPage from './pages/admin/StaffManagement';
 import HistoryLifecyclePage from './pages/admin/HistoryLifecycle';
 import AdminOrdersPage from './pages/admin/Orders';
+import ReceiptSettingsPage from './pages/admin/ReceiptSettings';
 import ManagerInventory from './pages/manager/Inventory';
 import ManagerBatches from './pages/manager/Batches';
 import ManagerNotifications from './pages/admin/Notifications';
@@ -54,6 +55,7 @@ function AppInner() {
             <Route path="staff" element={<StaffManagementPage />} />
             <Route path="history-lifecycle" element={<HistoryLifecyclePage />} />
             <Route path="orders" element={<AdminOrdersPage />} />
+            <Route path="receipt-settings" element={<ReceiptSettingsPage />} />
           </Route>
           <Route path="/manager" element={<ProtectedRoute roles={['manager', 'admin']}><Layout /></ProtectedRoute>}>
             <Route path="inventory" element={<ManagerInventory />} />

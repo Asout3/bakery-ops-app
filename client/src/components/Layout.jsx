@@ -4,7 +4,7 @@ import { useNotifications } from '../context/NotificationContext';
 import {
   LayoutDashboard, Package, ShoppingCart, DollarSign, Users,
   BarChart3, Bell, LogOut, Menu, X, Moon, Sun, ClipboardList,
-  Layers, History, RefreshCw, Trash2,
+  Layers, History, RefreshCw, Trash2, Printer,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
@@ -88,6 +88,7 @@ export default function Layout() {
         { to: '/admin/staff',             icon: Users,           label: t('staffManagement') },
         { to: '/admin/history-lifecycle', icon: History,         label: t('historyLifecycle') },
         { to: '/admin/orders',            icon: ClipboardList,   label: t('orders') },
+        { to: '/admin/receipt-settings',  icon: Printer,         label: t('receiptSettings') },
       ];
     }
     if (role === 'manager') {
