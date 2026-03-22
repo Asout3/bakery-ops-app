@@ -4,9 +4,9 @@
   color: #111;
   border: 1px solid rgba(17, 17, 17, 0.12);
   padding: 14px 12px 18px;
-  font-family: 'Courier New', monospace;
-  font-size: 12px;
-  line-height: 1.35;
+  font-family: var(--receipt-font-family, 'Courier New', monospace);
+  font-size: var(--receipt-base-font-size, 12px);
+  line-height: var(--receipt-line-height, 1.35);
 }
 
 .thermal-80mm {
@@ -17,13 +17,25 @@
   max-width: 240px;
 }
 
+.thermal-receipt__header,
+.thermal-receipt__meta,
+.thermal-receipt__items,
+.thermal-receipt__totals,
+.thermal-receipt__footer {
+  text-align: var(--receipt-body-align, left);
+}
+
 .thermal-receipt__header--center,
 .thermal-receipt__footer {
-  text-align: center;
+  text-align: var(--receipt-header-align, center);
+}
+
+.thermal-receipt__footer {
+  text-align: var(--receipt-footer-align, center);
 }
 
 .thermal-receipt__business {
-  font-size: 1.2rem;
+  font-size: var(--receipt-business-font-size, 19px);
   font-weight: 700;
 }
 
@@ -37,8 +49,8 @@
 .thermal-receipt__item-row,
 .thermal-receipt__items-header {
   display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(var(--receipt-qty-width, 48px), auto) minmax(var(--receipt-total-width, 96px), auto);
+  gap: var(--receipt-column-gap, 12px);
   align-items: start;
 }
 
@@ -47,6 +59,10 @@
 .thermal-receipt__items {
   display: grid;
   gap: 4px;
+}
+
+.thermal-receipt__meta {
+  font-size: var(--receipt-meta-font-size, 12px);
 }
 
 .thermal-receipt__line span:last-child,
@@ -68,6 +84,7 @@
 
 .thermal-receipt__item-price {
   text-align: right;
+  padding-right: calc(var(--receipt-total-width, 96px) + 2px);
 }
 
 .thermal-receipt__line--bold {
@@ -84,4 +101,8 @@
   padding: 2px 8px;
   margin-bottom: 8px;
   font-weight: 700;
+}
+
+.thermal-receipt__note {
+  white-space: pre-wrap;
 }

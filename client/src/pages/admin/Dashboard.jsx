@@ -118,6 +118,7 @@ export default function Dashboard() {
         expenses: 0,
         staffPayments: 0,
         batchCosts: 0,
+        wasteLoss: 0,
         totalCosts: 0,
         netProfit: 0,
         orderRevenue: 0,
@@ -131,10 +132,11 @@ export default function Dashboard() {
       const expenses = Number(report.expenses?.total_expenses || 0);
       const staffPayments = Number(report.staff_payments?.total_staff_payments || 0);
       const batchCosts = Number(report.profit?.batch_costs || report.details?.batches?.total_batch_cost || 0);
-      const totalCosts = Number(report.profit?.total_costs || expenses + staffPayments + batchCosts);
+      const wasteLoss = Number(report.profit?.waste_loss || report.waste?.total_waste_loss || 0);
+      const totalCosts = Number(report.profit?.total_costs || expenses + staffPayments + batchCosts + wasteLoss);
       const revenue = baseRevenue + orderPerformance.revenue;
       const netProfit = Number(report.profit?.net_profit || baseRevenue - totalCosts) + orderPerformance.revenue;
-      return { revenue, transactions: transactions + orderPerformance.count, expenses, staffPayments, batchCosts, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
+      return { revenue, transactions: transactions + orderPerformance.count, expenses, staffPayments, batchCosts, wasteLoss, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
     }
 
     if (period === 'weekly') {
@@ -143,10 +145,11 @@ export default function Dashboard() {
       const expenses = Number(report.summary?.total_expenses || 0);
       const staffPayments = Number(report.summary?.total_staff_payments || 0);
       const batchCosts = Number(report.summary?.total_batch_costs || report.details?.batches?.total_batch_cost || 0);
-      const totalCosts = Number(report.summary?.total_costs || expenses + staffPayments + batchCosts);
+      const wasteLoss = Number(report.summary?.total_waste_loss || report.waste?.total_waste_loss || 0);
+      const totalCosts = Number(report.summary?.total_costs || expenses + staffPayments + batchCosts + wasteLoss);
       const revenue = baseRevenue + orderPerformance.revenue;
       const netProfit = Number(report.summary?.net_profit || baseRevenue - totalCosts) + orderPerformance.revenue;
-      return { revenue, transactions: transactions + orderPerformance.count, expenses, staffPayments, batchCosts, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
+      return { revenue, transactions: transactions + orderPerformance.count, expenses, staffPayments, batchCosts, wasteLoss, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
     }
 
     const baseRevenue = Number(report.sales?.total_sales || 0);
@@ -154,10 +157,11 @@ export default function Dashboard() {
     const expenses = Number(report.expenses?.total_expenses || 0);
     const staffPayments = Number(report.staff_payments?.total_staff_payments || 0);
     const batchCosts = Number(report.costs?.batch_costs || report.details?.batches?.total_batch_cost || 0);
-    const totalCosts = Number(report.costs?.total_costs || expenses + staffPayments + batchCosts);
+    const wasteLoss = Number(report.costs?.waste_loss || report.waste?.total_waste_loss || 0);
+    const totalCosts = Number(report.costs?.total_costs || expenses + staffPayments + batchCosts + wasteLoss);
     const revenue = baseRevenue + orderPerformance.revenue;
     const netProfit = Number(report.profit?.net_profit || baseRevenue - totalCosts) + orderPerformance.revenue;
-    return { revenue, transactions: transactions + orderPerformance.count, expenses, staffPayments, batchCosts, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
+    return { revenue, transactions: transactions + orderPerformance.count, expenses, staffPayments, batchCosts, wasteLoss, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
   }, [report, period, orderPerformance]);
 
   const topProducts = report?.top_products || [];
@@ -234,6 +238,7 @@ export default function Dashboard() {
         <StatCard icon={<Receipt size={18} />} label={`${t(period)} Expenses`} value={formatMoney(totals.expenses)} sub={`${expenseRows.length} entries`} />
         <StatCard icon={<Users size={18} />} label={t('staffPayments')} value={formatMoney(totals.staffPayments)} sub={`${staffPaymentRows.length} payments`} />
         <StatCard icon={<Receipt size={18} />} label="Total Batch Cost" value={formatMoney(totals.batchCosts)} sub={`${Number(report?.details?.batches?.batch_count || 0)} batches`} tone="warning" />
+        <StatCard icon={<Receipt size={18} />} label="Waste Loss" value={formatMoney(totals.wasteLoss)} sub={`${Number(report?.waste?.waste_count || report?.summary?.waste_count || 0)} waste records`} tone="danger" />
         <StatCard icon={<Wallet size={18} />} label="Net Profit" value={formatMoney(totals.netProfit)} sub="Revenue - all costs" tone={totals.netProfit >= 0 ? 'success' : 'danger'} />
         <StatCard icon={<Receipt size={18} />} label="Order Revenue" value={formatMoney(totals.orderRevenue)} sub={`${totals.orderCount} picked-up`} tone="info" />
       </div>
@@ -305,6 +310,8 @@ export default function Dashboard() {
           ['Batch Production Cost', formatMoney(totals.batchCosts), `${Number(report?.details?.batches?.batch_count || 0)} non-voided batches × product unit cost`],
           ['Manual Expenses', formatMoney(totals.expenses), 'Recorded expenses table entries'],
           ['Staff Payments', formatMoney(totals.staffPayments), 'Payroll and advances paid in period'],
+          ['Waste Loss', formatMoney(totals.wasteLoss), `${Number(report?.waste?.waste_count || report?.summary?.waste_count || 0)} waste records deducted from profit`],
+          ['Total Operating Cost', formatMoney(totals.totalCosts), 'Expenses + staff + batch cost + waste loss'],
           ['Pre-Order Revenue (Picked Up)', formatMoney(totals.orderRevenue), `${totals.orderCount} picked-up orders in selected period`],
           ['Net Profit', formatMoney(totals.netProfit), 'Revenue - all costs above'],
         ]}

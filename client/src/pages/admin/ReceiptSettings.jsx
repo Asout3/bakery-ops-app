@@ -38,6 +38,10 @@ function buildPreviewSale(template, user) {
       sale_date: new Date().toISOString(),
       payment_method: 'cash',
       cashier_name: user?.username || 'Cashier',
+      customer_name: 'Sample Customer',
+      customer_phone: '0911 22 33 44',
+      internal_ref: 'PRE-ORDER-042',
+      notes: 'Pickup tomorrow at 9:00 AM\nCustomer already paid deposit.',
       header_lines: [
         header.businessName,
         header.branchName,
@@ -55,7 +59,7 @@ function buildPreviewSale(template, user) {
         { product_id: 1, product_name: 'Country Bread Large', quantity: 2, unit_price: 85, subtotal: 170 },
         { product_id: 2, product_name: 'Butter Croissant', quantity: 3, unit_price: 42, subtotal: 126 },
       ],
-      totals,
+      totals: { ...totals, balanceDue: 24 },
       footer_text: footer.footerText || '',
       legal_text: footer.legalText || '',
       qr_value: footer.showQr ? (footer.qrValue || 'https://example.com/receipt-preview') : '',
@@ -165,6 +169,10 @@ export default function ReceiptSettingsPage() {
 
   const setTotalsField = (field, value) => {
     updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, totals: { ...schema.sections.totals, [field]: value } } }));
+  };
+
+  const setItemsField = (field, value) => {
+    updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, items: { ...schema.sections.items, [field]: value } } }));
   };
 
   const selectTemplate = (templateId) => {
@@ -284,7 +292,9 @@ export default function ReceiptSettingsPage() {
   const templateHeader = draftTemplate.schema.sections.header;
   const templateFooter = draftTemplate.schema.sections.footer;
   const templateTransaction = draftTemplate.schema.sections.transaction;
+  const templateItems = draftTemplate.schema.sections.items;
   const templateTotals = draftTemplate.schema.sections.totals;
+  const templateTypography = draftTemplate.schema.typography;
   const templateStatusLabel = draftTemplate.id === activeTemplateId ? 'Active template' : `${draftTemplate.status || 'draft'} template`;
 
   if (loading) {
@@ -427,6 +437,23 @@ export default function ReceiptSettingsPage() {
 
           <SectionCard
             icon={Settings2}
+            title="Typography and spacing"
+            description="Fine tune the receipt font, font sizes, line height, and spacing between the quantity and total columns."
+          >
+            <div className="receipt-form-grid receipt-form-grid--compact">
+              <div className="receipt-field"><label className="form-label">Font Family</label><select className="form-select" value={templateTypography.fontFamily || 'courier'} onChange={(e) => updateSchema((schema) => ({ ...schema, typography: { ...schema.typography, fontFamily: e.target.value } }))}><option value="courier">Thermal mono</option><option value="sans">Clean sans</option><option value="serif">Classic serif</option></select></div>
+              <div className="receipt-field"><label className="form-label">Base Font Size</label><input type="number" min="10" max="18" className="form-control" value={templateTypography.baseFontSize} onChange={(e) => updateSchema((schema) => ({ ...schema, typography: { ...schema.typography, baseFontSize: Number(e.target.value || 12) } }))} /></div>
+              <div className="receipt-field"><label className="form-label">Business Name Size</label><input type="number" min="12" max="28" className="form-control" value={templateTypography.businessNameFontSize} onChange={(e) => updateSchema((schema) => ({ ...schema, typography: { ...schema.typography, businessNameFontSize: Number(e.target.value || 19) } }))} /></div>
+              <div className="receipt-field"><label className="form-label">Meta Font Size</label><input type="number" min="10" max="18" className="form-control" value={templateTypography.metaFontSize} onChange={(e) => updateSchema((schema) => ({ ...schema, typography: { ...schema.typography, metaFontSize: Number(e.target.value || 12) } }))} /></div>
+              <div className="receipt-field"><label className="form-label">Line Height</label><input type="number" min="1" max="2" step="0.05" className="form-control" value={templateTypography.lineHeight} onChange={(e) => updateSchema((schema) => ({ ...schema, typography: { ...schema.typography, lineHeight: Number(e.target.value || 1.35) } }))} /></div>
+              <div className="receipt-field"><label className="form-label">Qty/Total Gap</label><input type="number" min="6" max="24" className="form-control" value={templateItems.columnGap} onChange={(e) => setItemsField('columnGap', Number(e.target.value || 12))} /></div>
+              <div className="receipt-field"><label className="form-label">Qty Column Width</label><input type="number" min="36" max="72" className="form-control" value={templateItems.quantityColumnWidth} onChange={(e) => setItemsField('quantityColumnWidth', Number(e.target.value || 48))} /></div>
+              <div className="receipt-field"><label className="form-label">Total Column Width</label><input type="number" min="72" max="140" className="form-control" value={templateItems.totalColumnWidth} onChange={(e) => setItemsField('totalColumnWidth', Number(e.target.value || 96))} /></div>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            icon={Settings2}
             title="Visible receipt fields"
             description="Turn fields on or off without digging through a wide side layout."
           >
@@ -435,12 +462,16 @@ export default function ReceiptSettingsPage() {
               <ToggleField checked={Boolean(templateTransaction.showDateTime)} label="Show date/time" onChange={(value) => setTransactionField('showDateTime', value)} />
               <ToggleField checked={Boolean(templateTransaction.showCashier)} label="Show cashier" onChange={(value) => setTransactionField('showCashier', value)} />
               <ToggleField checked={Boolean(templateTransaction.showPaymentMethod)} label="Show payment method" onChange={(value) => setTransactionField('showPaymentMethod', value)} />
+              <ToggleField checked={Boolean(templateTransaction.showCustomerInfo)} label="Show customer info" onChange={(value) => setTransactionField('showCustomerInfo', value)} />
+              <ToggleField checked={Boolean(templateTransaction.showInternalRef)} label="Show internal reference" onChange={(value) => setTransactionField('showInternalRef', value)} />
+              <ToggleField checked={Boolean(templateTransaction.showNotes)} label="Show notes / pickup lines" onChange={(value) => setTransactionField('showNotes', value)} />
               <ToggleField checked={Boolean(templateTotals.showSubtotal)} label="Show subtotal" onChange={(value) => setTotalsField('showSubtotal', value)} />
               <ToggleField checked={Boolean(templateTotals.showTax)} label="Show tax" onChange={(value) => setTotalsField('showTax', value)} />
               <ToggleField checked={Boolean(templateTotals.showDiscounts)} label="Show discounts" onChange={(value) => setTotalsField('showDiscounts', value)} />
               <ToggleField checked={Boolean(templateTotals.showServiceCharge)} label="Show service charge" onChange={(value) => setTotalsField('showServiceCharge', value)} />
               <ToggleField checked={Boolean(templateTotals.showPaidAmount)} label="Show paid amount" onChange={(value) => setTotalsField('showPaidAmount', value)} />
               <ToggleField checked={Boolean(templateTotals.showChange)} label="Show change" onChange={(value) => setTotalsField('showChange', value)} />
+              <ToggleField checked={Boolean(templateTotals.showBalanceDue)} label="Show remaining balance" onChange={(value) => setTotalsField('showBalanceDue', value)} />
               <ToggleField checked={Boolean(templateFooter.showQr)} label="Show QR section" onChange={(value) => setFooterField('showQr', value)} />
               <ToggleField checked={Boolean(settings.reprintPolicy.adminOverrideAfterWindow)} label="Allow admin override after window" onChange={(value) => setSettings((current) => ({ ...current, reprintPolicy: { ...current.reprintPolicy, adminOverrideAfterWindow: value } }))} />
               <ToggleField checked={Boolean(settings.printerProfile.simulateFailure)} label="Simulate printer failure" onChange={(value) => setSettings((current) => ({ ...current, printerProfile: { ...current.printerProfile, simulateFailure: value } }))} />

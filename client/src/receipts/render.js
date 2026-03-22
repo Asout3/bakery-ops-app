@@ -1,5 +1,11 @@
 import { formatMoney, normalizeReceiptSettings, normalizeReceiptTemplate } from './helpers';
 
+const FONT_FAMILY_MAP = {
+  courier: "'Courier New', monospace",
+  sans: "Inter, Arial, sans-serif",
+  serif: "Georgia, 'Times New Roman', serif",
+};
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -29,6 +35,11 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
   const items = payload.items || sale.items || [];
   const printLabel = options.printLabel || (options.isReprint ? normalizedSettings.labels.reprint : '');
   const voidLabel = sale.status === 'voided' ? normalizedSettings.labels.voided : '';
+  const typography = normalizedTemplate.typography || {};
+  const itemLayout = normalizedTemplate.sections.items || {};
+  const transaction = normalizedTemplate.sections.transaction || {};
+  const totalSection = normalizedTemplate.sections.totals || {};
+  const customerLabel = payload.customer_phone ? `${payload.customer_name || 'Customer'} · ${payload.customer_phone}` : (payload.customer_name || '');
 
   const html = `<!DOCTYPE html>
 <html>
@@ -36,24 +47,40 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
     <meta charset="utf-8" />
     <title>${escapeHtml(payload.receipt_number || sale.receipt_number || 'Receipt')}</title>
     <style>
-      :root { --receipt-width: ${normalizedTemplate.paperWidth === '58mm' ? '220px' : '302px'}; }
+      :root {
+        --receipt-width: ${normalizedTemplate.paperWidth === '58mm' ? '220px' : '302px'};
+        --receipt-font-family: ${FONT_FAMILY_MAP[typography.fontFamily] || FONT_FAMILY_MAP.courier};
+        --receipt-base-font-size: ${Number(typography.baseFontSize || 12)}px;
+        --receipt-business-font-size: ${Number(typography.businessNameFontSize || 19)}px;
+        --receipt-meta-font-size: ${Number(typography.metaFontSize || typography.baseFontSize || 12)}px;
+        --receipt-line-height: ${Number(typography.lineHeight || 1.35)};
+        --receipt-column-gap: ${Number(itemLayout.columnGap || 12)}px;
+        --receipt-qty-width: ${Number(itemLayout.quantityColumnWidth || 48)}px;
+        --receipt-total-width: ${Number(itemLayout.totalColumnWidth || 96)}px;
+        --receipt-header-align: ${typography.headerAlignment || 'center'};
+        --receipt-body-align: ${typography.bodyAlignment || 'left'};
+        --receipt-footer-align: ${typography.footerAlignment || 'center'};
+      }
       * { box-sizing: border-box; }
-      body { margin: 0; padding: 12px; background: #f5f5f5; font-family: 'Courier New', monospace; color: #111; }
+      body { margin: 0; padding: 12px; background: #f5f5f5; font-family: var(--receipt-font-family); color: #111; }
       .receipt-shell { display: flex; justify-content: center; }
-      .receipt { width: var(--receipt-width); background: #fff; padding: 12px 10px 18px; border: 1px solid #ddd; }
-      .receipt-center { text-align: center; }
-      .receipt-header-title { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
-      .receipt-meta, .receipt-footer { font-size: 12px; line-height: 1.35; }
+      .receipt { width: var(--receipt-width); background: #fff; padding: 12px 10px 18px; border: 1px solid #ddd; font-size: var(--receipt-base-font-size); line-height: var(--receipt-line-height); }
+      .receipt-center { text-align: var(--receipt-header-align); }
+      .receipt-header-title { font-size: var(--receipt-business-font-size); font-weight: 700; margin-bottom: 4px; }
+      .receipt-meta, .receipt-footer { font-size: var(--receipt-meta-font-size); line-height: var(--receipt-line-height); text-align: var(--receipt-body-align); }
+      .receipt-footer { text-align: var(--receipt-footer-align); }
       .receipt-section { margin-top: 10px; }
       .receipt-separator { white-space: pre; overflow: hidden; font-size: 12px; line-height: 1; margin: 8px 0; }
-      .receipt-line { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; line-height: 1.35; }
+      .receipt-line { display: grid; grid-template-columns: minmax(0, 1fr) minmax(var(--receipt-qty-width), auto) minmax(var(--receipt-total-width), auto); gap: var(--receipt-column-gap); font-size: var(--receipt-meta-font-size); line-height: var(--receipt-line-height); }
       .receipt-line span:last-child { text-align: right; }
       .receipt-line-bold { font-weight: 700; }
-      .receipt-items-header, .receipt-item-row { display: grid; grid-template-columns: 1fr 42px 78px; gap: 8px; font-size: 12px; }
+      .receipt-items-header, .receipt-item-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(var(--receipt-qty-width), auto) minmax(var(--receipt-total-width), auto); gap: var(--receipt-column-gap); font-size: var(--receipt-meta-font-size); }
       .receipt-items-header { font-weight: 700; margin-bottom: 6px; }
       .receipt-item-row { margin-bottom: 5px; }
       .receipt-item-name { white-space: pre-wrap; word-break: break-word; }
       .receipt-item-qty, .receipt-item-value { text-align: right; }
+      .receipt-item-price { text-align: right; padding-right: calc(var(--receipt-total-width) + 2px); font-size: var(--receipt-meta-font-size); }
+      .receipt-note { margin-top: 4px; white-space: pre-wrap; }
       .receipt-badge { border: 1px solid #111; display: inline-block; padding: 2px 8px; margin-bottom: 8px; font-size: 12px; font-weight: 700; }
       .receipt-total-box { border-top: 1px solid #111; border-bottom: 1px solid #111; padding: 6px 0; margin-top: 6px; }
       .receipt-footer { margin-top: 10px; }
@@ -70,32 +97,36 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
           ${printLabel ? `<div class="receipt-badge">${escapeHtml(printLabel)}</div>` : ''}
           ${voidLabel ? `<div class="receipt-badge">${escapeHtml(voidLabel)}</div>` : ''}
           <div class="receipt-header-title">${escapeHtml(headerLines[0] || normalizedTemplate.sections.header.businessName)}</div>
-          <div class="receipt-meta">${headerLines.slice(1).map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>
+          <div class="receipt-meta" style="text-align: var(--receipt-header-align);">${headerLines.slice(1).map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>
         </div>
         <div class="receipt-section receipt-meta">
-          ${normalizedTemplate.sections.transaction.showReceiptNumber ? renderLine('Receipt', payload.receipt_number || sale.receipt_number || '') : ''}
-          ${normalizedTemplate.sections.transaction.showDateTime ? renderLine('Date', new Date(payload.sale_date || sale.sale_date || Date.now()).toLocaleString()) : ''}
-          ${normalizedTemplate.sections.transaction.showCashier ? renderLine(normalizedTemplate.sections.header.cashierLabel || 'Cashier', payload.cashier_name || sale.cashier_name || '') : ''}
-          ${normalizedTemplate.sections.transaction.showPaymentMethod ? renderLine('Payment', payload.payment_method || sale.payment_method || '') : ''}
+          ${transaction.showReceiptNumber ? renderLine('Receipt', payload.receipt_number || sale.receipt_number || '') : ''}
+          ${transaction.showDateTime ? renderLine('Date', new Date(payload.sale_date || sale.sale_date || Date.now()).toLocaleString()) : ''}
+          ${transaction.showCashier ? renderLine(normalizedTemplate.sections.header.cashierLabel || 'Cashier', payload.cashier_name || sale.cashier_name || '') : ''}
+          ${transaction.showPaymentMethod ? renderLine('Payment', payload.payment_method || sale.payment_method || '') : ''}
+          ${transaction.showCustomerInfo && customerLabel ? renderLine('Customer', customerLabel) : ''}
+          ${transaction.showInternalRef && payload.internal_ref ? renderLine('Reference', payload.internal_ref) : ''}
+          ${transaction.showNotes && payload.notes ? `<div class="receipt-note">${escapeHtml(payload.notes)}</div>` : ''}
         </div>
         <div class="receipt-separator">${escapeHtml(renderSeparator(normalizedTemplate.separatorStyle))}</div>
         <div class="receipt-section">
           <div class="receipt-items-header">
             <div>ITEM</div>
-            <div class="receipt-item-qty">${escapeHtml(normalizedTemplate.sections.items.quantityLabel || 'QTY')}</div>
-            <div class="receipt-item-value">${escapeHtml(normalizedTemplate.sections.items.totalLabel || 'TOTAL')}</div>
+            <div class="receipt-item-qty">${escapeHtml(itemLayout.quantityLabel || 'QTY')}</div>
+            <div class="receipt-item-value">${escapeHtml(itemLayout.totalLabel || 'TOTAL')}</div>
           </div>
-          ${items.map((item) => `<div class="receipt-item-row"><div class="receipt-item-name">${escapeHtml(item.product_name || '')}${item.notes ? `<div>${escapeHtml(item.notes)}</div>` : ''}</div><div class="receipt-item-qty">${escapeHtml(item.quantity)}</div><div class="receipt-item-value">${escapeHtml(formatMoney(item.subtotal, currencyCode, decimals))}</div></div>${normalizedTemplate.sections.items.showUnitPrice ? `<div class="receipt-line"><span></span><span>${escapeHtml(formatMoney(item.unit_price, currencyCode, decimals))} ea</span></div>` : ''}`).join('')}
+          ${items.map((item) => `<div class="receipt-item-row"><div class="receipt-item-name">${escapeHtml(item.product_name || '')}${item.notes ? `<div>${escapeHtml(item.notes)}</div>` : ''}</div><div class="receipt-item-qty">${escapeHtml(item.quantity)}</div><div class="receipt-item-value">${escapeHtml(formatMoney(item.subtotal, currencyCode, decimals))}</div></div>${itemLayout.showUnitPrice ? `<div class="receipt-item-price">${escapeHtml(formatMoney(item.unit_price, currencyCode, decimals))} ea</div>` : ''}`).join('')}
         </div>
         <div class="receipt-separator">${escapeHtml(renderSeparator(normalizedTemplate.separatorStyle))}</div>
         <div class="receipt-section receipt-meta">
-          ${normalizedTemplate.sections.totals.showSubtotal ? renderLine('Subtotal', formatMoney(totals.subtotal, currencyCode, decimals)) : ''}
-          ${normalizedTemplate.sections.totals.showDiscounts && Number(totals.discounts || 0) > 0 ? renderLine('Discounts', formatMoney(totals.discounts, currencyCode, decimals)) : ''}
-          ${normalizedTemplate.sections.totals.showTax && Number(totals.tax || 0) > 0 ? renderLine('Tax', formatMoney(totals.tax, currencyCode, decimals)) : ''}
-          ${normalizedTemplate.sections.totals.showServiceCharge && Number(totals.serviceCharge || 0) > 0 ? renderLine('Service', formatMoney(totals.serviceCharge, currencyCode, decimals)) : ''}
-          <div class="receipt-total-box">${renderLine(normalizedTemplate.sections.totals.totalLabel || 'TOTAL', formatMoney(totals.total, currencyCode, decimals), true)}</div>
-          ${normalizedTemplate.sections.totals.showPaidAmount ? renderLine(normalizedTemplate.sections.totals.paidLabel || 'PAID', formatMoney(totals.paidAmount ?? totals.total, currencyCode, decimals)) : ''}
-          ${normalizedTemplate.sections.totals.showChange && Number(totals.change || 0) >= 0 ? renderLine(normalizedTemplate.sections.totals.changeLabel || 'CHANGE', formatMoney(totals.change || 0, currencyCode, decimals)) : ''}
+          ${totalSection.showSubtotal ? renderLine('Subtotal', formatMoney(totals.subtotal, currencyCode, decimals)) : ''}
+          ${totalSection.showDiscounts && Number(totals.discounts || 0) > 0 ? renderLine('Discounts', formatMoney(totals.discounts, currencyCode, decimals)) : ''}
+          ${totalSection.showTax && Number(totals.tax || 0) > 0 ? renderLine('Tax', formatMoney(totals.tax, currencyCode, decimals)) : ''}
+          ${totalSection.showServiceCharge && Number(totals.serviceCharge || 0) > 0 ? renderLine('Service', formatMoney(totals.serviceCharge, currencyCode, decimals)) : ''}
+          <div class="receipt-total-box">${renderLine(totalSection.totalLabel || 'TOTAL', formatMoney(totals.total, currencyCode, decimals), true)}</div>
+          ${totalSection.showPaidAmount ? renderLine(totalSection.paidLabel || 'PAID', formatMoney(totals.paidAmount ?? totals.total, currencyCode, decimals)) : ''}
+          ${totalSection.showBalanceDue && Number(totals.balanceDue || 0) > 0 ? renderLine(totalSection.balanceLabel || 'BALANCE', formatMoney(totals.balanceDue, currencyCode, decimals)) : ''}
+          ${totalSection.showChange && Number(totals.change || 0) >= 0 ? renderLine(totalSection.changeLabel || 'CHANGE', formatMoney(totals.change || 0, currencyCode, decimals)) : ''}
         </div>
         <div class="receipt-footer receipt-center">
           ${payload.footer_text ? `<div>${escapeHtml(payload.footer_text)}</div>` : ''}

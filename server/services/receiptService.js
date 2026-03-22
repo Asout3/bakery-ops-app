@@ -20,6 +20,7 @@ const DEFAULT_RECEIPT_SETTINGS = Object.freeze({
   labels: {
     reprint: 'REPRINT',
     voided: 'VOIDED',
+    preOrder: 'PRE-ORDER',
   },
   testing: {
     fakeModeEnabled: true,
@@ -38,6 +39,11 @@ const DEFAULT_TEMPLATE_SCHEMA = Object.freeze({
     footerAlignment: 'center',
     compactSpacing: false,
     boldTotal: true,
+    fontFamily: 'courier',
+    baseFontSize: 12,
+    businessNameFontSize: 19,
+    metaFontSize: 12,
+    lineHeight: 1.35,
   },
   sections: {
     header: {
@@ -59,9 +65,9 @@ const DEFAULT_TEMPLATE_SCHEMA = Object.freeze({
       showDateTime: true,
       showCashier: true,
       showPaymentMethod: true,
-      showCustomerInfo: false,
-      showInternalRef: false,
-      showNotes: false,
+      showCustomerInfo: true,
+      showInternalRef: true,
+      showNotes: true,
       dateTimeFormat: 'locale',
       currencyCode: 'ETB',
       decimals: 2,
@@ -75,6 +81,9 @@ const DEFAULT_TEMPLATE_SCHEMA = Object.freeze({
       quantityLabel: 'QTY',
       priceLabel: 'PRICE',
       totalLabel: 'TOTAL',
+      columnGap: 12,
+      quantityColumnWidth: 48,
+      totalColumnWidth: 96,
     },
     totals: {
       showSubtotal: true,
@@ -83,9 +92,11 @@ const DEFAULT_TEMPLATE_SCHEMA = Object.freeze({
       showServiceCharge: true,
       showPaidAmount: true,
       showChange: true,
+      showBalanceDue: true,
       totalLabel: 'TOTAL',
       paidLabel: 'PAID',
       changeLabel: 'CHANGE',
+      balanceLabel: 'BALANCE',
     },
     footer: {
       footerText: 'Thank you for shopping with us.',
