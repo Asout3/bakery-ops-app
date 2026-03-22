@@ -1,4 +1,4 @@
-import { normalizeReceiptTemplate } from './helpers';
+import { normalizeReceiptTemplate } from './helpers.js';
 
 export function buildPreOrderReceipt(order, template) {
   const normalizedTemplate = normalizeReceiptTemplate(template || {});

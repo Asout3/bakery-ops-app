@@ -45,12 +45,25 @@
   white-space: pre;
 }
 
-.thermal-receipt__line,
+.thermal-receipt__line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
 .thermal-receipt__item-row,
 .thermal-receipt__items-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(var(--receipt-qty-width, 48px), auto) minmax(var(--receipt-total-width, 96px), auto);
-  gap: var(--receipt-column-gap, 12px);
+  grid-template-columns: minmax(0, 1fr) var(--receipt-values-width, 156px);
+  gap: var(--receipt-item-gap, 10px);
+  align-items: start;
+}
+
+.thermal-receipt__item-values {
+  display: grid;
+  grid-template-columns: minmax(var(--receipt-qty-width, 48px), auto) minmax(var(--receipt-total-width, 96px), auto);
+  gap: var(--receipt-column-gap, 10px);
   align-items: start;
 }
 
@@ -68,8 +81,7 @@
 .thermal-receipt__line span:last-child,
 .thermal-receipt__item-qty,
 .thermal-receipt__item-total,
-.thermal-receipt__items-header span:last-child,
-.thermal-receipt__items-header span:nth-child(2) {
+.thermal-receipt__item-values span {
   text-align: right;
 }
 
@@ -83,8 +95,9 @@
 }
 
 .thermal-receipt__item-price {
+  width: var(--receipt-values-width, 156px);
+  margin-left: auto;
   text-align: right;
-  padding-right: calc(var(--receipt-total-width, 96px) + 2px);
 }
 
 .thermal-receipt__line--bold {

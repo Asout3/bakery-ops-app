@@ -1,9 +1,9 @@
 import './Receipt.css';
-import { formatMoney, normalizeReceiptTemplate } from './helpers';
+import { formatMoney, normalizeReceiptTemplate, resolveReceiptItemLayoutMetrics } from './helpers.js';
 
 const FONT_FAMILY_MAP = {
   courier: "'Courier New', monospace",
-  sans: "Inter, Arial, sans-serif",
+  sans: 'Inter, Arial, sans-serif',
   serif: "Georgia, 'Times New Roman', serif",
 };
 
@@ -21,15 +21,18 @@ export default function ReceiptPreview({ sale, template, settings, printLabel = 
   const totalSection = normalizedTemplate.sections.totals || {};
   const customerLabel = payload.customer_phone ? `${payload.customer_name || 'Customer'} · ${payload.customer_phone}` : (payload.customer_name || '');
   const receiptDate = payload.sale_date || sale.sale_date || sale.created_at || null;
+  const itemMetrics = resolveReceiptItemLayoutMetrics(itemLayout, normalizedTemplate.paperWidth);
   const previewStyle = {
     '--receipt-font-family': FONT_FAMILY_MAP[typography.fontFamily] || FONT_FAMILY_MAP.courier,
     '--receipt-base-font-size': `${Number(typography.baseFontSize || 12)}px`,
     '--receipt-business-font-size': `${Number(typography.businessNameFontSize || 19)}px`,
     '--receipt-meta-font-size': `${Number(typography.metaFontSize || typography.baseFontSize || 12)}px`,
     '--receipt-line-height': Number(typography.lineHeight || 1.35),
-    '--receipt-column-gap': `${Number(itemLayout.columnGap || 12)}px`,
-    '--receipt-qty-width': `${Number(itemLayout.quantityColumnWidth || 48)}px`,
-    '--receipt-total-width': `${Number(itemLayout.totalColumnWidth || 96)}px`,
+    '--receipt-item-gap': `${itemMetrics.itemGap}px`,
+    '--receipt-column-gap': `${itemMetrics.columnGap}px`,
+    '--receipt-qty-width': `${itemMetrics.quantityWidth}px`,
+    '--receipt-total-width': `${itemMetrics.totalWidth}px`,
+    '--receipt-values-width': `${itemMetrics.valuesWidth}px`,
     '--receipt-header-align': typography.headerAlignment || 'center',
     '--receipt-body-align': typography.bodyAlignment || 'left',
     '--receipt-footer-align': typography.footerAlignment || 'center',
@@ -56,16 +59,20 @@ export default function ReceiptPreview({ sale, template, settings, printLabel = 
       <pre className="thermal-receipt__separator">{separator}</pre>
       <div className="thermal-receipt__items-header">
         <span>ITEM</span>
-        <span>{itemLayout.quantityLabel || 'QTY'}</span>
-        <span>{itemLayout.totalLabel || 'TOTAL'}</span>
+        <span className="thermal-receipt__item-values">
+          <span>{itemLayout.quantityLabel || 'QTY'}</span>
+          <span>{itemLayout.totalLabel || 'TOTAL'}</span>
+        </span>
       </div>
       <div className="thermal-receipt__items">
         {items.map((item) => (
           <div key={`${item.product_id || item.product_name}-${item.product_name}`} className="thermal-receipt__item">
             <div className="thermal-receipt__item-row">
               <span className="thermal-receipt__item-name">{item.product_name}</span>
-              <span className="thermal-receipt__item-qty">{item.quantity}</span>
-              <span className="thermal-receipt__item-total">{formatMoney(item.subtotal, currency, decimals)}</span>
+              <span className="thermal-receipt__item-values">
+                <span className="thermal-receipt__item-qty">{item.quantity}</span>
+                <span className="thermal-receipt__item-total">{formatMoney(item.subtotal, currency, decimals)}</span>
+              </span>
             </div>
             {itemLayout.showUnitPrice ? <div className="thermal-receipt__item-price">{formatMoney(item.unit_price, currency, decimals)} ea</div> : null}
           </div>
