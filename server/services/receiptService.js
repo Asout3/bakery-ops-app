@@ -148,7 +148,7 @@ export function createDefaultReceiptTemplatePayload(overrides = {}) {
 
 function buildHeaderLines(template, sale) {
   const header = template.sections.header;
-  const lines = [header.businessName, header.branchName, header.slogan, header.address, header.phone, header.taxId, header.website].filter(Boolean);
+  const lines = [header.businessName, header.branchName, header.slogan, header.address, header.phone, header.taxId ? `TIN: ${header.taxId}` : '', header.website].filter(Boolean);
   if (header.storeCode) lines.push(`Store: ${header.storeCode}`);
   const deviceLabel = sale.receipt_context?.device_label || header.deviceLabel;
   if (deviceLabel) lines.push(`Terminal: ${deviceLabel}`);

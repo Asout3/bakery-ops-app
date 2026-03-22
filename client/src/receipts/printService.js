@@ -42,6 +42,9 @@ const adapters = {
 };
 
 async function persistPrintEvent({ sale, attemptType, adapterMode, status, errorMessage, metadata }) {
+  if (attemptType === 'test') {
+    return { skipped: true };
+  }
   const eventId = typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
     : `print-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;

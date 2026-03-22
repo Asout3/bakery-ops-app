@@ -528,8 +528,9 @@ router.post('/print-events', authenticateToken, authorizeRoles('admin', 'cashier
       }
 
       let sale;
-      if (sale_id) {
-        const saleById = await tx.query('SELECT * FROM sales WHERE id = $1 AND location_id = $2', [sale_id, locationId]);
+      const numericSaleId = Number(sale_id);
+      if (Number.isInteger(numericSaleId) && numericSaleId > 0) {
+        const saleById = await tx.query('SELECT * FROM sales WHERE id = $1 AND location_id = $2', [numericSaleId, locationId]);
         sale = saleById.rows[0] || null;
       } else if (client_transaction_id) {
         const saleByClientId = await tx.query('SELECT * FROM sales WHERE client_transaction_id = $1 AND location_id = $2', [client_transaction_id, locationId]);

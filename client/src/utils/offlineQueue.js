@@ -89,6 +89,15 @@ async function appendHistory(entry) {
   db.close();
 }
 
+
+function isAuxiliaryOperation(op = {}) {
+  return ['/sales/print-events', '/sync/audit/bulk'].includes(op.url);
+}
+
+function countUserVisibleOperations(ops = []) {
+  return ops.filter((op) => !isAuxiliaryOperation(op)).length;
+}
+
 function calculateNextRetry(retries) {
   const delay = BASE_RETRY_DELAY_MS * Math.pow(2, retries);
   const jitter = Math.random() * 1000;
@@ -224,6 +233,8 @@ export async function flushQueue(api) {
 
     let synced = 0;
     let failed = 0;
+    let visibleSynced = 0;
+    let visibleFailed = 0;
     const completed = [];
 
     for (let cycle = 0; cycle < MAX_FLUSH_CYCLES; cycle += 1) {
@@ -256,6 +267,7 @@ export async function flushQueue(api) {
 
         await deletePayload(op.id);
         synced += 1;
+        if (!isAuxiliaryOperation(op)) visibleSynced += 1;
 
         await appendHistory({
           id: `${op.id}-synced-${Date.now()}`,
@@ -338,6 +350,7 @@ export async function flushQueue(api) {
         await txPromise(tx);
         db.close();
         failed += 1;
+        if (!isAuxiliaryOperation(op)) visibleFailed += 1;
 
         if (terminalStatus) {
           await appendHistory({
@@ -367,8 +380,9 @@ export async function flushQueue(api) {
     }
   }
 
-    const remaining = await getQueueSize();
-    return { synced, failed, pending: remaining, completed };
+    const remainingQueue = await listQueuedOperations();
+    const remaining = remainingQueue.length;
+    return { synced, failed, pending: remaining, visibleSynced, visibleFailed, visiblePending: countUserVisibleOperations(remainingQueue), completed };
   } finally {
     releaseFlushLock(lockToken);
   }
@@ -489,12 +503,16 @@ export async function clearHistory() {
 
 export async function getSyncStats() {
   const queue = await listQueuedOperations();
+  const visibleQueue = queue.filter((op) => !isAuxiliaryOperation(op));
+  const terminalAuxiliary = queue.filter((op) => isAuxiliaryOperation(op) && ['conflict', 'failed', 'needs_review'].includes(op.status));
   return {
-    total: queue.length,
-    pending: queue.filter(op => op.status === 'pending').length,
-    conflict: queue.filter(op => op.status === 'conflict').length,
-    needsReview: queue.filter(op => op.status === 'needs_review').length,
-    failed: queue.filter(op => op.status === 'failed').length,
+    total: visibleQueue.length,
+    pending: visibleQueue.filter(op => op.status === 'pending').length,
+    conflict: visibleQueue.filter(op => op.status === 'conflict').length + terminalAuxiliary.filter((op) => op.status === 'conflict').length,
+    needsReview: visibleQueue.filter(op => op.status === 'needs_review').length + terminalAuxiliary.filter((op) => op.status === 'needs_review').length,
+    failed: visibleQueue.filter(op => op.status === 'failed').length + terminalAuxiliary.filter((op) => op.status === 'failed').length,
+    auxiliaryPending: queue.filter((op) => isAuxiliaryOperation(op) && op.status === 'pending').length,
+    auxiliaryTotal: queue.filter((op) => isAuxiliaryOperation(op)).length,
   };
 }
 

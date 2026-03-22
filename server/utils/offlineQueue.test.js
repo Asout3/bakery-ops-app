@@ -8,6 +8,7 @@ import {
   retryOperation,
   cancelOperation,
   clearHistory,
+  getSyncStats,
 } from '../../client/src/utils/offlineQueue.js';
 
 function buildIndexedDbMock() {
@@ -344,4 +345,22 @@ test('flushQueue continues processing after HTTP 429 and keeps failed op pending
   assert.equal(result.synced, 1);
   assert.equal(queued.length, 1);
   assert.equal(queued.find((op) => op.id === 'rate-op-1').status, 'conflict');
+});
+
+
+test('print-event queue items do not inflate cashier-visible pending counts', async () => {
+  await enqueueOperation({ id: 'sale-op', url: '/sales', method: 'post', data: { n: 1 } });
+  await enqueueOperation({ id: 'print-op', url: '/sales/print-events', method: 'post', data: { n: 1 } });
+
+  const stats = await getSyncStats();
+  const { api } = createApiStub([
+    { type: 'success' },
+    { type: 'success' },
+  ]);
+  const result = await flushQueue(api);
+
+  assert.equal(stats.pending, 1);
+  assert.equal(stats.auxiliaryPending, 1);
+  assert.equal(result.visibleSynced, 1);
+  assert.equal(result.synced, 2);
 });

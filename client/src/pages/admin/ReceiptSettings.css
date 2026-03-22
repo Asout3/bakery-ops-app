@@ -44,6 +44,29 @@
   align-items: center;
 }
 
+.receipt-settings-editor .form-control,
+.receipt-settings-editor .form-select {
+  width: 100%;
+  min-width: 0;
+}
+
+.receipt-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.receipt-toggle-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--border-color, #d5d7da);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface-color, #fff);
+}
+
 .receipt-settings-preview-wrap {
   display: flex;
   justify-content: center;
