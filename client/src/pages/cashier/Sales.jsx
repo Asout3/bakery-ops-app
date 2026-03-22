@@ -242,7 +242,7 @@ export default function Sales() {
     });
   };
 
-  const resolveSaleForPrinting = (sale) => saveLocalReceiptRecord({ ...sale, settings: receiptConfig.settings });
+  const resolveSaleForPrinting = (sale) => saveLocalReceiptRecord({ ...sale, location_id: sale.location_id || selectedLocationId || null, settings: receiptConfig.settings });
 
   const maybeStartPrintFlow = async (sale) => {
     const activeSettings = receiptConfig.settings;

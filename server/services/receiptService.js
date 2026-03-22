@@ -273,8 +273,8 @@ export async function ensureDefaultReceiptConfig() {
   );
 }
 
-export async function getReceiptConfig(locationId = null) {
-  const settingsResult = await query(
+export async function getReceiptConfig(locationId = null, executor = { query }) {
+  const settingsResult = await executor.query(
     `SELECT rs.*, rt.id AS template_id, rt.name AS template_name, rt.status AS template_status, rt.is_active AS template_is_active, rt.version AS template_version, rt.schema AS template_schema
      FROM receipt_settings rs
      LEFT JOIN receipt_templates rt ON rt.id = rs.active_template_id
@@ -299,7 +299,7 @@ export async function getReceiptConfig(locationId = null) {
     };
   }
 
-  const fallbackTemplate = await query(
+  const fallbackTemplate = await executor.query(
     `SELECT * FROM receipt_templates
      WHERE location_id IS NULL
      ORDER BY is_active DESC, updated_at DESC

@@ -11,6 +11,7 @@ import './ReceiptSettings.css';
 
 function buildPreviewSale(template, user) {
   const schema = normalizeReceiptTemplate(template || {});
+  const receiptNumber = generateReceiptNumber();
   const header = schema.sections.header;
   const footer = schema.sections.footer;
   const totals = {
@@ -26,14 +27,14 @@ function buildPreviewSale(template, user) {
   return {
     id: null,
     client_transaction_id: generateClientTransactionId(),
-    receipt_number: generateReceiptNumber(),
+    receipt_number: receiptNumber,
     sale_date: new Date().toISOString(),
     payment_method: 'cash',
     cashier_name: user?.username || 'Cashier',
     status: 'completed',
     receipt_template_snapshot: schema,
     receipt_payload: {
-      receipt_number: generateReceiptNumber(),
+      receipt_number: receiptNumber,
       sale_date: new Date().toISOString(),
       payment_method: 'cash',
       cashier_name: user?.username || 'Cashier',
@@ -91,14 +92,15 @@ export default function ReceiptSettingsPage() {
       const response = await api.get('/sales/receipt-admin');
       const nextTemplates = response.data.templates || [];
       const nextActive = response.data.activeTemplate || nextTemplates[0] || { id: 'default', name: 'Classic thermal', schema: DEFAULT_TEMPLATE_SCHEMA };
+      const mergedTemplates = nextTemplates.some((item) => item.id === nextActive.id) ? nextTemplates : [nextActive, ...nextTemplates];
       const selectedId = preferredTemplateId || nextActive.id;
-      const selectedTemplate = nextTemplates.find((item) => item.id === selectedId) || nextActive;
-      setTemplates(nextTemplates);
+      const selectedTemplate = mergedTemplates.find((item) => item.id === selectedId) || nextActive;
+      setTemplates(mergedTemplates);
       setSettings(normalizeReceiptSettings(response.data.settings || {}));
       setActiveTemplateId(nextActive.id);
       setSelectedTemplateId(selectedTemplate.id);
       setDraftTemplate({ ...selectedTemplate, schema: normalizeReceiptTemplate(selectedTemplate.schema || {}) });
-      persistReceiptConfigCache({ settings: response.data.settings || {}, activeTemplate: nextActive, templates: nextTemplates });
+      persistReceiptConfigCache({ settings: response.data.settings || {}, activeTemplate: nextActive, templates: mergedTemplates });
     } catch (error) {
       toast.error(error.response?.data?.error || 'Failed to load receipt settings.');
     } finally {
@@ -137,7 +139,8 @@ export default function ReceiptSettingsPage() {
     setSaving(true);
     try {
       await api.put('/sales/receipt-settings', { settings, active_template_id: activeTemplateId });
-      persistReceiptConfigCache({ settings, activeTemplate: draftTemplate, templates });
+      const activeTemplate = templates.find((item) => item.id === activeTemplateId) || draftTemplate;
+      persistReceiptConfigCache({ settings, activeTemplate, templates });
       toast.success('Receipt settings saved.');
     } catch (error) {
       toast.error(error.response?.data?.error || 'Failed to save receipt settings.');
@@ -163,13 +166,21 @@ export default function ReceiptSettingsPage() {
     if (!draftTemplate?.id) return;
     setSaving(true);
     try {
-      const response = await api.put(`/sales/receipt-templates/${draftTemplate.id}`, {
-        name: draftTemplate.name,
-        status: publish ? 'published' : draftTemplate.status,
-        schema: draftTemplate.schema,
-        bumpVersion: publish,
-      });
-      const savedTemplate = publish ? (await api.post(`/sales/receipt-templates/${draftTemplate.id}/publish`)).data : response.data;
+      let savedTemplate;
+      if (publish) {
+        await api.put(`/sales/receipt-templates/${draftTemplate.id}`, {
+          name: draftTemplate.name,
+          status: draftTemplate.status,
+          schema: draftTemplate.schema,
+        });
+        savedTemplate = (await api.post(`/sales/receipt-templates/${draftTemplate.id}/publish`)).data;
+      } else {
+        savedTemplate = (await api.put(`/sales/receipt-templates/${draftTemplate.id}`, {
+          name: draftTemplate.name,
+          status: draftTemplate.status,
+          schema: draftTemplate.schema,
+        })).data;
+      }
       setTemplates((current) => current.map((item) => item.id === savedTemplate.id ? savedTemplate : item));
       setDraftTemplate({ ...savedTemplate, schema: normalizeReceiptTemplate(savedTemplate.schema || {}) });
       toast.success(publish ? 'Template published.' : 'Template saved.');
@@ -186,7 +197,8 @@ export default function ReceiptSettingsPage() {
     try {
       const response = await api.post(`/sales/receipt-templates/${draftTemplate.id}/activate`, { settings });
       setActiveTemplateId(draftTemplate.id);
-      persistReceiptConfigCache({ settings: response.data.settings || settings, activeTemplate: draftTemplate, templates });
+      const activeTemplate = templates.find((item) => item.id === draftTemplate.id) || draftTemplate;
+      persistReceiptConfigCache({ settings: response.data.settings || settings, activeTemplate, templates });
       await loadAdminData(draftTemplate.id);
       toast.success('Template activated.');
     } catch (error) {

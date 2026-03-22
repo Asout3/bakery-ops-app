@@ -54,6 +54,18 @@ function getReceiptScopeKey(locationId = null) {
   return locationId ? `location:${Number(locationId)}` : 'global';
 }
 
+async function getScopedReceiptTemplate(executor, templateId, locationId) {
+  const result = await executor.query(
+    `SELECT *
+     FROM receipt_templates
+     WHERE id = $1
+       AND (location_id IS NULL OR location_id IS NOT DISTINCT FROM $2)
+     LIMIT 1`,
+    [templateId, locationId || null]
+  );
+  return result.rows[0] || null;
+}
+
 function canManualReprint({ sale, settings, existingEvents, actorRole, initiatedAt }) {
   const normalizedSettings = normalizeReceiptSettings(settings || {});
   const windowMinutes = Number(normalizedSettings.reprintPolicy.windowMinutes || 20);
@@ -126,12 +138,13 @@ router.put('/receipt-templates/:id', authenticateToken, authorizeRoles('admin'),
       return res.status(400).json({ error: 'Invalid template id', code: 'INVALID_TEMPLATE_ID', requestId: req.requestId });
     }
 
-    const current = await query('SELECT * FROM receipt_templates WHERE id = $1', [templateId]);
-    if (!current.rows.length) {
+    const locationId = await getTargetLocationId(req, query);
+    const currentTemplate = await getScopedReceiptTemplate({ query }, templateId, locationId);
+    if (!currentTemplate) {
       return res.status(404).json({ error: 'Receipt template not found', code: 'RECEIPT_TEMPLATE_NOT_FOUND', requestId: req.requestId });
     }
 
-    const nextSchema = normalizeReceiptTemplateSchema(req.body.schema || current.rows[0].schema || {});
+    const nextSchema = normalizeReceiptTemplateSchema(req.body.schema || currentTemplate.schema || {});
     const updated = await query(
       `UPDATE receipt_templates
        SET name = COALESCE($1, name),
@@ -141,8 +154,9 @@ router.put('/receipt-templates/:id', authenticateToken, authorizeRoles('admin'),
            updated_by = $5,
            updated_at = NOW()
        WHERE id = $6
+         AND (location_id IS NULL OR location_id IS NOT DISTINCT FROM $7)
        RETURNING *`,
-      [req.body.name?.trim() || null, req.body.status || null, req.body.bumpVersion === true, JSON.stringify(nextSchema), req.user.id, templateId]
+      [req.body.name?.trim() || null, req.body.status || null, req.body.bumpVersion === true, JSON.stringify(nextSchema), req.user.id, templateId, locationId || null]
     );
     res.json({ ...updated.rows[0], schema: normalizeReceiptTemplateSchema(updated.rows[0].schema) });
   } catch (err) {
@@ -157,6 +171,7 @@ router.post('/receipt-templates/:id/publish', authenticateToken, authorizeRoles(
     if (!Number.isInteger(templateId)) {
       return res.status(400).json({ error: 'Invalid template id', code: 'INVALID_TEMPLATE_ID', requestId: req.requestId });
     }
+    const locationId = await getTargetLocationId(req, query);
     const updated = await query(
       `UPDATE receipt_templates
        SET status = 'published',
@@ -164,8 +179,9 @@ router.post('/receipt-templates/:id/publish', authenticateToken, authorizeRoles(
            updated_by = $1,
            updated_at = NOW()
        WHERE id = $2
+         AND (location_id IS NULL OR location_id IS NOT DISTINCT FROM $3)
        RETURNING *`,
-      [req.user.id, templateId]
+      [req.user.id, templateId, locationId || null]
     );
     if (!updated.rows.length) {
       return res.status(404).json({ error: 'Receipt template not found', code: 'RECEIPT_TEMPLATE_NOT_FOUND', requestId: req.requestId });
@@ -185,8 +201,8 @@ router.post('/receipt-templates/:id/activate', authenticateToken, authorizeRoles
     }
     const locationId = await getTargetLocationId(req, query);
     await withTransaction(async (tx) => {
-      const templateResult = await tx.query('SELECT * FROM receipt_templates WHERE id = $1', [templateId]);
-      if (!templateResult.rows.length) {
+      const template = await getScopedReceiptTemplate(tx, templateId, locationId);
+      if (!template) {
         const error = new Error('Receipt template not found');
         error.status = 404;
         error.code = 'RECEIPT_TEMPLATE_NOT_FOUND';
@@ -219,6 +235,7 @@ router.post('/receipt-templates/:id/reset', authenticateToken, authorizeRoles('a
       return res.status(400).json({ error: 'Invalid template id', code: 'INVALID_TEMPLATE_ID', requestId: req.requestId });
     }
     const resetSchema = normalizeReceiptTemplateSchema();
+    const locationId = await getTargetLocationId(req, query);
     const updated = await query(
       `UPDATE receipt_templates
        SET schema = $1,
@@ -226,8 +243,9 @@ router.post('/receipt-templates/:id/reset', authenticateToken, authorizeRoles('a
            updated_by = $2,
            updated_at = NOW()
        WHERE id = $3
+         AND (location_id IS NULL OR location_id IS NOT DISTINCT FROM $4)
        RETURNING *`,
-      [JSON.stringify(resetSchema), req.user.id, templateId]
+      [JSON.stringify(resetSchema), req.user.id, templateId, locationId || null]
     );
     if (!updated.rows.length) {
       return res.status(404).json({ error: 'Receipt template not found', code: 'RECEIPT_TEMPLATE_NOT_FOUND', requestId: req.requestId });
@@ -426,7 +444,7 @@ router.post(
         }
 
         const cashierResult = await tx.query('SELECT username FROM users WHERE id = $1', [effectiveCashierId]);
-        const { settings, activeTemplate } = await getReceiptConfig(locationId || null);
+        const { settings, activeTemplate } = await getReceiptConfig(locationId || null, tx);
         const resolvedTemplate = normalizeReceiptTemplateSchema(receipt_template_snapshot || activeTemplate?.schema || {});
         const receiptPayload = buildReceiptPayload({
           sale: {
@@ -547,7 +565,7 @@ router.post('/print-events', authenticateToken, authorizeRoles('admin', 'cashier
         throw error;
       }
 
-      const { settings } = await getReceiptConfig(locationId || null);
+      const { settings } = await getReceiptConfig(locationId || null, tx);
       const existingEventsResult = await tx.query('SELECT * FROM sale_print_events WHERE sale_id = $1 ORDER BY initiated_at DESC', [sale.id]);
       const existingEvents = existingEventsResult.rows;
 
@@ -797,7 +815,7 @@ router.post('/:id/void', authenticateToken, authorizeRoles('admin', 'cashier', '
         ]
       );
       
-      const config = await getReceiptConfig(locationId || null);
+      const config = await getReceiptConfig(locationId || null, tx);
       const voidedSale = await getSaleWithItems(saleId, tx, config.settings);
       voidedSale.voided = true;
       voidedSale.void_reason = voidedSale.void_reason || reason || 'No reason provided';

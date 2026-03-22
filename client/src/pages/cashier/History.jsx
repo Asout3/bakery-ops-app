@@ -39,7 +39,7 @@ export default function CashierHistory() {
   }, [selectedLocationId, filters.specificDay]);
 
   const mergeServerAndLocalSales = (serverSales = []) => {
-    const localSales = listLocalReceiptRecords();
+    const localSales = listLocalReceiptRecords({ locationId: selectedLocationId || null });
     const existingKeys = new Set(serverSales.flatMap((sale) => [sale.client_transaction_id, sale.receipt_number]).filter(Boolean));
     const pendingLocals = localSales.filter((sale) => !existingKeys.has(sale.client_transaction_id) && !existingKeys.has(sale.receipt_number));
     return [...pendingLocals, ...serverSales].sort((a, b) => new Date(b.sale_date) - new Date(a.sale_date));
