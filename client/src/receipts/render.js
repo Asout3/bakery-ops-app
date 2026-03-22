@@ -1,8 +1,8 @@
-import { formatMoney, normalizeReceiptSettings, normalizeReceiptTemplate } from './helpers';
+import { formatMoney, normalizeReceiptSettings, normalizeReceiptTemplate, resolveReceiptItemLayoutMetrics } from './helpers.js';
 
 const FONT_FAMILY_MAP = {
   courier: "'Courier New', monospace",
-  sans: "Inter, Arial, sans-serif",
+  sans: 'Inter, Arial, sans-serif',
   serif: "Georgia, 'Times New Roman', serif",
 };
 
@@ -40,6 +40,7 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
   const transaction = normalizedTemplate.sections.transaction || {};
   const totalSection = normalizedTemplate.sections.totals || {};
   const customerLabel = payload.customer_phone ? `${payload.customer_name || 'Customer'} · ${payload.customer_phone}` : (payload.customer_name || '');
+  const itemMetrics = resolveReceiptItemLayoutMetrics(itemLayout, normalizedTemplate.paperWidth);
 
   const html = `<!DOCTYPE html>
 <html>
@@ -54,9 +55,11 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
         --receipt-business-font-size: ${Number(typography.businessNameFontSize || 19)}px;
         --receipt-meta-font-size: ${Number(typography.metaFontSize || typography.baseFontSize || 12)}px;
         --receipt-line-height: ${Number(typography.lineHeight || 1.35)};
-        --receipt-column-gap: ${Number(itemLayout.columnGap || 12)}px;
-        --receipt-qty-width: ${Number(itemLayout.quantityColumnWidth || 48)}px;
-        --receipt-total-width: ${Number(itemLayout.totalColumnWidth || 96)}px;
+        --receipt-item-gap: ${itemMetrics.itemGap}px;
+        --receipt-column-gap: ${itemMetrics.columnGap}px;
+        --receipt-qty-width: ${itemMetrics.quantityWidth}px;
+        --receipt-total-width: ${itemMetrics.totalWidth}px;
+        --receipt-values-width: ${itemMetrics.valuesWidth}px;
         --receipt-header-align: ${typography.headerAlignment || 'center'};
         --receipt-body-align: ${typography.bodyAlignment || 'left'};
         --receipt-footer-align: ${typography.footerAlignment || 'center'};
@@ -71,15 +74,16 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
       .receipt-footer { text-align: var(--receipt-footer-align); }
       .receipt-section { margin-top: 10px; }
       .receipt-separator { white-space: pre; overflow: hidden; font-size: 12px; line-height: 1; margin: 8px 0; }
-      .receipt-line { display: grid; grid-template-columns: minmax(0, 1fr) minmax(var(--receipt-qty-width), auto) minmax(var(--receipt-total-width), auto); gap: var(--receipt-column-gap); font-size: var(--receipt-meta-font-size); line-height: var(--receipt-line-height); }
+      .receipt-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; font-size: var(--receipt-meta-font-size); line-height: var(--receipt-line-height); }
       .receipt-line span:last-child { text-align: right; }
       .receipt-line-bold { font-weight: 700; }
-      .receipt-items-header, .receipt-item-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(var(--receipt-qty-width), auto) minmax(var(--receipt-total-width), auto); gap: var(--receipt-column-gap); font-size: var(--receipt-meta-font-size); }
+      .receipt-items-header, .receipt-item-row { display: grid; grid-template-columns: minmax(0, 1fr) var(--receipt-values-width); gap: var(--receipt-item-gap); align-items: start; font-size: var(--receipt-meta-font-size); }
+      .receipt-item-values { display: grid; grid-template-columns: minmax(var(--receipt-qty-width), auto) minmax(var(--receipt-total-width), auto); gap: var(--receipt-column-gap); align-items: start; }
       .receipt-items-header { font-weight: 700; margin-bottom: 6px; }
       .receipt-item-row { margin-bottom: 5px; }
       .receipt-item-name { white-space: pre-wrap; word-break: break-word; }
       .receipt-item-qty, .receipt-item-value { text-align: right; }
-      .receipt-item-price { text-align: right; padding-right: calc(var(--receipt-total-width) + 2px); font-size: var(--receipt-meta-font-size); }
+      .receipt-item-price { width: var(--receipt-values-width); margin-left: auto; text-align: right; font-size: var(--receipt-meta-font-size); }
       .receipt-note { margin-top: 4px; white-space: pre-wrap; }
       .receipt-badge { border: 1px solid #111; display: inline-block; padding: 2px 8px; margin-bottom: 8px; font-size: 12px; font-weight: 700; }
       .receipt-total-box { border-top: 1px solid #111; border-bottom: 1px solid #111; padding: 6px 0; margin-top: 6px; }
@@ -112,10 +116,12 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
         <div class="receipt-section">
           <div class="receipt-items-header">
             <div>ITEM</div>
-            <div class="receipt-item-qty">${escapeHtml(itemLayout.quantityLabel || 'QTY')}</div>
-            <div class="receipt-item-value">${escapeHtml(itemLayout.totalLabel || 'TOTAL')}</div>
+            <div class="receipt-item-values">
+              <div class="receipt-item-qty">${escapeHtml(itemLayout.quantityLabel || 'QTY')}</div>
+              <div class="receipt-item-value">${escapeHtml(itemLayout.totalLabel || 'TOTAL')}</div>
+            </div>
           </div>
-          ${items.map((item) => `<div class="receipt-item-row"><div class="receipt-item-name">${escapeHtml(item.product_name || '')}${item.notes ? `<div>${escapeHtml(item.notes)}</div>` : ''}</div><div class="receipt-item-qty">${escapeHtml(item.quantity)}</div><div class="receipt-item-value">${escapeHtml(formatMoney(item.subtotal, currencyCode, decimals))}</div></div>${itemLayout.showUnitPrice ? `<div class="receipt-item-price">${escapeHtml(formatMoney(item.unit_price, currencyCode, decimals))} ea</div>` : ''}`).join('')}
+          ${items.map((item) => `<div class="receipt-item-row"><div class="receipt-item-name">${escapeHtml(item.product_name || '')}${item.notes ? `<div>${escapeHtml(item.notes)}</div>` : ''}</div><div class="receipt-item-values"><div class="receipt-item-qty">${escapeHtml(item.quantity)}</div><div class="receipt-item-value">${escapeHtml(formatMoney(item.subtotal, currencyCode, decimals))}</div></div></div>${itemLayout.showUnitPrice ? `<div class="receipt-item-price">${escapeHtml(formatMoney(item.unit_price, currencyCode, decimals))} ea</div>` : ''}`).join('')}
         </div>
         <div class="receipt-separator">${escapeHtml(renderSeparator(normalizedTemplate.separatorStyle))}</div>
         <div class="receipt-section receipt-meta">

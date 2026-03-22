@@ -5,6 +5,7 @@ import { enqueueOperation } from '../../utils/offlineQueue';
 import ReceiptPreview from '../../receipts/ReceiptPreview';
 import { getReceiptConfigCache, normalizeReceiptSettings, normalizeReceiptTemplate, persistReceiptConfigCache } from '../../receipts/helpers';
 import { performReceiptPrint } from '../../receipts/printService';
+import { useToast } from '../../context/ToastContext';
 import { buildPreOrderReceipt } from '../../receipts/orderReceipt';
 import './Orders.css';
 
@@ -16,6 +17,7 @@ const getOrdersProductCacheKeys = () => {
 const emptyItem = { product_id: '', custom_item_name: '', quantity: 1, unit_price: '' };
 
 export default function CashierOrders() {
+  const toast = useToast();
   const [orders, setOrders] = useState([]);
   const [products, setProducts] = useState([]);
   const [form, setForm] = useState({
@@ -192,8 +194,11 @@ export default function CashierOrders() {
         printLabel: receiptConfig.settings.labels.preOrder || 'PRE-ORDER',
       });
       setMessage({ type: 'success', text: 'Pre-order receipt sent to print.' });
+      toast.success('Pre-order receipt print started.');
     } catch (err) {
-      setMessage({ type: 'danger', text: err.message || 'Failed to print pre-order receipt.' });
+      const errorMessage = err.message || 'Failed to print pre-order receipt.';
+      setMessage({ type: 'danger', text: errorMessage });
+      toast.error(errorMessage);
     } finally {
       setPrinting(false);
     }

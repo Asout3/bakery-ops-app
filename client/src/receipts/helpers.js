@@ -1,4 +1,4 @@
-import { DEFAULT_RECEIPT_SETTINGS, DEFAULT_TEMPLATE_SCHEMA } from './defaults';
+import { DEFAULT_RECEIPT_SETTINGS, DEFAULT_TEMPLATE_SCHEMA } from './defaults.js';
 
 const DEVICE_KEY = 'receipt_device_profile';
 const RECEIPT_SEQUENCE_KEY = 'receipt_sequence_state';
@@ -100,6 +100,29 @@ export function generateReceiptNumber(date = new Date()) {
   const nextSequence = state.dateKey === dateKey ? Number(state.sequence || 0) + 1 : 1;
   localStorage.setItem(RECEIPT_SEQUENCE_KEY, JSON.stringify({ dateKey, sequence: nextSequence }));
   return `RC-${profile.deviceCode}-${dateKey}-${String(nextSequence).padStart(4, '0')}`;
+}
+
+
+function clampNumber(value, fallback, minimum, maximum) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return fallback;
+  return Math.min(Math.max(numericValue, minimum), maximum);
+}
+
+export function resolveReceiptItemLayoutMetrics(itemLayout = {}, paperWidth = '80mm') {
+  const isCompactPaper = paperWidth === '58mm';
+  const quantityWidth = clampNumber(itemLayout.quantityColumnWidth, isCompactPaper ? 44 : 48, 32, isCompactPaper ? 52 : 64);
+  const totalWidth = clampNumber(itemLayout.totalColumnWidth, isCompactPaper ? 82 : 96, 64, isCompactPaper ? 92 : 112);
+  const columnGap = clampNumber(itemLayout.columnGap, isCompactPaper ? 8 : 10, 4, isCompactPaper ? 12 : 18);
+  const itemGap = isCompactPaper ? 8 : 10;
+
+  return {
+    quantityWidth,
+    totalWidth,
+    columnGap,
+    itemGap,
+    valuesWidth: quantityWidth + totalWidth + columnGap,
+  };
 }
 
 export function formatMoney(value, currencyCode = 'ETB', decimals = 2) {
