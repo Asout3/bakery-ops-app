@@ -81,14 +81,15 @@ function fmtPct(value) {
 function buildSummary(data) {
   const sales = Number(data?.summary?.total_sales || 0);
   const expenses = Number(data?.summary?.total_expenses || 0);
-  const staff = Number(data?.summary?.total_staff_payments || 0);
-  const prod = Number(data?.summary?.total_batch_costs || 0);
-  const net = Number(data?.summary?.net_profit || (sales - prod - expenses - staff));
+  const staff = Number(data?.summary?.total_staff_payments || data?.staff_payments?.total_staff_payments || 0);
+  const prod = Number(data?.summary?.total_batch_costs || data?.costs?.batch_costs || 0);
+  const waste = Number(data?.summary?.total_waste_loss || data?.waste?.total_waste_loss || data?.costs?.waste_loss || 0);
+  const net = Number(data?.summary?.net_profit || data?.profit?.net_profit || (sales - prod - expenses - staff - waste));
   const gross = sales - prod;
   const grossMargin = sales > 0 ? (gross / sales) * 100 : 0;
   const netMargin = sales > 0 ? (net / sales) * 100 : 0;
-  const expenseRatio = sales > 0 ? ((expenses + staff) / sales) * 100 : 0;
-  return { sales, expenses, staff, prod, net, gross, grossMargin, netMargin, expenseRatio };
+  const expenseRatio = sales > 0 ? ((expenses + staff + waste) / sales) * 100 : 0;
+  return { sales, expenses, staff, prod, waste, net, gross, grossMargin, netMargin, expenseRatio };
 }
 
 function healthScore(current, growthRate) {
@@ -209,7 +210,7 @@ export default function ReportsPage() {
     return rows.map((row) => {
       const revenue = Number(row.total_sales || 0);
       const cost = revenue * 0.42;
-      const expenses = (current.expenses + current.staff) / Math.max(rows.length, 1);
+      const expenses = (current.expenses + current.staff + current.waste) / Math.max(rows.length, 1);
       return {
         label: row.sale_date || row.date,
         revenue,
@@ -218,7 +219,7 @@ export default function ReportsPage() {
         net_profit: revenue - cost - expenses,
       };
     });
-  }, [currentData, current.expenses, current.staff]);
+  }, [currentData, current.expenses, current.staff, current.waste]);
 
   const productRows = useMemo(() => {
     const rows = currentData?.top_products || [];
@@ -238,7 +239,7 @@ export default function ReportsPage() {
         contribution: totalRevenue > 0 ? (revenue / totalRevenue) * 100 : 0,
       };
     });
-  }, [currentData]);
+  }, [currentData, rt]);
 
   const slowMovingRows = useMemo(() => productRows.filter((r) => r.units <= 5 || r.margin < 20), [productRows]);
 
@@ -251,7 +252,7 @@ export default function ReportsPage() {
       bucket.set(key, bucket.get(key) + Number(row.total_sales || 0));
     });
     return weekdayLabels.map((name) => ({ day: name, sales: bucket.get(name) }));
-  }, [currentData]);
+  }, [currentData, rt]);
 
   const staffRows = useMemo(() => {
     const rows = currentData?.details?.cashier_performance || [];
@@ -284,8 +285,9 @@ export default function ReportsPage() {
       { name: rt('maintenance'), value: current.expenses * 0.1 },
       { name: rt('taxes'), value: current.expenses * 0.05 },
       { name: rt('staffPayroll'), value: current.staff },
+      { name: 'Waste Loss', value: current.waste },
     ];
-  }, [currentData, current]);
+  }, [currentData, current, rt]);
 
   const insights = useMemo(() => {
     const bestWeekDay = weekdaySales.reduce((best, row) => (row.sales > best.sales ? row : best), { day: '-', sales: 0 });
@@ -325,6 +327,7 @@ export default function ReportsPage() {
       `production_cost: ${current.prod.toFixed(2)}`,
       `expenses: ${current.expenses.toFixed(2)}`,
       `staff_payments: ${current.staff.toFixed(2)}`,
+      `waste_loss: ${current.waste.toFixed(2)}`,
       `net_profit: ${current.net.toFixed(2)}`,
       `net_margin: ${current.netMargin.toFixed(2)}%`,
       `health_score: ${score}/100 (${scoreStatus.label})`,
@@ -356,6 +359,7 @@ export default function ReportsPage() {
       ['production_cost', current.prod],
       ['expenses', current.expenses],
       ['staff_payments', current.staff],
+      ['waste_loss', current.waste],
       ['net_profit', current.net],
       ['net_margin_percent', current.netMargin],
       ['health_score', score],
@@ -391,6 +395,7 @@ export default function ReportsPage() {
     { label: rt('productionCost'), value: current.prod, change: growth.prod },
     { label: rt('expenseAnalytics'), value: current.expenses, change: growth.expenses },
     { label: rt('staffPayments'), value: current.staff, change: growth.staff },
+    { label: 'Waste Loss', value: current.waste, change: percentChange(current.waste, previous.waste) },
     { label: rt('profit'), value: current.net, change: growth.net },
     { label: rt('margin'), value: current.netMargin, change: growth.netMargin, isPercent: true },
   ];
@@ -468,6 +473,7 @@ export default function ReportsPage() {
           <div className="metric-list">
             <div><span>{rt('grossProfit')}</span><strong>{fmtMoney(current.gross)}</strong></div>
             <div><span>Gross Margin %</span><strong>{fmtPct(current.grossMargin)}</strong></div>
+            <div><span>Waste Loss</span><strong>{fmtMoney(current.waste)}</strong></div>
             <div><span>{rt('netProfit')}</span><strong>{fmtMoney(current.net)}</strong></div>
             <div><span>Net Margin %</span><strong>{fmtPct(current.netMargin)}</strong></div>
             <div><span>{rt('expenseToRevenue')}</span><strong>{fmtPct(current.expenseRatio)}</strong></div>
@@ -476,7 +482,7 @@ export default function ReportsPage() {
         <div>
           <h4>{rt('revenueVsCostBreakdown')}</h4>
           <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={[{ name: rt('breakdown'), revenue: current.sales, cost: current.prod + current.expenses + current.staff }]}>
+            <BarChart data={[{ name: rt('breakdown'), revenue: current.sales, cost: current.prod + current.expenses + current.staff + current.waste }]}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis />

@@ -3,6 +3,10 @@ import api from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { Eye, DollarSign, CreditCard, Calendar, Search, RotateCcw } from 'lucide-react';
 import { formatAddisDateTime } from '../../utils/time';
+import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
+import { getReceiptConfigCache, normalizeReceiptSettings } from '../../receipts/helpers';
+import SaleReceiptDetail from '../../components/SaleReceiptDetail';
 import './Sales.css';
 
 const initialFilters = {
@@ -15,6 +19,8 @@ const initialFilters = {
 
 export default function SalesPage() {
   const { selectedLocationId } = useBranch();
+  const { user } = useAuth();
+  const toast = useToast();
   const [activeView, setActiveView] = useState('sales');
   const [sales, setSales] = useState([]);
   const [batches, setBatches] = useState([]);
@@ -22,11 +28,12 @@ export default function SalesPage() {
   const [selectedSale, setSelectedSale] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [filters, setFilters] = useState(initialFilters);
+  const cachedConfig = getReceiptConfigCache();
+  const receiptSettings = normalizeReceiptSettings(cachedConfig?.settings || {});
 
   useEffect(() => {
     fetchData();
   }, [selectedLocationId]);
-
 
   const fetchData = async () => {
     setLoading(true);
@@ -38,7 +45,6 @@ export default function SalesPage() {
       setSales(salesRes.data || []);
       setBatches(batchRes.data?.batches || []);
     } catch (err) {
-      console.error('Failed to fetch sales/batches:', err);
       setSales([]);
       setBatches([]);
     } finally {
@@ -53,6 +59,7 @@ export default function SalesPage() {
       setSelectedSale(response.data);
     } catch {
       setSelectedSale(sale);
+      toast.error('Could not load full sale details.');
     } finally {
       setDetailLoading(false);
     }
@@ -115,47 +122,16 @@ export default function SalesPage() {
             </button>
           </div>
           <div className="row g-3">
-            <div className="col-md-3">
-              <label className="form-label">Start Date</label>
-              <input type="date" className="form-control" value={filters.startDate} onChange={(e) => setFilters({ ...filters, startDate: e.target.value })} />
-            </div>
-            <div className="col-md-3">
-              <label className="form-label">End Date</label>
-              <input type="date" className="form-control" value={filters.endDate} onChange={(e) => setFilters({ ...filters, endDate: e.target.value })} />
-            </div>
-            {activeView === 'sales' && (
-              <div className="col-md-3">
-                <label className="form-label">Payment Method</label>
-                <select className="form-select" value={filters.paymentMethod} onChange={(e) => setFilters({ ...filters, paymentMethod: e.target.value })}>
-                  <option value="">All Methods</option>
-                  <option value="cash">Cash</option>
-                  <option value="card">Card</option>
-                  <option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option>
-                </select>
-              </div>
-            )}
-            <div className="col-md-3">
-              <label className="form-label">Status</label>
-              <select className="form-select" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
-                <option value="">All Statuses</option>
-                <option value="completed">Completed</option>
-                <option value="voided">Voided</option>
-                <option value="sent">Sent</option>
-                <option value="edited">Edited</option>
-              </select>
-            </div>
-            <div className="col-md-3">
-              <label className="form-label">Search</label>
-              <div className="input-group">
-                <input type="text" className="form-control" placeholder={activeView === 'sales' ? 'Receipt #, cashier, amount' : 'Batch #, creator'} value={filters.searchTerm} onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })} />
-                <span className="input-group-text"><Search size={16} /></span>
-              </div>
-            </div>
+            <div className="col-md-3"><label className="form-label">Start Date</label><input type="date" className="form-control" value={filters.startDate} onChange={(e) => setFilters({ ...filters, startDate: e.target.value })} /></div>
+            <div className="col-md-3"><label className="form-label">End Date</label><input type="date" className="form-control" value={filters.endDate} onChange={(e) => setFilters({ ...filters, endDate: e.target.value })} /></div>
+            {activeView === 'sales' ? <div className="col-md-3"><label className="form-label">Payment Method</label><select className="form-select" value={filters.paymentMethod} onChange={(e) => setFilters({ ...filters, paymentMethod: e.target.value })}><option value="">All Methods</option><option value="cash">Cash</option><option value="card">Card</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div> : null}
+            <div className="col-md-3"><label className="form-label">Status</label><select className="form-select" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">All Statuses</option><option value="completed">Completed</option><option value="voided">Voided</option><option value="sent">Sent</option><option value="edited">Edited</option></select></div>
+            <div className="col-md-3"><label className="form-label">Search</label><div className="input-group"><input type="text" className="form-control" placeholder={activeView === 'sales' ? 'Receipt #, cashier, amount' : 'Batch #, creator'} value={filters.searchTerm} onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })} /><span className="input-group-text"><Search size={16} /></span></div></div>
           </div>
         </div>
       </div>
 
-      {detailLoading && <div className="alert alert-info mb-3">Loading sale details...</div>}
+      {detailLoading ? <div className="alert alert-info mb-3">Loading sale details...</div> : null}
 
       {activeView === 'sales' ? (
         <>
@@ -166,7 +142,7 @@ export default function SalesPage() {
           </div>
           <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>Receipt #</th><th>Date & Time</th><th>Amount</th><th>Payment Method</th><th>Status</th><th>Void Details</th><th>Cashier</th><th>Actions</th></tr></thead><tbody>
             {filteredSales.length === 0 ? <tr><td colSpan="8" className="text-center text-muted py-4">No sales found</td></tr> : filteredSales.map((sale) => (
-              <tr key={sale.id}><td>{sale.receipt_number}</td><td>{formatAddisDateTime(sale.sale_date, { hour12: true })}</td><td>ETB {Number(sale.total_amount).toFixed(2)}</td><td><span className={`badge ${sale.payment_method === 'cash' ? 'badge-success' : sale.payment_method === 'card' || sale.payment_method === 'telebirr' ? 'badge-primary' : 'badge-info'}`}>{sale.payment_method}</span></td><td>{sale.is_offline ? <span className="badge badge-warning">Offline</span> : <span className="badge badge-success">Online</span>}</td><td>{sale.status === 'voided' ? <div><small className="text-muted d-block">{formatAddisDateTime(sale.voided_at, { hour12: true })}</small><small className="text-danger">{sale.void_reason || 'No reason provided'}</small></div> : <span className="text-muted">-</span>}</td><td>{sale.cashier_name || sale.cashier_id}</td><td><button className="btn btn-sm btn-outline-primary" onClick={() => openSaleDetails(sale)}><Eye size={14} /> View</button></td></tr>
+              <tr key={sale.id}><td>{sale.receipt_number}{sale.last_print_result === 'failed' ? <span className="badge badge-danger ms-2">Print issue</span> : null}</td><td>{formatAddisDateTime(sale.sale_date, { hour12: true })}</td><td>ETB {Number(sale.total_amount).toFixed(2)}</td><td><span className={`badge ${sale.payment_method === 'cash' ? 'badge-success' : sale.payment_method === 'card' || sale.payment_method === 'telebirr' ? 'badge-primary' : 'badge-info'}`}>{sale.payment_method}</span></td><td>{sale.is_offline ? <span className="badge badge-warning">Offline</span> : <span className="badge badge-success">Online</span>}<div className="small text-muted">Prints {sale.print_attempts || 0} · Reprints {sale.reprint_count || 0}</div></td><td>{sale.status === 'voided' ? <div><small className="text-muted d-block">{formatAddisDateTime(sale.voided_at, { hour12: true })}</small><small className="text-danger">{sale.void_reason || 'No reason provided'}</small></div> : <span className="text-muted">-</span>}</td><td>{sale.cashier_name || sale.cashier_id}</td><td><button className="btn btn-sm btn-outline-primary" onClick={() => openSaleDetails(sale)}><Eye size={14} /> View</button></td></tr>
             ))}
           </tbody></table></div></div></div>
         </>
@@ -178,9 +154,7 @@ export default function SalesPage() {
         </tbody></table></div></div></div>
       )}
 
-      {selectedSale && (
-        <div className="modal-overlay" onClick={() => setSelectedSale(null)}><div className="modal-content" onClick={(e) => e.stopPropagation()}><div className="modal-header"><h3>Sale Details - {selectedSale.receipt_number}</h3><button className="close-btn" onClick={() => setSelectedSale(null)}>×</button></div><div className="modal-body"><div className="row"><div className="col-md-6"><h5>Transaction Info</h5><p><strong>Date & Time:</strong> {formatAddisDateTime(selectedSale.sale_date, { hour12: true })}</p><p><strong>Amount:</strong> ETB {Number(selectedSale.total_amount).toFixed(2)}</p><p><strong>Payment Method:</strong> {selectedSale.payment_method}</p></div><div className="col-md-6"><h5>Staff</h5><p><strong>Cashier:</strong> {selectedSale.cashier_name || selectedSale.cashier_id}</p><p><strong>Sync Status:</strong> {selectedSale.is_offline ? 'Offline' : 'Online'}</p>{selectedSale.status === 'voided' && <p><strong>Void:</strong> {formatAddisDateTime(selectedSale.voided_at, { hour12: true })} — {selectedSale.void_reason || 'No reason provided'}</p>}</div></div><hr /><h5>Items Sold</h5><div className="table-responsive"><table className="table table-sm"><thead><tr><th>Product</th><th>Qty</th><th>Unit Price</th><th>Subtotal</th></tr></thead><tbody>{(selectedSale.items || []).length === 0 ? <tr><td colSpan="4" className="text-muted text-center">No item details</td></tr> : selectedSale.items.map((item) => <tr key={item.id || `${item.product_id}-${item.product_name}`}><td>{item.product_name || item.product_id}</td><td>{item.quantity}</td><td>ETB {Number(item.unit_price || 0).toFixed(2)}</td><td>ETB {Number(item.subtotal || 0).toFixed(2)}</td></tr>)}</tbody></table></div></div><div className="modal-footer"><button className="btn btn-secondary" onClick={() => setSelectedSale(null)}>Close</button></div></div></div>
-      )}
+      {selectedSale ? <SaleReceiptDetail sale={selectedSale} settings={receiptSettings} currentRole={user?.role || 'admin'} onClose={() => setSelectedSale(null)} onSaleUpdated={fetchData} toast={toast} /> : null}
     </div>
   );
 }

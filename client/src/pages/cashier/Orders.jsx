@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
+import { FileText, Printer } from 'lucide-react';
 import api, { getErrorMessage } from '../../api/axios';
 import { enqueueOperation } from '../../utils/offlineQueue';
+import ReceiptPreview from '../../receipts/ReceiptPreview';
+import { getReceiptConfigCache, normalizeReceiptSettings, normalizeReceiptTemplate, persistReceiptConfigCache } from '../../receipts/helpers';
+import { performReceiptPrint } from '../../receipts/printService';
+import { useToast } from '../../context/ToastContext';
+import { buildPreOrderReceipt } from '../../receipts/orderReceipt';
 import './Orders.css';
 
 const PRODUCT_CACHE_KEY = 'orders.products.cache.v1';
@@ -11,6 +17,7 @@ const getOrdersProductCacheKeys = () => {
 const emptyItem = { product_id: '', custom_item_name: '', quantity: 1, unit_price: '' };
 
 export default function CashierOrders() {
+  const toast = useToast();
   const [orders, setOrders] = useState([]);
   const [products, setProducts] = useState([]);
   const [form, setForm] = useState({
@@ -23,29 +30,49 @@ export default function CashierOrders() {
     items: [{ ...emptyItem }],
   });
   const [loading, setLoading] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [message, setMessage] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
   const [noteViewerOrder, setNoteViewerOrder] = useState(null);
+  const [receiptOrder, setReceiptOrder] = useState(null);
   const [nowTs, setNowTs] = useState(() => Date.now());
+  const [receiptConfig, setReceiptConfig] = useState(() => getReceiptConfigCache() || {
+    settings: normalizeReceiptSettings({}),
+    activeTemplate: { id: 'default', name: 'Classic thermal', schema: normalizeReceiptTemplate({}) },
+  });
 
   const activeProducts = useMemo(() => products.filter((p) => p.is_active !== false), [products]);
-
   const productById = useMemo(() => {
     const map = new Map();
     activeProducts.forEach((product) => map.set(String(product.id), product));
     return map;
   }, [activeProducts]);
-
   const calculatedTotal = useMemo(() => form.items.reduce((sum, item) => {
     const qty = Math.max(1, Number(item.quantity || 1));
     const unitPrice = Number(item.unit_price || 0);
     return sum + (qty * unitPrice);
   }, 0), [form.items]);
-
   const calculatedPaid = Number(form.paid_amount || 0);
   const calculatedBalance = Math.max(calculatedTotal - calculatedPaid, 0);
+  const receiptPreview = useMemo(() => receiptOrder ? buildPreOrderReceipt(receiptOrder, receiptConfig.activeTemplate.schema) : null, [receiptOrder, receiptConfig.activeTemplate.schema]);
 
   const resetForm = () => setForm({ customer_name: '', customer_phone: '', customer_note: '', pickup_at: '', payment_method: 'cash', paid_amount: '', items: [{ ...emptyItem }] });
+
+  const fetchReceiptConfig = async () => {
+    try {
+      const response = await api.get('/sales/receipt-config');
+      const config = {
+        settings: normalizeReceiptSettings(response.data.settings || {}),
+        activeTemplate: response.data.activeTemplate
+          ? { ...response.data.activeTemplate, schema: normalizeReceiptTemplate(response.data.activeTemplate.schema || {}) }
+          : { id: 'default', name: 'Classic thermal', schema: normalizeReceiptTemplate({}) },
+      };
+      setReceiptConfig(config);
+      persistReceiptConfigCache(config);
+    } catch {
+      return null;
+    }
+  };
 
   const load = async () => {
     try {
@@ -62,10 +89,7 @@ export default function CashierOrders() {
         setProducts(serverProducts);
         localStorage.setItem(PRODUCT_CACHE_KEY, JSON.stringify(serverProducts));
       } else {
-        const cachedProducts = getOrdersProductCacheKeys()
-          .map((key) => localStorage.getItem(key))
-          .find((value) => !!value);
-
+        const cachedProducts = getOrdersProductCacheKeys().map((key) => localStorage.getItem(key)).find((value) => !!value);
         if (cachedProducts) {
           setProducts(JSON.parse(cachedProducts));
           setMessage({ type: 'warning', text: 'Offline mode: using cached products for item selection.' });
@@ -80,6 +104,7 @@ export default function CashierOrders() {
 
   useEffect(() => {
     load();
+    fetchReceiptConfig();
   }, []);
 
   useEffect(() => {
@@ -92,7 +117,6 @@ export default function CashierOrders() {
       const nextItems = prev.items.map((item, i) => {
         if (i !== idx) return item;
         const nextItem = { ...item, [key]: value };
-
         if (key === 'product_id') {
           if (value) {
             const selectedProduct = productById.get(String(value));
@@ -102,7 +126,6 @@ export default function CashierOrders() {
             nextItem.product_id = '';
           }
         }
-
         return nextItem;
       });
       return { ...prev, items: nextItems };
@@ -111,7 +134,6 @@ export default function CashierOrders() {
 
   const removeRow = (idx) => setForm((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }));
   const addRow = () => setForm((prev) => ({ ...prev, items: [...prev.items, { ...emptyItem }] }));
-
   const isFinalOrderState = (order) => ['picked_up', 'delivered', 'cancelled'].includes(order?.status);
 
   const canDeleteOrder = (order) => {
@@ -155,6 +177,33 @@ export default function CashierOrders() {
     }
   };
 
+  const openReceipt = (order) => {
+    setReceiptOrder(order);
+  };
+
+  const printPreOrderReceipt = async (order) => {
+    const printableOrder = buildPreOrderReceipt(order, receiptConfig.activeTemplate.schema);
+    setPrinting(true);
+    try {
+      await performReceiptPrint({
+        sale: printableOrder,
+        template: receiptConfig.activeTemplate.schema,
+        settings: receiptConfig.settings,
+        adapterMode: receiptConfig.settings.printerProfile.saleAdapter || 'browser',
+        attemptType: 'test',
+        printLabel: receiptConfig.settings.labels.preOrder || 'PRE-ORDER',
+      });
+      setMessage({ type: 'success', text: 'Pre-order receipt sent to print.' });
+      toast.success('Pre-order receipt print started.');
+    } catch (err) {
+      const errorMessage = err.message || 'Failed to print pre-order receipt.';
+      setMessage({ type: 'danger', text: errorMessage });
+      toast.error(errorMessage);
+    } finally {
+      setPrinting(false);
+    }
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     if (loading) return;
@@ -187,9 +236,10 @@ export default function CashierOrders() {
     }
 
     try {
-      await api.post('/orders', payload);
+      const response = await api.post('/orders', payload);
       resetForm();
       setMessage({ type: 'success', text: 'Pre-order created.' });
+      setReceiptOrder(response.data);
       load();
     } catch (err) {
       if (!err.response) {
@@ -260,11 +310,11 @@ export default function CashierOrders() {
                   <td><span className="badge badge-primary">{order.status}</span></td>
                   <td>{order.prep_status} ({Number(order.prep_progress || 0)}%)</td>
                   <td>
-                    ETB {Number(order.total_amount || 0).toFixed(2)} total / ETB {Number(order.paid_amount || 0).toFixed(2)} paid
+                    ETB {Number(order.total_amount || 0).toFixed(2)} total / ETB {Number(order.paid_amount || 0).toFixed(2)} paid / ETB {Math.max(Number(order.total_amount || 0) - Number(order.paid_amount || 0), 0).toFixed(2)} remaining
                     <span className={`badge ms-1 ${order.payment_status === 'verified' ? 'badge-success' : 'badge-warning'}`}>{order.payment_status}</span>
                   </td>
                   <td>{new Date(order.pickup_at).toLocaleString()}</td>
-                  <td><div className="d-flex gap-2 align-items-center flex-wrap"><button className="btn btn-sm btn-outline-info" onClick={() => setNoteViewerOrder(order)}>View Note</button>{!isFinalOrderState(order) && <button className="btn btn-sm btn-outline-primary" onClick={() => setEditingOrder({ ...order })}>Edit</button>}{canDeleteOrder(order) && !isFinalOrderState(order) && <button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button>}{!isFinalOrderState(order) && (canDeleteOrder(order) ? <span className="badge badge-warning">Delete: {minutesLeft(order)}m left</span> : <span className="badge badge-secondary">Delete locked</span>)}</div></td>
+                  <td><div className="d-flex gap-2 align-items-center flex-wrap"><button className="btn btn-sm btn-outline-secondary" onClick={() => openReceipt(order)}><FileText size={14} /> Receipt</button><button className="btn btn-sm btn-outline-primary" onClick={() => printPreOrderReceipt(order)} disabled={printing}><Printer size={14} /> Print</button><button className="btn btn-sm btn-outline-info" onClick={() => setNoteViewerOrder(order)}>View Note</button>{!isFinalOrderState(order) && <button className="btn btn-sm btn-outline-primary" onClick={() => setEditingOrder({ ...order })}>Edit</button>}{canDeleteOrder(order) && !isFinalOrderState(order) && <button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button>}{!isFinalOrderState(order) && (canDeleteOrder(order) ? <span className="badge badge-warning">Delete: {minutesLeft(order)}m left</span> : <span className="badge badge-secondary">Delete locked</span>)}</div></td>
                 </tr>
               ))}
               {!orders.length && <tr><td colSpan="7" className="text-center text-muted">No pre-orders</td></tr>}
@@ -296,6 +346,34 @@ export default function CashierOrders() {
             <div className="modal-header"><h3>Customer Note</h3><button className="close-btn" onClick={() => setNoteViewerOrder(null)}>×</button></div>
             <div className="modal-body"><p className="note-viewer-text">{noteViewerOrder.customer_note || 'No note added for this pre-order.'}</p></div>
             <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setNoteViewerOrder(null)}>Close</button></div>
+          </div>
+        </div>
+      )}
+
+      {receiptOrder && receiptPreview && (
+        <div className="modal-overlay" onClick={() => setReceiptOrder(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Pre-Order Receipt</h3><button className="close-btn" onClick={() => setReceiptOrder(null)}>×</button></div>
+            <div className="modal-body">
+              <div className="row g-4">
+                <div className="col-lg-5">
+                  <div className="mb-3">
+                    <p className="mb-2"><strong>Customer:</strong> {receiptOrder.customer_name}</p>
+                    <p className="mb-2"><strong>Phone:</strong> {receiptOrder.customer_phone}</p>
+                    <p className="mb-2"><strong>Total:</strong> ETB {Number(receiptOrder.total_amount || 0).toFixed(2)}</p>
+                    <p className="mb-2"><strong>Paid now:</strong> ETB {Number(receiptOrder.paid_amount || 0).toFixed(2)}</p>
+                    <p className="mb-2"><strong>Remaining:</strong> ETB {Math.max(Number(receiptOrder.total_amount || 0) - Number(receiptOrder.paid_amount || 0), 0).toFixed(2)}</p>
+                    <p className="mb-0"><strong>Pickup:</strong> {new Date(receiptOrder.pickup_at).toLocaleString()}</p>
+                  </div>
+                  <div className="d-flex gap-2 flex-wrap">
+                    <button className="btn btn-primary" onClick={() => printPreOrderReceipt(receiptOrder)} disabled={printing}><Printer size={14} /> {printing ? 'Printing...' : 'Print Receipt'}</button>
+                  </div>
+                </div>
+                <div className="col-lg-7 d-flex justify-content-center">
+                  <ReceiptPreview sale={receiptPreview} template={receiptConfig.activeTemplate.schema} settings={receiptConfig.settings} printLabel={receiptConfig.settings.labels.preOrder || 'PRE-ORDER'} />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

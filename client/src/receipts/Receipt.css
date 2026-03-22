@@ -1,0 +1,121 @@
+.thermal-receipt {
+  width: 100%;
+  background: #fff;
+  color: #111;
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  padding: 14px 12px 18px;
+  font-family: var(--receipt-font-family, 'Courier New', monospace);
+  font-size: var(--receipt-base-font-size, 12px);
+  line-height: var(--receipt-line-height, 1.35);
+}
+
+.thermal-80mm {
+  max-width: 320px;
+}
+
+.thermal-58mm {
+  max-width: 240px;
+}
+
+.thermal-receipt__header,
+.thermal-receipt__meta,
+.thermal-receipt__items,
+.thermal-receipt__totals,
+.thermal-receipt__footer {
+  text-align: var(--receipt-body-align, left);
+}
+
+.thermal-receipt__header--center,
+.thermal-receipt__footer {
+  text-align: var(--receipt-header-align, center);
+}
+
+.thermal-receipt__footer {
+  text-align: var(--receipt-footer-align, center);
+}
+
+.thermal-receipt__business {
+  font-size: var(--receipt-business-font-size, 19px);
+  font-weight: 700;
+}
+
+.thermal-receipt__separator {
+  margin: 8px 0;
+  overflow: hidden;
+  white-space: pre;
+}
+
+.thermal-receipt__line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.thermal-receipt__item-row,
+.thermal-receipt__items-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--receipt-values-width, 156px);
+  gap: var(--receipt-item-gap, 10px);
+  align-items: start;
+}
+
+.thermal-receipt__item-values {
+  display: grid;
+  grid-template-columns: minmax(var(--receipt-qty-width, 48px), auto) minmax(var(--receipt-total-width, 96px), auto);
+  gap: var(--receipt-column-gap, 10px);
+  align-items: start;
+}
+
+.thermal-receipt__meta,
+.thermal-receipt__totals,
+.thermal-receipt__items {
+  display: grid;
+  gap: 4px;
+}
+
+.thermal-receipt__meta {
+  font-size: var(--receipt-meta-font-size, 12px);
+}
+
+.thermal-receipt__line span:last-child,
+.thermal-receipt__item-qty,
+.thermal-receipt__item-total,
+.thermal-receipt__item-values span {
+  text-align: right;
+}
+
+.thermal-receipt__items-header {
+  font-weight: 700;
+}
+
+.thermal-receipt__item-name {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.thermal-receipt__item-price {
+  width: var(--receipt-values-width, 156px);
+  margin-left: auto;
+  text-align: right;
+}
+
+.thermal-receipt__line--bold {
+  font-weight: 700;
+  border-top: 1px solid #111;
+  border-bottom: 1px solid #111;
+  padding: 6px 0;
+  margin: 2px 0;
+}
+
+.thermal-receipt__stamp {
+  display: inline-block;
+  border: 1px solid #111;
+  padding: 2px 8px;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.thermal-receipt__note {
+  white-space: pre-wrap;
+}

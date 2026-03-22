@@ -38,6 +38,56 @@ async function getInventoryBatchColumnCapabilities(db) {
   };
 }
 
+
+async function getWasteSummaryForDateRange(locationId, startDate, endDate) {
+  const result = await query(
+    `SELECT COALESCE(SUM(total_loss), 0) AS total_waste_loss,
+            COUNT(*) AS waste_count
+     FROM waste_records
+     WHERE location_id = $1 AND DATE(wasted_at) BETWEEN $2 AND $3`,
+    [locationId, startDate, endDate]
+  );
+  return result.rows[0] || { total_waste_loss: 0, waste_count: 0 };
+}
+
+async function getWasteListForDateRange(locationId, startDate, endDate) {
+  const result = await query(
+    `SELECT wr.id, wr.reason, wr.quantity_wasted, wr.total_loss, wr.wasted_at, p.name AS product_name, p.unit
+     FROM waste_records wr
+     JOIN products p ON p.id = wr.product_id
+     WHERE wr.location_id = $1 AND DATE(wr.wasted_at) BETWEEN $2 AND $3
+     ORDER BY wr.wasted_at DESC`,
+    [locationId, startDate, endDate]
+  );
+  return result.rows;
+}
+
+async function getWasteSummaryForMonth(locationId, year, month) {
+  const result = await query(
+    `SELECT COALESCE(SUM(total_loss), 0) AS total_waste_loss,
+            COUNT(*) AS waste_count
+     FROM waste_records
+     WHERE location_id = $1
+       AND EXTRACT(YEAR FROM wasted_at) = $2
+       AND EXTRACT(MONTH FROM wasted_at) = $3`,
+    [locationId, year, month]
+  );
+  return result.rows[0] || { total_waste_loss: 0, waste_count: 0 };
+}
+
+async function getWasteListForMonth(locationId, year, month) {
+  const result = await query(
+    `SELECT wr.id, wr.reason, wr.quantity_wasted, wr.total_loss, wr.wasted_at, p.name AS product_name, p.unit
+     FROM waste_records wr
+     JOIN products p ON p.id = wr.product_id
+     WHERE wr.location_id = $1
+       AND EXTRACT(YEAR FROM wr.wasted_at) = $2
+       AND EXTRACT(MONTH FROM wr.wasted_at) = $3
+     ORDER BY wr.wasted_at DESC`,
+    [locationId, year, month]
+  );
+  return result.rows;
+}
 router.get('/daily', authenticateToken, async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
@@ -212,6 +262,9 @@ router.get('/daily', authenticateToken, async (req, res) => {
       [locationId, date]
     );
 
+    const wasteSummary = await getWasteSummaryForDateRange(locationId, date, date);
+    const wasteList = await getWasteListForDateRange(locationId, date, date);
+
     const sales = salesResult.rows[0];
     const expenses = expensesResult.rows[0];
     const staffPayments = staffPaymentsResult.rows[0];
@@ -220,7 +273,8 @@ router.get('/daily', authenticateToken, async (req, res) => {
     const totalExpenses = parseFloat(expenses.total_expenses) || 0;
     const totalStaffPayments = parseFloat(staffPayments.total_staff_payments) || 0;
     const totalBatchCosts = parseFloat(batchCostResult.rows[0]?.total_batch_cost || 0);
-    const totalCosts = totalExpenses + totalStaffPayments + totalBatchCosts;
+    const totalWasteLoss = parseFloat(wasteSummary.total_waste_loss || 0);
+    const totalCosts = totalExpenses + totalStaffPayments + totalBatchCosts + totalWasteLoss;
     const grossProfit = totalRevenue - totalExpenses;
     const netProfit = totalRevenue - totalCosts;
 
@@ -239,11 +293,16 @@ router.get('/daily', authenticateToken, async (req, res) => {
         payment_count: parseInt(staffPayments.payment_count) || 0,
         total_staff_payments: totalStaffPayments
       },
+      waste: {
+        total_waste_loss: totalWasteLoss,
+        waste_count: parseInt(wasteSummary.waste_count) || 0
+      },
       profit: {
         gross_profit: grossProfit,
         net_profit: netProfit,
         total_costs: totalCosts,
-        batch_costs: totalBatchCosts
+        batch_costs: totalBatchCosts,
+        waste_loss: totalWasteLoss
       },
       top_products: topProductsResult.rows,
       payment_methods: paymentMethodsResult.rows,
@@ -251,11 +310,13 @@ router.get('/daily', authenticateToken, async (req, res) => {
         cashier_performance: cashierPerformanceResult.rows,
         expenses: expenseListResult.rows,
         staff_payments: staffPaymentListResult.rows,
+        waste: wasteList,
         batches: {
           total_batch_cost: Number(batchCostResult.rows[0]?.total_batch_cost || 0),
           batch_count: Number(batchCostResult.rows[0]?.batch_count || 0),
           batch_list: batchDetailsResult.rows
-        }
+        },
+        waste: wasteList
       }
     });
   } catch (err) {
@@ -456,12 +517,16 @@ router.get('/weekly', authenticateToken, async (req, res) => {
       [locationId, startDate, endDate]
     );
 
+    const wasteSummary = await getWasteSummaryForDateRange(locationId, startDate, endDate);
+    const wasteList = await getWasteListForDateRange(locationId, startDate, endDate);
+
     const totals = totalsResult.rows[0];
     const totalRevenue = parseFloat(totals.total_sales) || 0;
     const totalExpenses = parseFloat(totals.total_expenses) || 0;
     const totalStaffPayments = parseFloat(totals.total_staff_payments) || 0;
     const totalBatchCosts = parseFloat(batchCostResult.rows[0]?.total_batch_cost || 0);
-    const totalCosts = totalExpenses + totalStaffPayments + totalBatchCosts;
+    const totalWasteLoss = parseFloat(wasteSummary.total_waste_loss || 0);
+    const totalCosts = totalExpenses + totalStaffPayments + totalBatchCosts + totalWasteLoss;
     const grossProfit = totalRevenue - totalExpenses;
     const netProfit = totalRevenue - totalCosts;
     const transactions = salesByDayResult.rows.reduce((acc, row) => acc + Number(row.transactions || 0), 0);
@@ -473,12 +538,14 @@ router.get('/weekly', authenticateToken, async (req, res) => {
         total_expenses: totalExpenses,
         total_staff_payments: totalStaffPayments,
         total_batch_costs: totalBatchCosts,
+        total_waste_loss: totalWasteLoss,
         total_costs: totalCosts,
         gross_profit: grossProfit,
         net_profit: netProfit,
         total_transactions: transactions,
         expense_count: parseInt(totals.expense_count) || 0,
         staff_payment_count: parseInt(totals.staff_payment_count) || 0,
+        waste_count: parseInt(wasteSummary.waste_count) || 0,
         avg_transaction: transactions > 0 ? totalRevenue / transactions : 0,
         },
       sales_by_day: salesByDayResult.rows,
@@ -489,11 +556,13 @@ router.get('/weekly', authenticateToken, async (req, res) => {
         cashier_performance: cashierPerformanceResult.rows,
         expenses: expenseListResult.rows,
         staff_payments: staffPaymentListResult.rows,
+        waste: wasteList,
         batches: {
           total_batch_cost: Number(batchCostResult.rows[0]?.total_batch_cost || 0),
           batch_count: Number(batchCostResult.rows[0]?.batch_count || 0),
           batch_list: batchDetailsResult.rows
-        }
+        },
+        waste: wasteList
       }
     });
   } catch (err) {
@@ -742,12 +811,16 @@ router.get('/monthly', authenticateToken, async (req, res) => {
       [locationId, year, month]
     );
 
+    const wasteSummary = await getWasteSummaryForMonth(locationId, year, month);
+    const wasteList = await getWasteListForMonth(locationId, year, month);
+
     const sales = salesResult.rows[0];
     const staffPayments = staffPaymentsResult.rows[0];
     const totalExpenses = expensesByCategoryResult.rows.reduce((sum, row) => sum + parseFloat(row.total), 0);
     const totalStaffPayments = parseFloat(staffPayments.total_staff_payments) || 0;
     const totalBatchCosts = parseFloat(batchCostResult.rows[0]?.total_batch_cost || 0);
-    const totalCosts = totalExpenses + totalStaffPayments + totalBatchCosts;
+    const totalWasteLoss = parseFloat(wasteSummary.total_waste_loss || 0);
+    const totalCosts = totalExpenses + totalStaffPayments + totalBatchCosts + totalWasteLoss;
     const totalRevenue = parseFloat(sales.total_sales) || 0;
     const grossProfit = totalRevenue - totalExpenses;
     const netProfit = totalRevenue - totalCosts;
@@ -768,15 +841,21 @@ router.get('/monthly', authenticateToken, async (req, res) => {
         payment_count: parseInt(staffPayments.payment_count) || 0,
         total_staff_payments: totalStaffPayments
       },
+      waste: {
+        total_waste_loss: totalWasteLoss,
+        waste_count: parseInt(wasteSummary.waste_count) || 0
+      },
       costs: {
         total_costs: totalCosts,
-        batch_costs: totalBatchCosts
+        batch_costs: totalBatchCosts,
+        waste_loss: totalWasteLoss
       },
       profit: {
         gross_profit: grossProfit,
         net_profit: netProfit,
         total_costs: totalCosts,
         batch_costs: totalBatchCosts,
+        waste_loss: totalWasteLoss,
         margin_percent: totalRevenue > 0 ? (netProfit / totalRevenue * 100).toFixed(2) : 0
       },
       top_products: topProductsResult.rows,
@@ -785,11 +864,13 @@ router.get('/monthly', authenticateToken, async (req, res) => {
         cashier_performance: cashierPerformanceResult.rows,
         expenses: expenseListResult.rows,
         staff_payments: staffPaymentListResult.rows,
+        waste: wasteList,
         batches: {
           total_batch_cost: Number(batchCostResult.rows[0]?.total_batch_cost || 0),
           batch_count: Number(batchCostResult.rows[0]?.batch_count || 0),
           batch_list: batchDetailsResult.rows
-        }
+        },
+        waste: wasteList
       }
     });
   } catch (err) {

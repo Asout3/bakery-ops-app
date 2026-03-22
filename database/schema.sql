@@ -123,7 +123,11 @@ CREATE TABLE IF NOT EXISTS sales (
     payment_method VARCHAR(20) DEFAULT 'cash',
     is_offline BOOLEAN DEFAULT false,
     sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    receipt_number VARCHAR(50) UNIQUE
+    receipt_number VARCHAR(50) UNIQUE,
+    client_transaction_id VARCHAR(80) UNIQUE,
+    receipt_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    receipt_template_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+    receipt_generated_at TIMESTAMPTZ
 );
 
 -- Sale items
@@ -135,6 +139,51 @@ CREATE TABLE IF NOT EXISTS sale_items (
     unit_price DECIMAL(10, 2) NOT NULL,
     subtotal DECIMAL(10, 2) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+CREATE TABLE IF NOT EXISTS receipt_templates (
+    id SERIAL PRIMARY KEY,
+    location_id INTEGER REFERENCES locations(id) ON DELETE CASCADE,
+    name VARCHAR(120) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+    is_active BOOLEAN NOT NULL DEFAULT false,
+    version INTEGER NOT NULL DEFAULT 1,
+    schema JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS receipt_settings (
+    id SERIAL PRIMARY KEY,
+    scope_key VARCHAR(80) NOT NULL UNIQUE,
+    location_id INTEGER REFERENCES locations(id) ON DELETE CASCADE,
+    active_template_id INTEGER REFERENCES receipt_templates(id) ON DELETE SET NULL,
+    settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sale_print_events (
+    id SERIAL PRIMARY KEY,
+    event_id VARCHAR(80) NOT NULL UNIQUE,
+    sale_id INTEGER REFERENCES sales(id) ON DELETE CASCADE,
+    client_transaction_id VARCHAR(80),
+    receipt_number VARCHAR(50),
+    location_id INTEGER REFERENCES locations(id) ON DELETE SET NULL,
+    actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    actor_name VARCHAR(100),
+    attempt_type VARCHAR(30) NOT NULL CHECK (attempt_type IN ('original', 'manual_reprint', 'void_reprint', 'test')),
+    adapter_mode VARCHAR(30) NOT NULL,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('success', 'failed', 'cancelled', 'previewed')),
+    initiated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    error_message TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Expenses table
@@ -332,3 +381,8 @@ CREATE INDEX IF NOT EXISTS idx_user_locations_location ON user_locations(locatio
 CREATE INDEX IF NOT EXISTS idx_kpi_events_metric_key ON kpi_events(metric_key, created_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_national_id_unique ON users (national_id) WHERE national_id IS NOT NULL;
+
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_client_transaction_id ON sales(client_transaction_id) WHERE client_transaction_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sale_print_events_sale_id ON sale_print_events(sale_id, initiated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sale_print_events_client_tx ON sale_print_events(client_transaction_id, initiated_at DESC);

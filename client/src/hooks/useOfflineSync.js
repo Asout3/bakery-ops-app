@@ -126,8 +126,8 @@ export function useOfflineSync() {
       }
       const stats = await getSyncStats();
       setQueueStats(stats);
-      const syncedCount = Number(result?.synced || 0);
-      const failedCount = Number(result?.failed || 0);
+      const syncedCount = Number(result?.visibleSynced ?? result?.synced ?? 0);
+      const failedCount = Number(result?.visibleFailed ?? result?.failed ?? 0);
       const finishedDone = Math.min(pendingBefore, syncedCount + failedCount);
       const hasPendingAfter = Number(stats.pending || 0) > 0;
       const hasAttentionAfter = Number(stats.failed || 0) > 0 || Number(stats.conflict || 0) > 0 || Number(stats.needsReview || 0) > 0;
@@ -153,6 +153,9 @@ export function useOfflineSync() {
       }
       const syncResult = {
         ...result,
+        synced: syncedCount,
+        failed: failedCount,
+        pending: Number(result?.visiblePending ?? stats.pending ?? 0),
         at: new Date().toISOString(),
         online: true,
       };

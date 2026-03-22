@@ -1,14 +1,73 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { Plus, Minus, ShoppingCart, Trash2, Search } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { Plus, Minus, ShoppingCart, Trash2, Search, Printer } from 'lucide-react';
 import './Sales.css';
 import { enqueueOperation, listQueuedOperations } from '../../utils/offlineQueue';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
+import ReceiptPreview from '../../receipts/ReceiptPreview';
+import {
+  generateClientTransactionId,
+  generateReceiptNumber,
+  getDeviceProfile,
+  getReceiptConfigCache,
+  normalizeReceiptSettings,
+  normalizeReceiptTemplate,
+  persistReceiptConfigCache,
+} from '../../receipts/helpers';
+import { markReceiptPrintCancelled, performReceiptPrint } from '../../receipts/printService';
+import { saveLocalReceiptRecord } from '../../receipts/storage';
+
+function buildOfflineReceiptSale({ payload, cart, paymentMethod, user, settings, activeTemplate }) {
+  const now = new Date().toISOString();
+  const totals = cart.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 0)), 0);
+  const header = activeTemplate.schema.sections.header;
+  return {
+    id: null,
+    local_only: true,
+    queued_for_sync: true,
+    client_transaction_id: payload.client_transaction_id,
+    receipt_number: payload.receipt_number,
+    sale_date: now,
+    payment_method: paymentMethod,
+    cashier_name: user?.username || 'Cashier',
+    status: 'completed',
+    is_offline: true,
+    items: cart.map((item) => ({ product_id: item.product_id, product_name: item.name, quantity: item.quantity, unit_price: Number(item.price), subtotal: Number(item.price) * Number(item.quantity) })),
+    receipt_template_snapshot: activeTemplate.schema,
+    receipt_payload: {
+      receipt_number: payload.receipt_number,
+      sale_date: now,
+      payment_method: paymentMethod,
+      cashier_name: user?.username || 'Cashier',
+      header_lines: [header.businessName, header.branchName, header.slogan, header.address, header.phone, header.taxId].filter(Boolean),
+      currency_code: activeTemplate.schema.sections.transaction.currencyCode || 'ETB',
+      decimals: Number(activeTemplate.schema.sections.transaction.decimals ?? 2),
+      items: cart.map((item) => ({ product_id: item.product_id, product_name: item.name, quantity: item.quantity, unit_price: Number(item.price), subtotal: Number(item.price) * Number(item.quantity) })),
+      totals: { subtotal: totals, tax: 0, discounts: 0, serviceCharge: 0, total: totals, paidAmount: totals, change: 0 },
+      footer_text: activeTemplate.schema.sections.footer.footerText || '',
+      legal_text: activeTemplate.schema.sections.footer.legalText || '',
+      qr_value: activeTemplate.schema.sections.footer.showQr ? (activeTemplate.schema.sections.footer.qrValue || payload.receipt_number) : '',
+    },
+    print_summary: {
+      receipt_generated: true,
+      printed: false,
+      print_attempts: 0,
+      last_print_result: 'unprinted',
+      reprint_count: 0,
+      reprints_remaining: Number(settings.reprintPolicy.maxManualReprints || 2),
+      in_reprint_window: true,
+      print_events: [],
+    },
+    settings,
+  };
+}
 
 export default function Sales() {
   const { selectedLocationId } = useBranch();
+  const { user } = useAuth();
   const { t } = useLanguage();
   const toast = useToast();
   const [products, setProducts] = useState([]);
@@ -22,6 +81,12 @@ export default function Sales() {
   const [receiptData, setReceiptData] = useState(null);
   const [variantModal, setVariantModal] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [receiptConfig, setReceiptConfig] = useState(() => getReceiptConfigCache() || {
+    settings: normalizeReceiptSettings({}),
+    activeTemplate: { id: 'default', name: 'Classic thermal', schema: normalizeReceiptTemplate({}) },
+  });
+  const [pendingPrintSale, setPendingPrintSale] = useState(null);
+  const [printFailure, setPrintFailure] = useState(null);
   const checkoutInFlightRef = useRef(false);
 
   const persistProductsCache = (nextProducts) => localStorage.setItem(`cashier_products_cache_${selectedLocationId || 'default'}`, JSON.stringify(nextProducts));
@@ -36,6 +101,18 @@ export default function Sales() {
     const usageByProduct = new Map();
     pendingSales.forEach((op) => (op.data?.items || []).forEach((item) => usageByProduct.set(Number(item.product_id), (usageByProduct.get(Number(item.product_id)) || 0) + Number(item.quantity || 0))));
     return baseProducts.map((product) => ({ ...product, stock_quantity: Math.max(0, Number(product.stock_quantity || 0) - (usageByProduct.get(Number(product.id)) || 0)) }));
+  };
+
+  const fetchReceiptConfig = async () => {
+    try {
+      const response = await api.get('/sales/receipt-config');
+      const config = {
+        settings: normalizeReceiptSettings(response.data.settings || {}),
+        activeTemplate: response.data.activeTemplate ? { ...response.data.activeTemplate, schema: normalizeReceiptTemplate(response.data.activeTemplate.schema || {}) } : { id: 'default', name: 'Classic thermal', schema: normalizeReceiptTemplate({}) },
+      };
+      setReceiptConfig(config);
+      persistReceiptConfigCache(config);
+    } catch {}
   };
 
   const fetchProducts = async () => {
@@ -57,12 +134,14 @@ export default function Sales() {
 
   useEffect(() => {
     fetchProducts();
+    fetchReceiptConfig();
   }, [selectedLocationId]);
 
   useEffect(() => {
     const onOnline = () => {
       setIsOnline(true);
       fetchProducts();
+      fetchReceiptConfig();
     };
     const onOffline = () => setIsOnline(false);
 
@@ -163,26 +242,70 @@ export default function Sales() {
     });
   };
 
+  const resolveSaleForPrinting = (sale) => saveLocalReceiptRecord({ ...sale, location_id: sale.location_id || selectedLocationId || null, settings: receiptConfig.settings });
+
+  const maybeStartPrintFlow = async (sale) => {
+    const activeSettings = receiptConfig.settings;
+    if (activeSettings.printMode === 'ask') {
+      setPendingPrintSale(sale);
+      return;
+    }
+    try {
+      await performReceiptPrint({
+        sale,
+        template: receiptConfig.activeTemplate.schema,
+        settings: activeSettings,
+        adapterMode: activeSettings.printerProfile.saleAdapter || 'browser',
+        attemptType: 'original',
+      });
+      toast.success('Receipt print started.');
+      setReceiptData(resolveSaleForPrinting({ ...sale, print_summary: { ...(sale.print_summary || {}), printed: true, last_print_result: 'success' } }));
+    } catch (error) {
+      setPrintFailure({ sale, message: error.message || 'Printing failed.' });
+      setReceiptData(resolveSaleForPrinting(sale));
+    }
+  };
+
   const handleCheckout = async () => {
     if (checkoutInFlightRef.current || cart.length === 0) return;
     checkoutInFlightRef.current = true;
     setLoading(true);
 
-    const payload = { items: cart.map((item) => ({ product_id: item.product_id, quantity: item.quantity })), payment_method: paymentMethod };
+    const device = getDeviceProfile();
+    const clientTransactionId = generateClientTransactionId();
+    const receiptNumber = generateReceiptNumber();
+    const payload = {
+      items: cart.map((item) => ({ product_id: item.product_id, quantity: item.quantity })),
+      payment_method: paymentMethod,
+      client_transaction_id: clientTransactionId,
+      receipt_number: receiptNumber,
+      receipt_context: {
+        device_id: device.deviceId,
+        device_label: device.deviceLabel,
+        created_at: new Date().toISOString(),
+      },
+      receipt_template_snapshot: receiptConfig.activeTemplate.schema,
+    };
 
     try {
       const response = await api.post('/sales', payload);
-      setReceiptData(response.data);
+      const completedSale = resolveSaleForPrinting({ ...response.data, client_transaction_id: response.data.client_transaction_id || clientTransactionId });
+      setReceiptData(completedSale);
       applySaleToLocalStock(payload.items);
       setCart([]);
       toast.success('Sale completed.');
+      await maybeStartPrintFlow(completedSale);
     } catch (err) {
       if (!err.response) {
-        const idempotencyKey = `sale-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const idempotencyKey = `sale-${clientTransactionId}`;
         await enqueueOperation({ url: '/sales', method: 'post', data: payload, idempotencyKey });
         applySaleToLocalStock(payload.items);
+        const offlineSale = buildOfflineReceiptSale({ payload, cart, paymentMethod, user, settings: receiptConfig.settings, activeTemplate: receiptConfig.activeTemplate });
+        const storedOfflineSale = resolveSaleForPrinting(offlineSale);
+        setReceiptData(storedOfflineSale);
         setCart([]);
-        toast.info('Action added to queue. Sale will sync automatically when online.');
+        toast.info('Sale queued offline and will sync automatically when online.');
+        await maybeStartPrintFlow(storedOfflineSale);
       } else {
         toast.error(getErrorMessage(err, 'Failed to complete sale.'));
       }
@@ -190,6 +313,54 @@ export default function Sales() {
       setLoading(false);
       checkoutInFlightRef.current = false;
     }
+  };
+
+  const handleAskPrint = async (shouldPrint) => {
+    if (!pendingPrintSale) return;
+    if (!shouldPrint) {
+      await markReceiptPrintCancelled({ sale: pendingPrintSale, attemptType: 'original', adapterMode: receiptConfig.settings.printerProfile.saleAdapter || 'browser' });
+      toast.info('Sale completed without printing.');
+      setPendingPrintSale(null);
+      return;
+    }
+    try {
+      await performReceiptPrint({
+        sale: pendingPrintSale,
+        template: receiptConfig.activeTemplate.schema,
+        settings: receiptConfig.settings,
+        adapterMode: receiptConfig.settings.printerProfile.saleAdapter || 'browser',
+        attemptType: 'original',
+      });
+      toast.success('Receipt print started.');
+      setPendingPrintSale(null);
+    } catch (error) {
+      setPrintFailure({ sale: pendingPrintSale, message: error.message || 'Printing failed.' });
+      setPendingPrintSale(null);
+    }
+  };
+
+  const handleRetryPrint = async () => {
+    if (!printFailure?.sale) return;
+    try {
+      await performReceiptPrint({
+        sale: printFailure.sale,
+        template: receiptConfig.activeTemplate.schema,
+        settings: receiptConfig.settings,
+        adapterMode: receiptConfig.settings.printerProfile.saleAdapter || 'browser',
+        attemptType: 'original',
+      });
+      toast.success('Receipt print started.');
+      setPrintFailure(null);
+    } catch (error) {
+      setPrintFailure({ sale: printFailure.sale, message: error.message || 'Printing failed.' });
+    }
+  };
+
+  const handleCancelPrintFailure = async () => {
+    if (printFailure?.sale) {
+      await markReceiptPrintCancelled({ sale: printFailure.sale, attemptType: 'original', adapterMode: receiptConfig.settings.printerProfile.saleAdapter || 'browser' });
+    }
+    setPrintFailure(null);
   };
 
   return (
@@ -222,7 +393,7 @@ export default function Sales() {
         <div className="cart-section">
           <div className="card"><div className="card-header"><h3><ShoppingCart size={20} />Cart ({cart.length})</h3></div><div className="card-body cart-body">
             {cart.length === 0 ? <div className="empty-cart"><ShoppingCart size={48} /><p>{t('cartEmpty')}</p></div> : <div className="cart-items">{cart.map((item) => <div key={item.product_id} className="cart-item"><div className="cart-item-details"><div className="cart-item-name">{item.name}</div><div className="cart-item-price">ETB {Number(item.price).toFixed(2)}</div></div><div className="cart-item-actions"><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, -1)}><Minus size={14} /></button><input type="number" min="1" className="form-control form-control-sm" style={{ width: '72px', textAlign: 'center' }} value={item.quantity} onChange={(e) => setQuantity(item.product_id, Number(e.target.value))} /><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, 1)}><Plus size={14} /></button><button className="btn btn-sm btn-danger" onClick={() => removeFromCart(item.product_id)}><Trash2 size={14} /></button></div><div className="cart-item-subtotal">ETB {(item.price * item.quantity).toFixed(2)}</div></div>)}</div>}
-          </div><div className="card-footer"><div className="payment-method-select"><label htmlFor="payment-method">Payment Method</label><select id="payment-method" className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div><div className="cart-total"><span className="cart-total-label">Total:</span><span className="cart-total-amount">ETB {calculateTotal().toFixed(2)}</span></div><button className="btn btn-success btn-lg" onClick={handleCheckout} disabled={loading || cart.length === 0} style={{ width: '100%', marginTop: '1rem' }}>{loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}</button></div></div>
+          </div><div className="card-footer"><div className="payment-method-select"><label htmlFor="payment-method">Payment Method</label><select id="payment-method" className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div><div className="cart-total"><span className="cart-total-label">Total:</span><span className="cart-total-amount">ETB {calculateTotal().toFixed(2)}</span></div><div className="alert alert-light mt-3 mb-0"><Printer size={14} className="me-2" />Print mode: {receiptConfig.settings.printMode === 'ask' ? 'Ask every time' : `Auto via ${receiptConfig.settings.printerProfile.saleAdapter}`}</div><button className="btn btn-success btn-lg" onClick={handleCheckout} disabled={loading || cart.length === 0} style={{ width: '100%', marginTop: '1rem' }}>{loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}</button></div></div>
         </div>
       </div>
 
@@ -255,7 +426,45 @@ export default function Sales() {
       )}
 
       {receiptData && (
-        <div className="modal-overlay" onClick={() => setReceiptData(null)}><div className="modal-content modal-sm" onClick={(e) => e.stopPropagation()}><div className="modal-header"><h3>Receipt</h3><button className="close-btn" onClick={() => setReceiptData(null)}>×</button></div><div className="modal-body"><p><strong>Receipt #:</strong> {receiptData.receipt_number}</p><p><strong>Date:</strong> {new Date(receiptData.sale_date || Date.now()).toLocaleString()}</p><p><strong>Payment Method:</strong> {receiptData.payment_method || paymentMethod}</p><p><strong>Total:</strong> ETB {Number(receiptData.total_amount || 0).toFixed(2)}</p></div></div></div>
+        <div className="modal-overlay" onClick={() => setReceiptData(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Receipt</h3><button className="close-btn" onClick={() => setReceiptData(null)}>×</button></div>
+            <div className="modal-body d-flex justify-content-center">
+              <ReceiptPreview sale={receiptData} template={receiptConfig.activeTemplate.schema} settings={receiptConfig.settings} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingPrintSale && (
+        <div className="modal-overlay" onClick={() => setPendingPrintSale(null)}>
+          <div className="modal-content modal-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Print receipt now?</h3><button className="close-btn" onClick={() => setPendingPrintSale(null)}>×</button></div>
+            <div className="modal-body">
+              <p>Sale {pendingPrintSale.receipt_number} is complete. Print the thermal receipt now?</p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => handleAskPrint(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={() => handleAskPrint(true)}>Print Receipt</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {printFailure && (
+        <div className="modal-overlay" onClick={() => setPrintFailure(null)}>
+          <div className="modal-content modal-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Receipt printing failed</h3><button className="close-btn" onClick={() => setPrintFailure(null)}>×</button></div>
+            <div className="modal-body">
+              <p>{printFailure.message}</p>
+              <p className="text-muted mb-0">The sale remains completed. You can retry printing or continue and leave it marked unprinted.</p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={handleCancelPrintFailure}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleRetryPrint}>Retry</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
