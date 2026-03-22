@@ -3,10 +3,57 @@ import { enqueueOperation } from '../utils/offlineQueue';
 import { createReceiptDocument } from './render';
 import { updateLocalReceiptRecord } from './storage';
 
+function printReceiptIframe(documentPayload) {
+  return new Promise((resolve, reject) => {
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('title', documentPayload.title || 'Receipt print frame');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.style.opacity = '0';
+
+    const cleanup = () => {
+      window.setTimeout(() => iframe.remove(), 500);
+    };
+
+    iframe.onload = () => {
+      window.setTimeout(() => {
+        const frameWindow = iframe.contentWindow;
+        if (!frameWindow) {
+          cleanup();
+          reject(new Error('Print preview could not be created.'));
+          return;
+        }
+
+        try {
+          frameWindow.focus();
+          frameWindow.print();
+          cleanup();
+          resolve();
+        } catch (error) {
+          cleanup();
+          reject(error);
+        }
+      }, 150);
+    };
+
+    iframe.onerror = () => {
+      cleanup();
+      reject(new Error('Print preview could not be created.'));
+    };
+
+    iframe.srcdoc = documentPayload.html;
+    document.body.appendChild(iframe);
+  });
+}
+
 function openReceiptWindow(documentPayload, title) {
   const popup = window.open('', title || '_blank', 'noopener,noreferrer,width=420,height=720');
   if (!popup) {
-    throw new Error('Popup blocked. Allow popups to print receipts.');
+    throw new Error('Popup blocked. Use the embedded preview instead.');
   }
   popup.document.open();
   popup.document.write(documentPayload.html);
@@ -16,10 +63,7 @@ function openReceiptWindow(documentPayload, title) {
 
 const adapters = {
   async browser({ documentPayload }) {
-    const popup = openReceiptWindow(documentPayload, documentPayload.title);
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    popup.focus();
-    popup.print();
+    await printReceiptIframe(documentPayload);
     return { status: 'success', adapterMode: 'browser' };
   },
   async preview({ documentPayload }) {
@@ -27,10 +71,7 @@ const adapters = {
     return { status: 'previewed', adapterMode: 'preview' };
   },
   async pdf({ documentPayload }) {
-    const popup = openReceiptWindow(documentPayload, `${documentPayload.title}-pdf`);
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    popup.focus();
-    popup.print();
+    await printReceiptIframe(documentPayload);
     return { status: 'success', adapterMode: 'pdf' };
   },
   async fake({ settings }) {

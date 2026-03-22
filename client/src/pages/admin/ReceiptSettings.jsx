@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Printer, Save, RotateCcw, Eye, FileText, CheckCircle2, Copy } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Printer, Save, RotateCcw, Eye, FileText, CheckCircle2, Copy, Settings2, LayoutTemplate, ScrollText } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -72,21 +72,42 @@ function ToggleField({ checked, label, onChange }) {
   );
 }
 
+function SectionCard({ icon, title, description, children, actions = null }) {
+  const SectionIcon = icon;
+  return (
+    <section className="card receipt-settings-section">
+      <div className="card-header receipt-settings-section__header">
+        <div className="receipt-settings-section__title-wrap">
+          <div className="receipt-settings-section__icon"><SectionIcon size={18} /></div>
+          <div>
+            <h3>{title}</h3>
+            {description ? <p className="text-muted mb-0">{description}</p> : null}
+          </div>
+        </div>
+        {actions ? <div className="receipt-settings-editor__toolbar">{actions}</div> : null}
+      </div>
+      <div className="card-body">{children}</div>
+    </section>
+  );
+}
+
 export default function ReceiptSettingsPage() {
   const { user } = useAuth();
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [templates, setTemplates] = useState([]);
   const [activeTemplateId, setActiveTemplateId] = useState(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState(null);
   const [settings, setSettings] = useState(DEFAULT_RECEIPT_SETTINGS);
   const [draftTemplate, setDraftTemplate] = useState({ id: null, name: 'Classic thermal', status: 'draft', schema: DEFAULT_TEMPLATE_SCHEMA });
   const autosaveRef = useRef(null);
+  const previewSectionRef = useRef(null);
 
-  const previewSale = useMemo(() => buildPreviewSale(draftTemplate.schema, user), [draftTemplate.schema, user?.username]);
+  const previewSale = useMemo(() => buildPreviewSale(draftTemplate.schema, user), [draftTemplate.schema, user]);
 
-  const loadAdminData = async (preferredTemplateId = null) => {
+  const loadAdminData = useCallback(async (preferredTemplateId = null) => {
     setLoading(true);
     try {
       const response = await api.get('/sales/receipt-admin');
@@ -106,11 +127,11 @@ export default function ReceiptSettingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   useEffect(() => {
     loadAdminData();
-  }, []);
+  }, [loadAdminData]);
 
   useEffect(() => {
     if (!draftTemplate?.id || draftTemplate.status !== 'draft') return undefined;
@@ -119,13 +140,31 @@ export default function ReceiptSettingsPage() {
       try {
         const response = await api.put(`/sales/receipt-templates/${draftTemplate.id}`, { name: draftTemplate.name, status: draftTemplate.status, schema: draftTemplate.schema });
         setTemplates((current) => current.map((item) => item.id === response.data.id ? response.data : item));
-      } catch {}
+      } catch {
+        return null;
+      }
     }, 900);
     return () => clearTimeout(autosaveRef.current);
   }, [draftTemplate]);
 
   const updateSchema = (updater) => {
     setDraftTemplate((current) => ({ ...current, schema: normalizeReceiptTemplate(updater(current.schema)) }));
+  };
+
+  const setHeaderField = (field, value) => {
+    updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, header: { ...schema.sections.header, [field]: value } } }));
+  };
+
+  const setFooterField = (field, value) => {
+    updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, footer: { ...schema.sections.footer, [field]: value } } }));
+  };
+
+  const setTransactionField = (field, value) => {
+    updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, transaction: { ...schema.sections.transaction, [field]: value } } }));
+  };
+
+  const setTotalsField = (field, value) => {
+    updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, totals: { ...schema.sections.totals, [field]: value } } }));
   };
 
   const selectTemplate = (templateId) => {
@@ -225,13 +264,28 @@ export default function ReceiptSettingsPage() {
   };
 
   const handleTestPrint = async (adapterMode) => {
+    if (adapterMode === 'preview') {
+      previewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      toast.success('Live preview is shown below. Update any field and the receipt refreshes instantly.');
+      return;
+    }
+
+    setTesting(true);
     try {
       await performReceiptPrint({ sale: previewSale, template: draftTemplate.schema, settings, adapterMode, attemptType: 'test' });
-      toast.success(adapterMode === 'fake' ? 'Fake print succeeded.' : 'Preview opened.');
+      toast.success(adapterMode === 'fake' ? 'Fake print succeeded.' : 'Print dialog opened without a popup window.');
     } catch (error) {
       toast.error(error.message || 'Print test failed.');
+    } finally {
+      setTesting(false);
     }
   };
+
+  const templateHeader = draftTemplate.schema.sections.header;
+  const templateFooter = draftTemplate.schema.sections.footer;
+  const templateTransaction = draftTemplate.schema.sections.transaction;
+  const templateTotals = draftTemplate.schema.sections.totals;
+  const templateStatusLabel = draftTemplate.id === activeTemplateId ? 'Active template' : `${draftTemplate.status || 'draft'} template`;
 
   if (loading) {
     return <div className="loading-container"><div className="spinner"></div></div>;
@@ -239,21 +293,25 @@ export default function ReceiptSettingsPage() {
 
   return (
     <div className="receipt-settings-page">
-      <div className="page-header receipt-settings-page__header">
-        <div>
-          <h2>Receipt Settings</h2>
-          <p className="text-muted mb-0">Thermal-first receipt templates, print controls, and preview tools that work without hardware.</p>
+      <div className="receipt-settings-shell">
+        <div className="page-header receipt-settings-page__header">
+          <div>
+            <h2>Receipt Settings</h2>
+            <p className="text-muted mb-0">A tighter, scroll-friendly workspace for editing templates, testing print behavior, and checking the live receipt preview.</p>
+          </div>
+          <div className="receipt-settings-page__actions">
+            <button className="btn btn-outline-secondary" onClick={createTemplate}><Copy size={16} /> New Template</button>
+            <button className="btn btn-primary" onClick={saveSettings} disabled={saving}><Save size={16} /> {saving ? 'Saving...' : 'Save Settings'}</button>
+          </div>
         </div>
-        <div className="receipt-settings-page__actions">
-          <button className="btn btn-outline-secondary" onClick={createTemplate}><Copy size={16} /> New Template</button>
-          <button className="btn btn-primary" onClick={saveSettings} disabled={saving}><Save size={16} /> {saving ? 'Saving...' : 'Save Settings'}</button>
-        </div>
-      </div>
 
-      <div className="receipt-settings-layout">
-        <aside className="card receipt-settings-sidebar">
-          <div className="card-header"><h3>Templates</h3></div>
-          <div className="card-body receipt-settings-sidebar__list">
+        <SectionCard
+          icon={LayoutTemplate}
+          title="Templates"
+          description="Pick a template to edit or create a new one. Templates stay at the top so you do not have to fight a side panel."
+          actions={<span className="badge badge-light receipt-settings-status-pill">{templateStatusLabel}</span>}
+        >
+          <div className="receipt-template-strip">
             {templates.map((template) => (
               <button key={template.id} className={`receipt-template-card ${selectedTemplateId === template.id ? 'active' : ''}`} onClick={() => selectTemplate(template.id)}>
                 <div className="receipt-template-card__title-row">
@@ -264,76 +322,151 @@ export default function ReceiptSettingsPage() {
               </button>
             ))}
           </div>
-        </aside>
+        </SectionCard>
 
-        <section className="receipt-settings-editor">
-          <div className="card mb-3">
-            <div className="card-header d-flex justify-content-between align-items-center">
-              <h3>Editor</h3>
-              <div className="receipt-settings-editor__toolbar">
-                <button className="btn btn-outline-secondary btn-sm" onClick={() => saveTemplate(false)}><Save size={14} /> Save Draft</button>
-                <button className="btn btn-outline-primary btn-sm" onClick={() => saveTemplate(true)}><CheckCircle2 size={14} /> Publish</button>
-                <button className="btn btn-outline-success btn-sm" onClick={activateTemplate}><Printer size={14} /> Activate</button>
-                <button className="btn btn-outline-danger btn-sm" onClick={resetTemplate}><RotateCcw size={14} /> Reset</button>
+        <div className="receipt-settings-stack">
+          <SectionCard
+            icon={Settings2}
+            title="Template setup"
+            description="Basic template identity, page size, and print behavior controls."
+            actions={(
+              <>
+                <button className="btn btn-outline-secondary btn-sm" onClick={() => saveTemplate(false)} disabled={saving}><Save size={14} /> Save Draft</button>
+                <button className="btn btn-outline-primary btn-sm" onClick={() => saveTemplate(true)} disabled={saving}><CheckCircle2 size={14} /> Publish</button>
+                <button className="btn btn-outline-success btn-sm" onClick={activateTemplate} disabled={saving}><Printer size={14} /> Activate</button>
+                <button className="btn btn-outline-danger btn-sm" onClick={resetTemplate} disabled={saving}><RotateCcw size={14} /> Reset</button>
+              </>
+            )}
+          >
+            <div className="receipt-form-grid receipt-form-grid--compact">
+              <div className="receipt-field receipt-field--span-2">
+                <label className="form-label">Template Name</label>
+                <input className="form-control" value={draftTemplate.name || ''} onChange={(e) => setDraftTemplate((current) => ({ ...current, name: e.target.value }))} />
+              </div>
+              <div className="receipt-field">
+                <label className="form-label">Style Preset</label>
+                <select className="form-select" value={draftTemplate.schema.stylePreset || 'classic_thermal'} onChange={(e) => updateSchema((schema) => ({ ...schema, stylePreset: e.target.value, separatorStyle: e.target.value === 'dotted' ? 'dotted' : schema.separatorStyle }))}>
+                  {RECEIPT_STYLE_PRESETS.map((preset) => <option key={preset.value} value={preset.value}>{preset.label}</option>)}
+                </select>
+              </div>
+              <div className="receipt-field">
+                <label className="form-label">Paper Width</label>
+                <select className="form-select" value={draftTemplate.schema.paperWidth || '80mm'} onChange={(e) => updateSchema((schema) => ({ ...schema, paperWidth: e.target.value }))}>
+                  <option value="80mm">80mm</option>
+                  <option value="58mm">58mm</option>
+                </select>
+              </div>
+              <div className="receipt-field">
+                <label className="form-label">Separator Style</label>
+                <select className="form-select" value={draftTemplate.schema.separatorStyle || 'solid'} onChange={(e) => updateSchema((schema) => ({ ...schema, separatorStyle: e.target.value }))}>
+                  <option value="solid">Solid</option>
+                  <option value="dotted">Dotted</option>
+                </select>
+              </div>
+              <div className="receipt-field">
+                <label className="form-label">Print Mode</label>
+                <select className="form-select" value={settings.printMode} onChange={(e) => setSettings((current) => ({ ...current, printMode: e.target.value }))}>
+                  <option value="auto">Auto print after sale</option>
+                  <option value="ask">Ask every time</option>
+                </select>
+              </div>
+              <div className="receipt-field">
+                <label className="form-label">Sale Adapter</label>
+                <select className="form-select" value={settings.printerProfile.saleAdapter} onChange={(e) => setSettings((current) => ({ ...current, printerProfile: { ...current.printerProfile, saleAdapter: e.target.value } }))}>
+                  <option value="browser">Browser</option>
+                  <option value="fake">Fake</option>
+                </select>
+              </div>
+              <div className="receipt-field">
+                <label className="form-label">Testing Adapter</label>
+                <select className="form-select" value={settings.printerProfile.testingAdapter} onChange={(e) => setSettings((current) => ({ ...current, printerProfile: { ...current.printerProfile, testingAdapter: e.target.value } }))}>
+                  <option value="fake">Fake</option>
+                  <option value="preview">Live preview</option>
+                  <option value="pdf">Print dialog / save PDF</option>
+                </select>
+              </div>
+              <div className="receipt-field">
+                <label className="form-label">Preview Adapter</label>
+                <select className="form-select" value={settings.printerProfile.previewAdapter} onChange={(e) => setSettings((current) => ({ ...current, printerProfile: { ...current.printerProfile, previewAdapter: e.target.value } }))}>
+                  <option value="preview">Live preview</option>
+                  <option value="pdf">Print dialog / save PDF</option>
+                  <option value="fake">Fake</option>
+                </select>
+              </div>
+              <div className="receipt-field">
+                <label className="form-label">Reprint Window (minutes)</label>
+                <input type="number" min="1" className="form-control" value={settings.reprintPolicy.windowMinutes} onChange={(e) => setSettings((current) => ({ ...current, reprintPolicy: { ...current.reprintPolicy, windowMinutes: Number(e.target.value || 20) } }))} />
+              </div>
+              <div className="receipt-field">
+                <label className="form-label">Manual Reprints Allowed</label>
+                <input type="number" min="0" max="5" className="form-control" value={settings.reprintPolicy.maxManualReprints} onChange={(e) => setSettings((current) => ({ ...current, reprintPolicy: { ...current.reprintPolicy, maxManualReprints: Number(e.target.value || 2) } }))} />
               </div>
             </div>
-            <div className="card-body">
-              <div className="row g-3">
-                <div className="col-lg-4 col-md-6"><label className="form-label">Template Name</label><input className="form-control" value={draftTemplate.name || ''} onChange={(e) => setDraftTemplate((current) => ({ ...current, name: e.target.value }))} /></div>
-                <div className="col-lg-4 col-md-6"><label className="form-label">Style Preset</label><select className="form-select" value={draftTemplate.schema.stylePreset || 'classic_thermal'} onChange={(e) => updateSchema((schema) => ({ ...schema, stylePreset: e.target.value, separatorStyle: e.target.value === 'dotted' ? 'dotted' : schema.separatorStyle }))}>{RECEIPT_STYLE_PRESETS.map((preset) => <option key={preset.value} value={preset.value}>{preset.label}</option>)}</select></div>
-                <div className="col-lg-4 col-md-6"><label className="form-label">Paper Width</label><select className="form-select" value={draftTemplate.schema.paperWidth || '80mm'} onChange={(e) => updateSchema((schema) => ({ ...schema, paperWidth: e.target.value }))}><option value="80mm">80mm</option><option value="58mm">58mm</option></select></div>
-                <div className="col-lg-4 col-md-6"><label className="form-label">Business Name</label><input className="form-control" value={draftTemplate.schema.sections.header.businessName || ''} onChange={(e) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, header: { ...schema.sections.header, businessName: e.target.value } } }))} /></div>
-                <div className="col-lg-4 col-md-6"><label className="form-label">Branch / Store Name</label><input className="form-control" value={draftTemplate.schema.sections.header.branchName || ''} onChange={(e) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, header: { ...schema.sections.header, branchName: e.target.value } } }))} /></div>
-                <div className="col-lg-4 col-md-6"><label className="form-label">Slogan</label><input className="form-control" value={draftTemplate.schema.sections.header.slogan || ''} onChange={(e) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, header: { ...schema.sections.header, slogan: e.target.value } } }))} /></div>
-                <div className="col-lg-6 col-md-6"><label className="form-label">Address</label><input className="form-control" value={draftTemplate.schema.sections.header.address || ''} onChange={(e) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, header: { ...schema.sections.header, address: e.target.value } } }))} /></div>
-                <div className="col-lg-3 col-md-6"><label className="form-label">Phone</label><input className="form-control" value={draftTemplate.schema.sections.header.phone || ''} onChange={(e) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, header: { ...schema.sections.header, phone: e.target.value } } }))} /></div>
-                <div className="col-lg-3 col-md-6"><label className="form-label">Tax / TIN</label><input className="form-control" value={draftTemplate.schema.sections.header.taxId || ''} onChange={(e) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, header: { ...schema.sections.header, taxId: e.target.value } } }))} /></div>
-                <div className="col-lg-4 col-md-6"><label className="form-label">Website</label><input className="form-control" value={draftTemplate.schema.sections.header.website || ''} onChange={(e) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, header: { ...schema.sections.header, website: e.target.value } } }))} /></div>
-                <div className="col-lg-4 col-md-6"><label className="form-label">Store Code</label><input className="form-control" value={draftTemplate.schema.sections.header.storeCode || ''} onChange={(e) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, header: { ...schema.sections.header, storeCode: e.target.value } } }))} /></div>
-                <div className="col-lg-4 col-md-6"><label className="form-label">Terminal Label</label><input className="form-control" value={draftTemplate.schema.sections.header.deviceLabel || ''} onChange={(e) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, header: { ...schema.sections.header, deviceLabel: e.target.value } } }))} /></div>
-                <div className="col-lg-4 col-md-6"><label className="form-label">Footer Text</label><input className="form-control" value={draftTemplate.schema.sections.footer.footerText || ''} onChange={(e) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, footer: { ...schema.sections.footer, footerText: e.target.value } } }))} /></div>
-                <div className="col-lg-4 col-md-6"><label className="form-label">Legal Text</label><input className="form-control" value={draftTemplate.schema.sections.footer.legalText || ''} onChange={(e) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, footer: { ...schema.sections.footer, legalText: e.target.value } } }))} /></div>
-                <div className="col-lg-4 col-md-6"><label className="form-label">QR Target URL</label><input className="form-control" value={draftTemplate.schema.sections.footer.qrValue || ''} onChange={(e) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, footer: { ...schema.sections.footer, qrValue: e.target.value } } }))} /></div>
-                <div className="col-lg-3 col-md-6"><label className="form-label">Separator Style</label><select className="form-select" value={draftTemplate.schema.separatorStyle || 'solid'} onChange={(e) => updateSchema((schema) => ({ ...schema, separatorStyle: e.target.value }))}><option value="solid">Solid</option><option value="dotted">Dotted</option></select></div>
-                <div className="col-lg-3 col-md-6"><label className="form-label">Print Mode</label><select className="form-select" value={settings.printMode} onChange={(e) => setSettings((current) => ({ ...current, printMode: e.target.value }))}><option value="auto">Auto print after sale</option><option value="ask">Ask every time</option></select></div>
-                <div className="col-lg-3 col-md-6"><label className="form-label">Sale Adapter</label><select className="form-select" value={settings.printerProfile.saleAdapter} onChange={(e) => setSettings((current) => ({ ...current, printerProfile: { ...current.printerProfile, saleAdapter: e.target.value } }))}><option value="browser">Browser</option><option value="fake">Fake</option></select></div>
-                <div className="col-lg-3 col-md-6"><label className="form-label">Testing Adapter</label><select className="form-select" value={settings.printerProfile.testingAdapter} onChange={(e) => setSettings((current) => ({ ...current, printerProfile: { ...current.printerProfile, testingAdapter: e.target.value } }))}><option value="fake">Fake</option><option value="preview">Preview</option><option value="pdf">PDF</option></select></div>
-                <div className="col-lg-4 col-md-6"><label className="form-label">Preview Adapter</label><select className="form-select" value={settings.printerProfile.previewAdapter} onChange={(e) => setSettings((current) => ({ ...current, printerProfile: { ...current.printerProfile, previewAdapter: e.target.value } }))}><option value="preview">Preview Window</option><option value="pdf">Browser Save as PDF</option><option value="fake">Fake</option></select></div>
-                <div className="col-lg-4 col-md-6"><label className="form-label">Reprint Window (minutes)</label><input type="number" min="1" className="form-control" value={settings.reprintPolicy.windowMinutes} onChange={(e) => setSettings((current) => ({ ...current, reprintPolicy: { ...current.reprintPolicy, windowMinutes: Number(e.target.value || 20) } }))} /></div>
-                <div className="col-lg-4 col-md-6"><label className="form-label">Manual Reprints Allowed</label><input type="number" min="0" max="5" className="form-control" value={settings.reprintPolicy.maxManualReprints} onChange={(e) => setSettings((current) => ({ ...current, reprintPolicy: { ...current.reprintPolicy, maxManualReprints: Number(e.target.value || 2) } }))} /></div>
-                <div className="col-12 receipt-toggle-grid">
-                  <ToggleField checked={Boolean(draftTemplate.schema.sections.transaction.showReceiptNumber)} label="Show receipt number" onChange={(value) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, transaction: { ...schema.sections.transaction, showReceiptNumber: value } } }))} />
-                  <ToggleField checked={Boolean(draftTemplate.schema.sections.transaction.showDateTime)} label="Show date/time" onChange={(value) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, transaction: { ...schema.sections.transaction, showDateTime: value } } }))} />
-                  <ToggleField checked={Boolean(draftTemplate.schema.sections.transaction.showCashier)} label="Show cashier" onChange={(value) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, transaction: { ...schema.sections.transaction, showCashier: value } } }))} />
-                  <ToggleField checked={Boolean(draftTemplate.schema.sections.transaction.showPaymentMethod)} label="Show payment method" onChange={(value) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, transaction: { ...schema.sections.transaction, showPaymentMethod: value } } }))} />
-                  <ToggleField checked={Boolean(draftTemplate.schema.sections.totals.showSubtotal)} label="Show subtotal" onChange={(value) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, totals: { ...schema.sections.totals, showSubtotal: value } } }))} />
-                  <ToggleField checked={Boolean(draftTemplate.schema.sections.totals.showTax)} label="Show tax" onChange={(value) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, totals: { ...schema.sections.totals, showTax: value } } }))} />
-                  <ToggleField checked={Boolean(draftTemplate.schema.sections.totals.showDiscounts)} label="Show discounts" onChange={(value) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, totals: { ...schema.sections.totals, showDiscounts: value } } }))} />
-                  <ToggleField checked={Boolean(draftTemplate.schema.sections.totals.showServiceCharge)} label="Show service charge" onChange={(value) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, totals: { ...schema.sections.totals, showServiceCharge: value } } }))} />
-                  <ToggleField checked={Boolean(draftTemplate.schema.sections.totals.showPaidAmount)} label="Show paid amount" onChange={(value) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, totals: { ...schema.sections.totals, showPaidAmount: value } } }))} />
-                  <ToggleField checked={Boolean(draftTemplate.schema.sections.totals.showChange)} label="Show change" onChange={(value) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, totals: { ...schema.sections.totals, showChange: value } } }))} />
-                  <ToggleField checked={Boolean(draftTemplate.schema.sections.footer.showQr)} label="Show QR section" onChange={(value) => updateSchema((schema) => ({ ...schema, sections: { ...schema.sections, footer: { ...schema.sections.footer, showQr: value } } }))} />
-                  <ToggleField checked={Boolean(settings.reprintPolicy.adminOverrideAfterWindow)} label="Allow admin override after window" onChange={(value) => setSettings((current) => ({ ...current, reprintPolicy: { ...current.reprintPolicy, adminOverrideAfterWindow: value } }))} />
-                  <ToggleField checked={Boolean(settings.printerProfile.simulateFailure)} label="Simulate printer failure" onChange={(value) => setSettings((current) => ({ ...current, printerProfile: { ...current.printerProfile, simulateFailure: value } }))} />
-                </div>
-              </div>
-            </div>
-          </div>
+          </SectionCard>
 
-          <div className="card">
-            <div className="card-header d-flex justify-content-between align-items-center">
-              <h3>Preview & Testing</h3>
-              <div className="receipt-settings-editor__toolbar">
-                <button className="btn btn-outline-secondary btn-sm" onClick={() => handleTestPrint('preview')}><Eye size={14} /> Thermal Preview</button>
-                <button className="btn btn-outline-secondary btn-sm" onClick={() => handleTestPrint('pdf')}><FileText size={14} /> Browser PDF</button>
-                <button className="btn btn-outline-secondary btn-sm" onClick={() => handleTestPrint('fake')}><Printer size={14} /> Fake Print</button>
-              </div>
+          <SectionCard
+            icon={ScrollText}
+            title="Header and footer content"
+            description="Wider text areas make it easier to type long names, addresses, and legal text without the form getting cut off."
+          >
+            <div className="receipt-form-grid">
+              <div className="receipt-field"><label className="form-label">Business Name</label><input className="form-control" value={templateHeader.businessName || ''} onChange={(e) => setHeaderField('businessName', e.target.value)} /></div>
+              <div className="receipt-field"><label className="form-label">Branch / Store Name</label><input className="form-control" value={templateHeader.branchName || ''} onChange={(e) => setHeaderField('branchName', e.target.value)} /></div>
+              <div className="receipt-field"><label className="form-label">Slogan</label><input className="form-control" value={templateHeader.slogan || ''} onChange={(e) => setHeaderField('slogan', e.target.value)} /></div>
+              <div className="receipt-field receipt-field--span-2"><label className="form-label">Address</label><textarea className="form-control receipt-textarea" rows="3" value={templateHeader.address || ''} onChange={(e) => setHeaderField('address', e.target.value)} /></div>
+              <div className="receipt-field"><label className="form-label">Phone</label><input className="form-control" value={templateHeader.phone || ''} onChange={(e) => setHeaderField('phone', e.target.value)} /></div>
+              <div className="receipt-field"><label className="form-label">Tax / TIN</label><input className="form-control" value={templateHeader.taxId || ''} onChange={(e) => setHeaderField('taxId', e.target.value)} /></div>
+              <div className="receipt-field"><label className="form-label">Website</label><input className="form-control" value={templateHeader.website || ''} onChange={(e) => setHeaderField('website', e.target.value)} /></div>
+              <div className="receipt-field"><label className="form-label">Store Code</label><input className="form-control" value={templateHeader.storeCode || ''} onChange={(e) => setHeaderField('storeCode', e.target.value)} /></div>
+              <div className="receipt-field"><label className="form-label">Terminal Label</label><input className="form-control" value={templateHeader.deviceLabel || ''} onChange={(e) => setHeaderField('deviceLabel', e.target.value)} /></div>
+              <div className="receipt-field receipt-field--span-2"><label className="form-label">Footer Text</label><textarea className="form-control receipt-textarea" rows="3" value={templateFooter.footerText || ''} onChange={(e) => setFooterField('footerText', e.target.value)} /></div>
+              <div className="receipt-field receipt-field--span-2"><label className="form-label">Legal Text</label><textarea className="form-control receipt-textarea" rows="3" value={templateFooter.legalText || ''} onChange={(e) => setFooterField('legalText', e.target.value)} /></div>
+              <div className="receipt-field receipt-field--span-2"><label className="form-label">QR Target URL</label><input className="form-control" value={templateFooter.qrValue || ''} onChange={(e) => setFooterField('qrValue', e.target.value)} /></div>
             </div>
-            <div className="card-body receipt-settings-preview-wrap">
+          </SectionCard>
+
+          <SectionCard
+            icon={Settings2}
+            title="Visible receipt fields"
+            description="Turn fields on or off without digging through a wide side layout."
+          >
+            <div className="receipt-toggle-grid">
+              <ToggleField checked={Boolean(templateTransaction.showReceiptNumber)} label="Show receipt number" onChange={(value) => setTransactionField('showReceiptNumber', value)} />
+              <ToggleField checked={Boolean(templateTransaction.showDateTime)} label="Show date/time" onChange={(value) => setTransactionField('showDateTime', value)} />
+              <ToggleField checked={Boolean(templateTransaction.showCashier)} label="Show cashier" onChange={(value) => setTransactionField('showCashier', value)} />
+              <ToggleField checked={Boolean(templateTransaction.showPaymentMethod)} label="Show payment method" onChange={(value) => setTransactionField('showPaymentMethod', value)} />
+              <ToggleField checked={Boolean(templateTotals.showSubtotal)} label="Show subtotal" onChange={(value) => setTotalsField('showSubtotal', value)} />
+              <ToggleField checked={Boolean(templateTotals.showTax)} label="Show tax" onChange={(value) => setTotalsField('showTax', value)} />
+              <ToggleField checked={Boolean(templateTotals.showDiscounts)} label="Show discounts" onChange={(value) => setTotalsField('showDiscounts', value)} />
+              <ToggleField checked={Boolean(templateTotals.showServiceCharge)} label="Show service charge" onChange={(value) => setTotalsField('showServiceCharge', value)} />
+              <ToggleField checked={Boolean(templateTotals.showPaidAmount)} label="Show paid amount" onChange={(value) => setTotalsField('showPaidAmount', value)} />
+              <ToggleField checked={Boolean(templateTotals.showChange)} label="Show change" onChange={(value) => setTotalsField('showChange', value)} />
+              <ToggleField checked={Boolean(templateFooter.showQr)} label="Show QR section" onChange={(value) => setFooterField('showQr', value)} />
+              <ToggleField checked={Boolean(settings.reprintPolicy.adminOverrideAfterWindow)} label="Allow admin override after window" onChange={(value) => setSettings((current) => ({ ...current, reprintPolicy: { ...current.reprintPolicy, adminOverrideAfterWindow: value } }))} />
+              <ToggleField checked={Boolean(settings.printerProfile.simulateFailure)} label="Simulate printer failure" onChange={(value) => setSettings((current) => ({ ...current, printerProfile: { ...current.printerProfile, simulateFailure: value } }))} />
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            icon={Eye}
+            title="Preview and testing"
+            description="The preview is embedded on the page, and test print actions now avoid popup windows."
+            actions={(
+              <>
+                <button className="btn btn-outline-secondary btn-sm" onClick={() => handleTestPrint('preview')}><Eye size={14} /> Jump to Preview</button>
+                <button className="btn btn-outline-secondary btn-sm" onClick={() => handleTestPrint('pdf')} disabled={testing}><FileText size={14} /> Print / Save PDF</button>
+                <button className="btn btn-outline-secondary btn-sm" onClick={() => handleTestPrint('fake')} disabled={testing}><Printer size={14} /> Fake Print</button>
+              </>
+            )}
+          >
+            <div className="receipt-settings-testing-note">
+              <strong>Tip:</strong> the live preview below updates instantly while you type, so you can test layout without opening a separate window.
+            </div>
+            <div className="receipt-settings-preview-wrap" ref={previewSectionRef}>
               <ReceiptPreview sale={previewSale} template={draftTemplate.schema} settings={settings} />
             </div>
-          </div>
-        </section>
+          </SectionCard>
+        </div>
       </div>
     </div>
   );
