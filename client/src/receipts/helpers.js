@@ -25,7 +25,16 @@ function mergeDeep(base, override) {
 }
 
 export function normalizeReceiptSettings(settings = {}) {
-  return mergeDeep(DEFAULT_RECEIPT_SETTINGS, settings);
+  const normalized = mergeDeep(DEFAULT_RECEIPT_SETTINGS, settings);
+  normalized.printMode = normalized.printMode === 'ask' ? 'ask' : 'auto';
+  normalized.showReceiptAfterSale = normalized.showReceiptAfterSale !== false;
+  normalized.printerProfile.saleAdapter = ['network', 'bluetooth'].includes(normalized.printerProfile.saleAdapter) ? normalized.printerProfile.saleAdapter : 'browser';
+  normalized.printerProfile.networkEnabled = Boolean(normalized.printerProfile.networkEnabled);
+  normalized.printerProfile.networkHost = String(normalized.printerProfile.networkHost || '').trim();
+  normalized.printerProfile.networkPort = Number(normalized.printerProfile.networkPort || 9100);
+  normalized.printerProfile.bluetoothDeviceName = String(normalized.printerProfile.bluetoothDeviceName || '');
+  normalized.printerProfile.bluetoothDeviceId = String(normalized.printerProfile.bluetoothDeviceId || '');
+  return normalized;
 }
 
 export function normalizeReceiptTemplate(template = {}) {
@@ -128,6 +137,24 @@ export function resolveReceiptItemLayoutMetrics(itemLayout = {}, paperWidth = '8
 export function formatMoney(value, currencyCode = 'ETB', decimals = 2) {
   const amount = Number(value || 0);
   return `${currencyCode} ${amount.toFixed(decimals)}`;
+}
+
+export function resolveInclusiveTaxTotals(grandTotal, taxPercent, taxEnabled = true) {
+  const total = Number(grandTotal || 0);
+  const percent = Number(taxPercent || 0);
+  if (!taxEnabled || percent <= 0) {
+    return {
+      subtotal: Number(total.toFixed(2)),
+      tax: 0,
+      total: Number(total.toFixed(2)),
+    };
+  }
+  const tax = Number(((total * percent) / (100 + percent)).toFixed(2));
+  return {
+    subtotal: Number((total - tax).toFixed(2)),
+    tax,
+    total: Number(total.toFixed(2)),
+  };
 }
 
 export function getReprintPolicyState(printSummary = {}, settings = {}, role = 'cashier') {

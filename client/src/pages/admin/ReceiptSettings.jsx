@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Printer, Save, RotateCcw, Eye, FileText, CheckCircle2, Copy, Settings2, LayoutTemplate, ScrollText } from 'lucide-react';
+import { Printer, Save, RotateCcw, Eye, FileText, CheckCircle2, Copy, Settings2, LayoutTemplate, ScrollText, PlugZap } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import ReceiptPreview from '../../receipts/ReceiptPreview';
 import { DEFAULT_RECEIPT_SETTINGS, DEFAULT_TEMPLATE_SCHEMA, RECEIPT_STYLE_PRESETS } from '../../receipts/defaults';
-import { generateClientTransactionId, generateReceiptNumber, normalizeReceiptSettings, normalizeReceiptTemplate, persistReceiptConfigCache } from '../../receipts/helpers';
+import { generateClientTransactionId, generateReceiptNumber, normalizeReceiptSettings, normalizeReceiptTemplate, persistReceiptConfigCache, resolveInclusiveTaxTotals } from '../../receipts/helpers';
 import { performReceiptPrint } from '../../receipts/printService';
 import './ReceiptSettings.css';
 
@@ -15,14 +15,16 @@ function buildPreviewSale(template, user) {
   const header = schema.sections.header;
   const footer = schema.sections.footer;
   const totals = {
-    subtotal: 296,
-    tax: schema.sections.totals.showTax ? 35.52 : 0,
+    ...resolveInclusiveTaxTotals(296, schema.sections.header.taxPercent || 0, schema.sections.totals.showTax),
     discounts: schema.sections.totals.showDiscounts ? 10 : 0,
     serviceCharge: schema.sections.totals.showServiceCharge ? 5 : 0,
   };
-  totals.total = totals.subtotal + totals.tax + totals.serviceCharge - totals.discounts;
+  totals.tax = schema.sections.totals.showTax ? totals.tax : 0;
+  totals.total = Number((totals.total + totals.serviceCharge - totals.discounts).toFixed(2));
   totals.paidAmount = totals.total;
   totals.change = 0;
+
+  const phoneLines = String(header.phone || '').split(/[\n,]+/).map((entry) => entry.trim()).filter(Boolean);
 
   return {
     id: null,
@@ -47,9 +49,7 @@ function buildPreviewSale(template, user) {
         header.branchName,
         header.slogan,
         header.address,
-        header.phone,
-        header.taxId ? `TIN: ${header.taxId}` : '',
-        header.website,
+        ...phoneLines,
         header.storeCode ? `Store: ${header.storeCode}` : '',
         header.deviceLabel ? `Terminal: ${header.deviceLabel}` : '',
       ].filter(Boolean),
@@ -61,8 +61,7 @@ function buildPreviewSale(template, user) {
       ],
       totals: { ...totals, balanceDue: 24 },
       footer_text: footer.footerText || '',
-      legal_text: footer.legalText || '',
-      qr_value: footer.showQr ? (footer.qrValue || 'https://example.com/receipt-preview') : '',
+      website: footer.website || 'https://example.com',
     },
   };
 }
@@ -101,6 +100,7 @@ export default function ReceiptSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [savingInline, setSavingInline] = useState(false);
   const [templates, setTemplates] = useState([]);
   const [activeTemplateId, setActiveTemplateId] = useState(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState(null);
@@ -196,6 +196,19 @@ export default function ReceiptSettingsPage() {
     }
   };
 
+  const patchSettings = async (nextSettings) => {
+    setSettings(nextSettings);
+    setSavingInline(true);
+    try {
+      await api.put('/sales/receipt-settings', { settings: nextSettings, active_template_id: activeTemplateId });
+      persistReceiptConfigCache({ settings: nextSettings, activeTemplate: templates.find((item) => item.id === activeTemplateId) || draftTemplate, templates });
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to persist receipt settings.');
+    } finally {
+      setSavingInline(false);
+    }
+  };
+
   const createTemplate = async () => {
     try {
       const response = await api.post('/sales/receipt-templates', { name: `Template ${templates.length + 1}`, schema: DEFAULT_TEMPLATE_SCHEMA });
@@ -271,19 +284,13 @@ export default function ReceiptSettingsPage() {
     }
   };
 
-  const handleTestPrint = async (adapterMode) => {
-    if (adapterMode === 'preview') {
-      previewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      toast.success('Live preview is shown below. Update any field and the receipt refreshes instantly.');
-      return;
-    }
-
+  const handleTestPrint = async () => {
     setTesting(true);
     try {
-      await performReceiptPrint({ sale: previewSale, template: draftTemplate.schema, settings, adapterMode, attemptType: 'test' });
-      toast.success(adapterMode === 'fake' ? 'Fake print succeeded.' : 'Print dialog opened without a popup window.');
+      await performReceiptPrint({ sale: previewSale, template: draftTemplate.schema, settings, adapterMode: 'browser', attemptType: 'test' });
+      toast.success('Print dialog opened without a popup window.');
     } catch (error) {
-      toast.error(error.message || 'Print test failed.');
+      toast.error(`Thermal printer not detected or print failed: ${error.message || 'Print test failed.'}`);
     } finally {
       setTesting(false);
     }
@@ -375,32 +382,35 @@ export default function ReceiptSettingsPage() {
               </div>
               <div className="receipt-field">
                 <label className="form-label">Print Mode</label>
-                <select className="form-select" value={settings.printMode} onChange={(e) => setSettings((current) => ({ ...current, printMode: e.target.value }))}>
+                <select className="form-select" value={settings.printMode} onChange={(e) => patchSettings({ ...settings, printMode: e.target.value })}>
                   <option value="auto">Auto print after sale</option>
                   <option value="ask">Ask every time</option>
                 </select>
               </div>
               <div className="receipt-field">
-                <label className="form-label">Sale Adapter</label>
-                <select className="form-select" value={settings.printerProfile.saleAdapter} onChange={(e) => setSettings((current) => ({ ...current, printerProfile: { ...current.printerProfile, saleAdapter: e.target.value } }))}>
-                  <option value="browser">Browser</option>
-                  <option value="fake">Fake</option>
+                <label className="form-label">Show receipt after sale</label>
+                <select className="form-select" value={settings.showReceiptAfterSale ? 'on' : 'off'} onChange={(e) => patchSettings({ ...settings, showReceiptAfterSale: e.target.value === 'on' })}>
+                  <option value="on">On</option>
+                  <option value="off">Off</option>
                 </select>
               </div>
               <div className="receipt-field">
-                <label className="form-label">Testing Adapter</label>
-                <select className="form-select" value={settings.printerProfile.testingAdapter} onChange={(e) => setSettings((current) => ({ ...current, printerProfile: { ...current.printerProfile, testingAdapter: e.target.value } }))}>
-                  <option value="fake">Fake</option>
-                  <option value="preview">Live preview</option>
-                  <option value="pdf">Print dialog / save PDF</option>
-                </select>
-              </div>
-              <div className="receipt-field">
-                <label className="form-label">Preview Adapter</label>
-                <select className="form-select" value={settings.printerProfile.previewAdapter} onChange={(e) => setSettings((current) => ({ ...current, printerProfile: { ...current.printerProfile, previewAdapter: e.target.value } }))}>
-                  <option value="preview">Live preview</option>
-                  <option value="pdf">Print dialog / save PDF</option>
-                  <option value="fake">Fake</option>
+                <label className="form-label">Printer Connection</label>
+                <select
+                  className="form-select"
+                  value={settings.printerProfile.saleAdapter === 'network' ? 'network' : (settings.printerProfile.saleAdapter === 'bluetooth' ? 'bluetooth' : 'browser')}
+                  onChange={(e) => patchSettings({
+                    ...settings,
+                    printerProfile: {
+                      ...settings.printerProfile,
+                      saleAdapter: e.target.value,
+                      networkEnabled: e.target.value === 'network',
+                    },
+                  })}
+                >
+                  <option value="browser">USB / Browser print</option>
+                  <option value="network">Network printer</option>
+                  <option value="bluetooth">Bluetooth printer</option>
                 </select>
               </div>
               <div className="receipt-field">
@@ -424,14 +434,12 @@ export default function ReceiptSettingsPage() {
               <div className="receipt-field"><label className="form-label">Branch / Store Name</label><input className="form-control" value={templateHeader.branchName || ''} onChange={(e) => setHeaderField('branchName', e.target.value)} /></div>
               <div className="receipt-field"><label className="form-label">Slogan</label><input className="form-control" value={templateHeader.slogan || ''} onChange={(e) => setHeaderField('slogan', e.target.value)} /></div>
               <div className="receipt-field receipt-field--span-2"><label className="form-label">Address</label><textarea className="form-control receipt-textarea" rows="3" value={templateHeader.address || ''} onChange={(e) => setHeaderField('address', e.target.value)} /></div>
-              <div className="receipt-field"><label className="form-label">Phone</label><input className="form-control" value={templateHeader.phone || ''} onChange={(e) => setHeaderField('phone', e.target.value)} /></div>
-              <div className="receipt-field"><label className="form-label">Tax / TIN</label><input className="form-control" value={templateHeader.taxId || ''} onChange={(e) => setHeaderField('taxId', e.target.value)} /></div>
-              <div className="receipt-field"><label className="form-label">Website</label><input className="form-control" value={templateHeader.website || ''} onChange={(e) => setHeaderField('website', e.target.value)} /></div>
+              <div className="receipt-field"><label className="form-label">Phone(s)</label><textarea className="form-control receipt-textarea" rows="2" placeholder="0911 22 33 44, 0912 33 44 55" value={templateHeader.phone || ''} onChange={(e) => setHeaderField('phone', e.target.value)} /></div>
+              <div className="receipt-field"><label className="form-label">Tax (%)</label><input type="number" min="0" max="100" step="0.01" className="form-control" value={templateHeader.taxPercent ?? 0} onChange={(e) => setHeaderField('taxPercent', Number(e.target.value || 0))} /></div>
               <div className="receipt-field"><label className="form-label">Store Code</label><input className="form-control" value={templateHeader.storeCode || ''} onChange={(e) => setHeaderField('storeCode', e.target.value)} /></div>
               <div className="receipt-field"><label className="form-label">Terminal Label</label><input className="form-control" value={templateHeader.deviceLabel || ''} onChange={(e) => setHeaderField('deviceLabel', e.target.value)} /></div>
               <div className="receipt-field receipt-field--span-2"><label className="form-label">Footer Text</label><textarea className="form-control receipt-textarea" rows="3" value={templateFooter.footerText || ''} onChange={(e) => setFooterField('footerText', e.target.value)} /></div>
-              <div className="receipt-field receipt-field--span-2"><label className="form-label">Legal Text</label><textarea className="form-control receipt-textarea" rows="3" value={templateFooter.legalText || ''} onChange={(e) => setFooterField('legalText', e.target.value)} /></div>
-              <div className="receipt-field receipt-field--span-2"><label className="form-label">QR Target URL</label><input className="form-control" value={templateFooter.qrValue || ''} onChange={(e) => setFooterField('qrValue', e.target.value)} /></div>
+              <div className="receipt-field receipt-field--span-2"><label className="form-label">Website Link (footer)</label><input className="form-control" value={templateFooter.website || ''} onChange={(e) => setFooterField('website', e.target.value)} /></div>
             </div>
           </SectionCard>
 
@@ -462,19 +470,10 @@ export default function ReceiptSettingsPage() {
               <ToggleField checked={Boolean(templateTransaction.showDateTime)} label="Show date/time" onChange={(value) => setTransactionField('showDateTime', value)} />
               <ToggleField checked={Boolean(templateTransaction.showCashier)} label="Show cashier" onChange={(value) => setTransactionField('showCashier', value)} />
               <ToggleField checked={Boolean(templateTransaction.showPaymentMethod)} label="Show payment method" onChange={(value) => setTransactionField('showPaymentMethod', value)} />
-              <ToggleField checked={Boolean(templateTransaction.showCustomerInfo)} label="Show customer info" onChange={(value) => setTransactionField('showCustomerInfo', value)} />
-              <ToggleField checked={Boolean(templateTransaction.showInternalRef)} label="Show internal reference" onChange={(value) => setTransactionField('showInternalRef', value)} />
-              <ToggleField checked={Boolean(templateTransaction.showNotes)} label="Show notes / pickup lines" onChange={(value) => setTransactionField('showNotes', value)} />
               <ToggleField checked={Boolean(templateTotals.showSubtotal)} label="Show subtotal" onChange={(value) => setTotalsField('showSubtotal', value)} />
               <ToggleField checked={Boolean(templateTotals.showTax)} label="Show tax" onChange={(value) => setTotalsField('showTax', value)} />
-              <ToggleField checked={Boolean(templateTotals.showDiscounts)} label="Show discounts" onChange={(value) => setTotalsField('showDiscounts', value)} />
-              <ToggleField checked={Boolean(templateTotals.showServiceCharge)} label="Show service charge" onChange={(value) => setTotalsField('showServiceCharge', value)} />
               <ToggleField checked={Boolean(templateTotals.showPaidAmount)} label="Show paid amount" onChange={(value) => setTotalsField('showPaidAmount', value)} />
-              <ToggleField checked={Boolean(templateTotals.showChange)} label="Show change" onChange={(value) => setTotalsField('showChange', value)} />
               <ToggleField checked={Boolean(templateTotals.showBalanceDue)} label="Show remaining balance" onChange={(value) => setTotalsField('showBalanceDue', value)} />
-              <ToggleField checked={Boolean(templateFooter.showQr)} label="Show QR section" onChange={(value) => setFooterField('showQr', value)} />
-              <ToggleField checked={Boolean(settings.reprintPolicy.adminOverrideAfterWindow)} label="Allow admin override after window" onChange={(value) => setSettings((current) => ({ ...current, reprintPolicy: { ...current.reprintPolicy, adminOverrideAfterWindow: value } }))} />
-              <ToggleField checked={Boolean(settings.printerProfile.simulateFailure)} label="Simulate printer failure" onChange={(value) => setSettings((current) => ({ ...current, printerProfile: { ...current.printerProfile, simulateFailure: value } }))} />
             </div>
           </SectionCard>
 
@@ -484,14 +483,41 @@ export default function ReceiptSettingsPage() {
             description="The preview is embedded on the page, and test print actions now avoid popup windows."
             actions={(
               <>
-                <button className="btn btn-outline-secondary btn-sm" onClick={() => handleTestPrint('preview')}><Eye size={14} /> Jump to Preview</button>
-                <button className="btn btn-outline-secondary btn-sm" onClick={() => handleTestPrint('pdf')} disabled={testing}><FileText size={14} /> Print / Save PDF</button>
-                <button className="btn btn-outline-secondary btn-sm" onClick={() => handleTestPrint('fake')} disabled={testing}><Printer size={14} /> Fake Print</button>
+                <button className="btn btn-outline-secondary btn-sm" onClick={() => previewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}><Eye size={14} /> Jump to Preview</button>
+                <button className="btn btn-outline-secondary btn-sm" onClick={handleTestPrint} disabled={testing}><FileText size={14} /> Test Real Print</button>
+                <button className="btn btn-outline-secondary btn-sm" onClick={async () => {
+                  try {
+                    const response = await api.post('/sales/network-printer/status', {});
+                    if (response.data.connected) {
+                      toast.success('POS connected via network printer.');
+                    } else {
+                      toast.warning('Network printer not connected.');
+                    }
+                  } catch (error) {
+                    toast.error(error.response?.data?.error || 'Network printer check failed.');
+                  }
+                }}><PlugZap size={14} /> Test Network 9100</button>
+                <button className="btn btn-outline-secondary btn-sm" onClick={async () => {
+                  if (!navigator.bluetooth?.requestDevice) {
+                    toast.warning('Bluetooth pairing is not supported in this browser. Printing will use normal browser print.');
+                    return;
+                  }
+                  try {
+                    const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [] });
+                    patchSettings({
+                      ...settings,
+                      printerProfile: { ...settings.printerProfile, bluetoothDeviceName: device.name || 'Bluetooth printer', bluetoothDeviceId: device.id || '' },
+                    });
+                    toast.success(`POS connected via bluetooth: ${device.name || 'Unknown device'}`);
+                  } catch (error) {
+                    toast.error(error.message || 'Bluetooth connection was cancelled.');
+                  }
+                }}><PlugZap size={14} /> Pair Bluetooth</button>
               </>
             )}
           >
             <div className="receipt-settings-testing-note">
-              <strong>Tip:</strong> the live preview below updates instantly while you type, so you can test layout without opening a separate window.
+              <strong>Tip:</strong> the live preview below updates instantly while you type, so you can test layout without opening a separate window. {savingInline ? 'Saving…' : ''}
             </div>
             <div className="receipt-settings-preview-wrap" ref={previewSectionRef}>
               <ReceiptPreview sale={previewSale} template={draftTemplate.schema} settings={settings} />

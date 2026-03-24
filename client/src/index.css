@@ -143,6 +143,15 @@ a { color: var(--focus-border); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 button, input, textarea, select { font: inherit; }
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+}
 
 /* ── Buttons ────────────────────────────────────────────────── */
 .btn {

@@ -1,14 +1,17 @@
-import { normalizeReceiptTemplate } from './helpers.js';
+import { normalizeReceiptTemplate, resolveInclusiveTaxTotals } from './helpers.js';
 
 export function buildPreOrderReceipt(order, template) {
   const normalizedTemplate = normalizeReceiptTemplate(template || {});
   const totalAmount = Number(order.total_amount || 0);
+  const taxTotals = resolveInclusiveTaxTotals(totalAmount, Number(normalizedTemplate.sections.header.taxPercent || 0), Boolean(normalizedTemplate.sections.totals.showTax));
+  const grandTotal = taxTotals.total;
   const paidAmount = Number(order.paid_amount || 0);
-  const balanceDue = Math.max(totalAmount - paidAmount, 0);
-  const change = Math.max(paidAmount - totalAmount, 0);
+  const balanceDue = Math.max(grandTotal - paidAmount, 0);
+  const change = Math.max(paidAmount - grandTotal, 0);
   const receiptNumber = order.order_code || `ORD-${String(order.id || 'LOCAL').padStart(6, '0')}`;
   const header = normalizedTemplate.sections.header;
   const footer = normalizedTemplate.sections.footer;
+  const phoneLines = String(header.phone || '').split(/[\n,]+/).map((entry) => entry.trim()).filter(Boolean);
   const note = order.customer_note || '';
   const items = (order.items || []).map((item) => ({
     product_id: item.product_id,
@@ -42,26 +45,24 @@ export function buildPreOrderReceipt(order, template) {
         header.branchName,
         header.slogan,
         header.address,
-        header.phone,
-        header.taxId ? `TIN: ${header.taxId}` : '',
+        ...phoneLines,
         order.pickup_at ? `Pickup: ${new Date(order.pickup_at).toLocaleString()}` : '',
       ].filter(Boolean),
       currency_code: normalizedTemplate.sections.transaction.currencyCode || 'ETB',
       decimals: Number(normalizedTemplate.sections.transaction.decimals ?? 2),
       items,
       totals: {
-        subtotal: totalAmount,
-        tax: 0,
+        subtotal: taxTotals.subtotal,
+        tax: taxTotals.tax,
         discounts: 0,
         serviceCharge: 0,
-        total: totalAmount,
+        total: grandTotal,
         paidAmount,
         balanceDue,
         change,
       },
       footer_text: footer.footerText || '',
-      legal_text: footer.legalText || '',
-      qr_value: footer.showQr ? (footer.qrValue || receiptNumber) : '',
+      website: footer.website || '',
     },
   };
 }

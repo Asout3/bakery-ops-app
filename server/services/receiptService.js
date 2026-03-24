@@ -2,14 +2,17 @@ import { query } from '../db.js';
 
 const DEFAULT_RECEIPT_SETTINGS = Object.freeze({
   printMode: 'auto',
+  showReceiptAfterSale: true,
   printerProfile: {
     profileName: 'Front Counter',
     paperWidth: '80mm',
     saleAdapter: 'browser',
-    testingAdapter: 'fake',
-    previewAdapter: 'preview',
+    networkEnabled: false,
+    networkHost: '',
+    networkPort: 9100,
+    bluetoothDeviceName: '',
+    bluetoothDeviceId: '',
     copies: 1,
-    simulateFailure: false,
   },
   reprintPolicy: {
     windowMinutes: 20,
@@ -23,8 +26,6 @@ const DEFAULT_RECEIPT_SETTINGS = Object.freeze({
     preOrder: 'PRE-ORDER',
   },
   testing: {
-    fakeModeEnabled: true,
-    previewEnabled: true,
     pdfEnabled: true,
   },
 });
@@ -52,8 +53,7 @@ const DEFAULT_TEMPLATE_SCHEMA = Object.freeze({
       slogan: '',
       address: '',
       phone: '',
-      taxId: '',
-      website: '',
+      taxPercent: 0,
       storeCode: '',
       deviceLabel: '',
       cashierLabel: 'Cashier',
@@ -65,9 +65,9 @@ const DEFAULT_TEMPLATE_SCHEMA = Object.freeze({
       showDateTime: true,
       showCashier: true,
       showPaymentMethod: true,
-      showCustomerInfo: true,
-      showInternalRef: true,
-      showNotes: true,
+      showCustomerInfo: false,
+      showInternalRef: false,
+      showNotes: false,
       dateTimeFormat: 'locale',
       currencyCode: 'ETB',
       decimals: 2,
@@ -90,8 +90,8 @@ const DEFAULT_TEMPLATE_SCHEMA = Object.freeze({
       showTax: true,
       showDiscounts: true,
       showServiceCharge: true,
-      showPaidAmount: true,
-      showChange: true,
+      showPaidAmount: false,
+      showChange: false,
       showBalanceDue: true,
       totalLabel: 'TOTAL',
       paidLabel: 'PAID',
@@ -100,9 +100,7 @@ const DEFAULT_TEMPLATE_SCHEMA = Object.freeze({
     },
     footer: {
       footerText: 'Thank you for shopping with us.',
-      legalText: '',
-      showQr: false,
-      qrValue: '',
+      website: '',
     },
   },
   sectionOrder: ['header', 'transaction', 'items', 'totals', 'footer'],
@@ -138,7 +136,16 @@ function mergeDeep(base, override) {
 }
 
 export function normalizeReceiptSettings(settings = {}) {
-  return mergeDeep(DEFAULT_RECEIPT_SETTINGS, settings);
+  const normalized = mergeDeep(DEFAULT_RECEIPT_SETTINGS, settings);
+  normalized.printMode = normalized.printMode === 'ask' ? 'ask' : 'auto';
+  normalized.showReceiptAfterSale = normalized.showReceiptAfterSale !== false;
+  normalized.printerProfile.saleAdapter = ['network', 'bluetooth'].includes(normalized.printerProfile.saleAdapter) ? normalized.printerProfile.saleAdapter : 'browser';
+  normalized.printerProfile.networkEnabled = Boolean(normalized.printerProfile.networkEnabled);
+  normalized.printerProfile.networkHost = String(normalized.printerProfile.networkHost || '').trim();
+  normalized.printerProfile.networkPort = Number(normalized.printerProfile.networkPort || 9100);
+  normalized.printerProfile.bluetoothDeviceName = String(normalized.printerProfile.bluetoothDeviceName || '');
+  normalized.printerProfile.bluetoothDeviceId = String(normalized.printerProfile.bluetoothDeviceId || '');
+  return normalized;
 }
 
 export function normalizeReceiptTemplateSchema(schema = {}) {
@@ -159,7 +166,8 @@ export function createDefaultReceiptTemplatePayload(overrides = {}) {
 
 function buildHeaderLines(template, sale) {
   const header = template.sections.header;
-  const lines = [header.businessName, header.branchName, header.slogan, header.address, header.phone, header.taxId ? `TIN: ${header.taxId}` : '', header.website].filter(Boolean);
+  const phoneLines = String(header.phone || '').split(/[\n,]+/).map((entry) => entry.trim()).filter(Boolean);
+  const lines = [header.businessName, header.branchName, header.slogan, header.address, ...phoneLines].filter(Boolean);
   if (header.storeCode) lines.push(`Store: ${header.storeCode}`);
   const deviceLabel = sale.receipt_context?.device_label || header.deviceLabel;
   if (deviceLabel) lines.push(`Terminal: ${deviceLabel}`);
@@ -167,13 +175,18 @@ function buildHeaderLines(template, sale) {
 }
 
 export function buildReceiptPayload({ sale, items, template, settings }) {
+  const taxPercent = Number(template.sections.header.taxPercent || 0);
+  const taxEnabled = Boolean(template.sections.totals?.showTax);
+  const subtotal = Number(sale.total_amount || 0);
+  const taxAmount = taxEnabled && taxPercent > 0 ? Number(((subtotal * taxPercent) / (100 + taxPercent)).toFixed(2)) : 0;
+  const netSubtotal = Number((subtotal - taxAmount).toFixed(2));
   const totals = {
-    subtotal: Number(sale.total_amount || 0),
-    tax: 0,
+    subtotal: netSubtotal,
+    tax: taxAmount,
     discounts: 0,
     serviceCharge: 0,
-    total: Number(sale.total_amount || 0),
-    paidAmount: Number(sale.total_amount || 0),
+    total: subtotal,
+    paidAmount: subtotal,
     change: 0,
   };
 
@@ -200,8 +213,7 @@ export function buildReceiptPayload({ sale, items, template, settings }) {
     })),
     totals,
     footer_text: template.sections.footer.footerText || '',
-    legal_text: template.sections.footer.legalText || '',
-    qr_value: template.sections.footer.showQr ? (template.sections.footer.qrValue || sale.receipt_number) : '',
+    website: template.sections.footer.website || '',
     settings,
   };
 }

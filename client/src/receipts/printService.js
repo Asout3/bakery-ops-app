@@ -61,8 +61,35 @@ function openReceiptWindow(documentPayload, title) {
   return popup;
 }
 
+function buildNetworkReceiptText(sale) {
+  const payload = sale.receipt_payload || {};
+  const lines = [];
+  (payload.header_lines || []).forEach((line) => lines.push(String(line)));
+  lines.push('');
+  lines.push(`Receipt: ${payload.receipt_number || sale.receipt_number || ''}`);
+  lines.push(`Date: ${new Date(payload.sale_date || sale.sale_date || Date.now()).toLocaleString()}`);
+  lines.push(`Cashier: ${payload.cashier_name || sale.cashier_name || ''}`);
+  lines.push('');
+  (payload.items || []).forEach((item) => {
+    lines.push(`${item.quantity} x ${item.product_name}  ${item.subtotal}`);
+  });
+  const totals = payload.totals || {};
+  lines.push('');
+  lines.push(`TOTAL: ${totals.total ?? ''}`);
+  if (payload.footer_text) lines.push(payload.footer_text);
+  if (payload.website) lines.push(payload.website);
+  lines.push('\n');
+  return lines.join('\n');
+}
+
 const adapters = {
   async browser({ documentPayload }) {
+    if (navigator.usb && typeof navigator.usb.getDevices === 'function') {
+      const devices = await navigator.usb.getDevices();
+      if (!devices.length) {
+        throw new Error('Thermal printer not detected.');
+      }
+    }
     await printReceiptIframe(documentPayload);
     return { status: 'success', adapterMode: 'browser' };
   },
@@ -74,11 +101,27 @@ const adapters = {
     await printReceiptIframe(documentPayload);
     return { status: 'success', adapterMode: 'pdf' };
   },
-  async fake({ settings }) {
-    if (settings?.printerProfile?.simulateFailure) {
-      throw new Error('Simulated printer failure is enabled.');
+  async network({ sale, settings }) {
+    const printerProfile = settings?.printerProfile || {};
+    const response = await api.post('/sales/network-printer/print', {
+      host: printerProfile.networkHost || '',
+      port: printerProfile.networkPort || '',
+      receiptText: buildNetworkReceiptText(sale),
+    });
+    return { status: response.data?.status || 'success', adapterMode: 'network' };
+  },
+  async bluetooth({ documentPayload }) {
+    if (!navigator.bluetooth?.requestDevice) {
+      await printReceiptIframe(documentPayload);
+      return { status: 'success', adapterMode: 'browser' };
     }
-    return { status: 'success', adapterMode: 'fake' };
+    try {
+      await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [] });
+    } catch (error) {
+      throw new Error(error?.message || 'Bluetooth printer connection was cancelled.');
+    }
+    await printReceiptIframe(documentPayload);
+    return { status: 'success', adapterMode: 'bluetooth' };
   },
 };
 
