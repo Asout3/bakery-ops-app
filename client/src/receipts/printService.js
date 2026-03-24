@@ -104,11 +104,23 @@ const adapters = {
   async network({ sale, settings }) {
     const printerProfile = settings?.printerProfile || {};
     const response = await api.post('/sales/network-printer/print', {
-      host: printerProfile.networkHost,
-      port: printerProfile.networkPort,
+      host: printerProfile.networkHost || '',
+      port: printerProfile.networkPort || '',
       receiptText: buildNetworkReceiptText(sale),
     });
     return { status: response.data?.status || 'success', adapterMode: 'network' };
+  },
+  async bluetooth({ documentPayload }) {
+    if (!navigator.bluetooth?.requestDevice) {
+      throw new Error('Bluetooth printing is not supported in this browser.');
+    }
+    try {
+      await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [] });
+    } catch {
+      throw new Error('Bluetooth printer connection was cancelled.');
+    }
+    await printReceiptIframe(documentPayload);
+    return { status: 'success', adapterMode: 'bluetooth' };
   },
 };
 

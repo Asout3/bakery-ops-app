@@ -209,7 +209,7 @@ When a remote reviewer reports they cannot see merged changes, confirm the follo
 - On login, the app checks USB printer availability and shows a toast:
   - `Thermal printer plugged in.`
   - `Thermal printer not plugged in.`
-- Optional network-printer mode is available for Wi-Fi test setups (e.g., Android POS simulator) using `IP + port 9100`, with connection check and print test from receipt settings.
+- Optional network-printer mode is available for Wi-Fi test setups (e.g., Android POS simulator) via a preconfigured network relay connection check and print test from receipt settings.
 - The admin receipt settings page now includes:
   - Persistent `Print Mode` (`Auto print after sale` vs `Ask every time`).
   - `Show receipt after sale` toggle to control whether the preview modal opens after checkout.

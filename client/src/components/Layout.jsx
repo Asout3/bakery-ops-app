@@ -80,6 +80,14 @@ export default function Layout() {
     const notifyPrinterStatus = async () => {
       const cachedConfig = getReceiptConfigCache();
       const receiptSettings = normalizeReceiptSettings(cachedConfig?.settings || {});
+      if (receiptSettings.printerProfile.saleAdapter === 'bluetooth') {
+        if (receiptSettings.printerProfile.bluetoothDeviceName) {
+          toast.success(`POS connected via bluetooth: ${receiptSettings.printerProfile.bluetoothDeviceName}`);
+        } else {
+          toast.warning('Bluetooth printer not paired yet. Open Receipt Settings to pair.');
+        }
+        return;
+      }
       if (receiptSettings.printerProfile.saleAdapter === 'network' && receiptSettings.printerProfile.networkEnabled && receiptSettings.printerProfile.networkHost) {
         try {
           const statusResponse = await api.post('/sales/network-printer/status', {
@@ -91,6 +99,16 @@ export default function Layout() {
           } else {
             toast.warning('POS network printer not connected.');
           }
+        } catch {
+          toast.warning('POS network printer status unavailable.');
+        }
+        return;
+      }
+      if (receiptSettings.printerProfile.saleAdapter === 'network') {
+        try {
+          const statusResponse = await api.post('/sales/network-printer/status', {});
+          if (statusResponse.data?.connected) toast.success('POS connected via network printer.');
+          else toast.warning('POS network printer not connected.');
         } catch {
           toast.warning('POS network printer status unavailable.');
         }

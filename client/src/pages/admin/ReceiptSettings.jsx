@@ -400,34 +400,20 @@ export default function ReceiptSettingsPage() {
                 <label className="form-label">Printer Connection</label>
                 <select
                   className="form-select"
-                  value={settings.printerProfile.saleAdapter === 'network' ? 'network' : 'browser'}
+                  value={settings.printerProfile.saleAdapter === 'network' ? 'network' : (settings.printerProfile.saleAdapter === 'bluetooth' ? 'bluetooth' : 'browser')}
                   onChange={(e) => patchSettings({
                     ...settings,
-                    printerProfile: { ...settings.printerProfile, saleAdapter: e.target.value === 'network' ? 'network' : 'browser', networkEnabled: e.target.value === 'network' },
+                    printerProfile: {
+                      ...settings.printerProfile,
+                      saleAdapter: e.target.value,
+                      networkEnabled: e.target.value === 'network',
+                    },
                   })}
                 >
                   <option value="browser">USB / Browser print</option>
-                  <option value="network">Network (IP:9100)</option>
+                  <option value="network">Network printer</option>
+                  <option value="bluetooth">Bluetooth printer</option>
                 </select>
-              </div>
-              <div className="receipt-field">
-                <label className="form-label">Network Printer IP</label>
-                <input
-                  className="form-control"
-                  placeholder="192.168.1.120"
-                  value={settings.printerProfile.networkHost || ''}
-                  onChange={(e) => patchSettings({ ...settings, printerProfile: { ...settings.printerProfile, networkHost: e.target.value } })}
-                />
-              </div>
-              <div className="receipt-field">
-                <label className="form-label">Network Printer Port</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  className="form-control"
-                  value={String(settings.printerProfile.networkPort || 9100)}
-                  onChange={(e) => patchSettings({ ...settings, printerProfile: { ...settings.printerProfile, networkPort: Number(e.target.value.replace(/[^\d]/g, '') || 9100) } })}
-                />
               </div>
               <div className="receipt-field">
                 <label className="form-label">Reprint Window (minutes)</label>
@@ -503,10 +489,7 @@ export default function ReceiptSettingsPage() {
                 <button className="btn btn-outline-secondary btn-sm" onClick={handleTestPrint} disabled={testing}><FileText size={14} /> Test Real Print</button>
                 <button className="btn btn-outline-secondary btn-sm" onClick={async () => {
                   try {
-                    const response = await api.post('/sales/network-printer/status', {
-                      host: settings.printerProfile.networkHost,
-                      port: settings.printerProfile.networkPort,
-                    });
+                    const response = await api.post('/sales/network-printer/status', {});
                     if (response.data.connected) {
                       toast.success('POS connected via network printer.');
                     } else {
@@ -516,6 +499,22 @@ export default function ReceiptSettingsPage() {
                     toast.error(error.response?.data?.error || 'Network printer check failed.');
                   }
                 }}><PlugZap size={14} /> Test Network 9100</button>
+                <button className="btn btn-outline-secondary btn-sm" onClick={async () => {
+                  if (!navigator.bluetooth?.requestDevice) {
+                    toast.warning('Bluetooth printing is not supported in this browser.');
+                    return;
+                  }
+                  try {
+                    const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [] });
+                    patchSettings({
+                      ...settings,
+                      printerProfile: { ...settings.printerProfile, bluetoothDeviceName: device.name || 'Bluetooth printer', bluetoothDeviceId: device.id || '' },
+                    });
+                    toast.success(`POS connected via bluetooth: ${device.name || 'Unknown device'}`);
+                  } catch (error) {
+                    toast.error(error.message || 'Bluetooth connection was cancelled.');
+                  }
+                }}><PlugZap size={14} /> Pair Bluetooth</button>
               </>
             )}
           >

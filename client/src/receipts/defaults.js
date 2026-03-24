@@ -8,6 +8,8 @@ export const DEFAULT_RECEIPT_SETTINGS = {
     networkEnabled: false,
     networkHost: '',
     networkPort: 9100,
+    bluetoothDeviceName: '',
+    bluetoothDeviceId: '',
     copies: 1,
   },
   reprintPolicy: {

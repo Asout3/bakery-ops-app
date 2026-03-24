@@ -314,8 +314,8 @@ router.put('/receipt-settings', authenticateToken, authorizeRoles('admin'), asyn
 
 router.post('/network-printer/status', authenticateToken, authorizeRoles('admin', 'cashier', 'manager'), async (req, res) => {
   try {
-    const host = String(req.body.host || '').trim();
-    const port = toSafePort(req.body.port);
+    const host = String(req.body.host || process.env.NETWORK_PRINTER_HOST || '').trim();
+    const port = toSafePort(req.body.port || process.env.NETWORK_PRINTER_PORT || 9100);
     if (!host) {
       return res.status(400).json({ error: 'Network printer host is required', code: 'NETWORK_PRINTER_HOST_REQUIRED', requestId: req.requestId });
     }
@@ -328,8 +328,8 @@ router.post('/network-printer/status', authenticateToken, authorizeRoles('admin'
 
 router.post('/network-printer/print', authenticateToken, authorizeRoles('admin', 'cashier', 'manager'), async (req, res) => {
   try {
-    const host = String(req.body.host || '').trim();
-    const port = toSafePort(req.body.port);
+    const host = String(req.body.host || process.env.NETWORK_PRINTER_HOST || '').trim();
+    const port = toSafePort(req.body.port || process.env.NETWORK_PRINTER_PORT || 9100);
     const receiptText = String(req.body.receiptText || '').trim();
     if (!host) {
       return res.status(400).json({ error: 'Network printer host is required', code: 'NETWORK_PRINTER_HOST_REQUIRED', requestId: req.requestId });

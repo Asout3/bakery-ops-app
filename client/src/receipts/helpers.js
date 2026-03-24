@@ -28,10 +28,12 @@ export function normalizeReceiptSettings(settings = {}) {
   const normalized = mergeDeep(DEFAULT_RECEIPT_SETTINGS, settings);
   normalized.printMode = normalized.printMode === 'ask' ? 'ask' : 'auto';
   normalized.showReceiptAfterSale = normalized.showReceiptAfterSale !== false;
-  normalized.printerProfile.saleAdapter = normalized.printerProfile.saleAdapter === 'network' ? 'network' : 'browser';
+  normalized.printerProfile.saleAdapter = ['network', 'bluetooth'].includes(normalized.printerProfile.saleAdapter) ? normalized.printerProfile.saleAdapter : 'browser';
   normalized.printerProfile.networkEnabled = Boolean(normalized.printerProfile.networkEnabled);
   normalized.printerProfile.networkHost = String(normalized.printerProfile.networkHost || '').trim();
   normalized.printerProfile.networkPort = Number(normalized.printerProfile.networkPort || 9100);
+  normalized.printerProfile.bluetoothDeviceName = String(normalized.printerProfile.bluetoothDeviceName || '');
+  normalized.printerProfile.bluetoothDeviceId = String(normalized.printerProfile.bluetoothDeviceId || '');
   return normalized;
 }
 

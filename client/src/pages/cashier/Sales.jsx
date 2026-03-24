@@ -302,7 +302,7 @@ export default function Sales() {
       applySaleToLocalStock(payload.items);
       setCart([]);
       toast.success('Sale completed.');
-      await maybeStartPrintFlow(completedSale);
+      void maybeStartPrintFlow(completedSale);
     } catch (err) {
       if (!err.response) {
         const idempotencyKey = `sale-${clientTransactionId}`;
@@ -315,7 +315,7 @@ export default function Sales() {
         }
         setCart([]);
         toast.info('Sale queued offline and will sync automatically when online.');
-        await maybeStartPrintFlow(storedOfflineSale);
+        void maybeStartPrintFlow(storedOfflineSale);
       } else {
         toast.error(getErrorMessage(err, 'Failed to complete sale.'));
       }
