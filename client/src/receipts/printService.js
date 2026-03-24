@@ -112,12 +112,13 @@ const adapters = {
   },
   async bluetooth({ documentPayload }) {
     if (!navigator.bluetooth?.requestDevice) {
-      throw new Error('Bluetooth printing is not supported in this browser.');
+      await printReceiptIframe(documentPayload);
+      return { status: 'success', adapterMode: 'browser' };
     }
     try {
       await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [] });
-    } catch {
-      throw new Error('Bluetooth printer connection was cancelled.');
+    } catch (error) {
+      throw new Error(error?.message || 'Bluetooth printer connection was cancelled.');
     }
     await printReceiptIframe(documentPayload);
     return { status: 'success', adapterMode: 'bluetooth' };

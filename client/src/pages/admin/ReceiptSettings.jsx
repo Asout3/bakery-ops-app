@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import ReceiptPreview from '../../receipts/ReceiptPreview';
 import { DEFAULT_RECEIPT_SETTINGS, DEFAULT_TEMPLATE_SCHEMA, RECEIPT_STYLE_PRESETS } from '../../receipts/defaults';
-import { generateClientTransactionId, generateReceiptNumber, normalizeReceiptSettings, normalizeReceiptTemplate, persistReceiptConfigCache } from '../../receipts/helpers';
+import { generateClientTransactionId, generateReceiptNumber, normalizeReceiptSettings, normalizeReceiptTemplate, persistReceiptConfigCache, resolveInclusiveTaxTotals } from '../../receipts/helpers';
 import { performReceiptPrint } from '../../receipts/printService';
 import './ReceiptSettings.css';
 
@@ -15,14 +15,12 @@ function buildPreviewSale(template, user) {
   const header = schema.sections.header;
   const footer = schema.sections.footer;
   const totals = {
-    subtotal: 296,
-    tax: 0,
+    ...resolveInclusiveTaxTotals(296, schema.sections.header.taxPercent || 0, schema.sections.totals.showTax),
     discounts: schema.sections.totals.showDiscounts ? 10 : 0,
     serviceCharge: schema.sections.totals.showServiceCharge ? 5 : 0,
   };
-  const taxPercent = Number(schema.sections.header.taxPercent || 0);
-  totals.tax = schema.sections.totals.showTax ? Number((totals.subtotal * taxPercent / 100).toFixed(2)) : 0;
-  totals.total = totals.subtotal + totals.tax + totals.serviceCharge - totals.discounts;
+  totals.tax = schema.sections.totals.showTax ? totals.tax : 0;
+  totals.total = Number((totals.total + totals.serviceCharge - totals.discounts).toFixed(2));
   totals.paidAmount = totals.total;
   totals.change = 0;
 
@@ -501,7 +499,7 @@ export default function ReceiptSettingsPage() {
                 }}><PlugZap size={14} /> Test Network 9100</button>
                 <button className="btn btn-outline-secondary btn-sm" onClick={async () => {
                   if (!navigator.bluetooth?.requestDevice) {
-                    toast.warning('Bluetooth printing is not supported in this browser.');
+                    toast.warning('Bluetooth pairing is not supported in this browser. Printing will use normal browser print.');
                     return;
                   }
                   try {

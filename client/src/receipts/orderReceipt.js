@@ -1,11 +1,10 @@
-import { normalizeReceiptTemplate } from './helpers.js';
+import { normalizeReceiptTemplate, resolveInclusiveTaxTotals } from './helpers.js';
 
 export function buildPreOrderReceipt(order, template) {
   const normalizedTemplate = normalizeReceiptTemplate(template || {});
   const totalAmount = Number(order.total_amount || 0);
-  const taxPercent = Number(normalizedTemplate.sections.header.taxPercent || 0);
-  const taxAmount = Number((totalAmount * taxPercent / 100).toFixed(2));
-  const grandTotal = totalAmount + taxAmount;
+  const taxTotals = resolveInclusiveTaxTotals(totalAmount, Number(normalizedTemplate.sections.header.taxPercent || 0), Boolean(normalizedTemplate.sections.totals.showTax));
+  const grandTotal = taxTotals.total;
   const paidAmount = Number(order.paid_amount || 0);
   const balanceDue = Math.max(grandTotal - paidAmount, 0);
   const change = Math.max(paidAmount - grandTotal, 0);
@@ -53,8 +52,8 @@ export function buildPreOrderReceipt(order, template) {
       decimals: Number(normalizedTemplate.sections.transaction.decimals ?? 2),
       items,
       totals: {
-        subtotal: totalAmount,
-        tax: taxAmount,
+        subtotal: taxTotals.subtotal,
+        tax: taxTotals.tax,
         discounts: 0,
         serviceCharge: 0,
         total: grandTotal,

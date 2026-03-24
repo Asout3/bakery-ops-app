@@ -176,8 +176,9 @@ function buildHeaderLines(template, sale) {
 
 export function buildReceiptPayload({ sale, items, template, settings }) {
   const taxPercent = Number(template.sections.header.taxPercent || 0);
+  const taxEnabled = Boolean(template.sections.totals?.showTax);
   const subtotal = Number(sale.total_amount || 0);
-  const taxAmount = taxPercent > 0 ? Number(((subtotal * taxPercent) / (100 + taxPercent)).toFixed(2)) : 0;
+  const taxAmount = taxEnabled && taxPercent > 0 ? Number(((subtotal * taxPercent) / (100 + taxPercent)).toFixed(2)) : 0;
   const netSubtotal = Number((subtotal - taxAmount).toFixed(2));
   const totals = {
     subtotal: netSubtotal,

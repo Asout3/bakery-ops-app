@@ -139,6 +139,24 @@ export function formatMoney(value, currencyCode = 'ETB', decimals = 2) {
   return `${currencyCode} ${amount.toFixed(decimals)}`;
 }
 
+export function resolveInclusiveTaxTotals(grandTotal, taxPercent, taxEnabled = true) {
+  const total = Number(grandTotal || 0);
+  const percent = Number(taxPercent || 0);
+  if (!taxEnabled || percent <= 0) {
+    return {
+      subtotal: Number(total.toFixed(2)),
+      tax: 0,
+      total: Number(total.toFixed(2)),
+    };
+  }
+  const tax = Number(((total * percent) / (100 + percent)).toFixed(2));
+  return {
+    subtotal: Number((total - tax).toFixed(2)),
+    tax,
+    total: Number(total.toFixed(2)),
+  };
+}
+
 export function getReprintPolicyState(printSummary = {}, settings = {}, role = 'cashier') {
   const normalized = normalizeReceiptSettings(settings);
   const windowMinutes = Number(normalized.reprintPolicy.windowMinutes || 20);

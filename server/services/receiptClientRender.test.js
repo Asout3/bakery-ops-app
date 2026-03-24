@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createReceiptDocument } from '../../client/src/receipts/render.js';
 import { buildPreOrderReceipt } from '../../client/src/receipts/orderReceipt.js';
-import { resolveReceiptItemLayoutMetrics } from '../../client/src/receipts/helpers.js';
+import { resolveInclusiveTaxTotals, resolveReceiptItemLayoutMetrics } from '../../client/src/receipts/helpers.js';
 
 test('resolveReceiptItemLayoutMetrics keeps receipt item columns within printable bounds', () => {
   const compactMetrics = resolveReceiptItemLayoutMetrics({ columnGap: 24, quantityColumnWidth: 72, totalColumnWidth: 140 }, '58mm');
@@ -22,6 +22,17 @@ test('resolveReceiptItemLayoutMetrics keeps receipt item columns within printabl
     itemGap: 10,
     valuesWidth: 194,
   });
+});
+
+test('resolveInclusiveTaxTotals keeps totals stable and can disable tax math', () => {
+  const withTax = resolveInclusiveTaxTotals(100, 15, true);
+  assert.equal(withTax.total, 100);
+  assert.equal(withTax.subtotal + withTax.tax, 100);
+
+  const withoutTax = resolveInclusiveTaxTotals(100, 15, false);
+  assert.equal(withoutTax.total, 100);
+  assert.equal(withoutTax.subtotal, 100);
+  assert.equal(withoutTax.tax, 0);
 });
 
 test('createReceiptDocument applies qty and total spacing only inside the item value block', () => {

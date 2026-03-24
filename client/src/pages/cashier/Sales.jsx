@@ -16,6 +16,7 @@ import {
   normalizeReceiptSettings,
   normalizeReceiptTemplate,
   persistReceiptConfigCache,
+  resolveInclusiveTaxTotals,
 } from '../../receipts/helpers';
 import { markReceiptPrintCancelled, performReceiptPrint } from '../../receipts/printService';
 import { saveLocalReceiptRecord } from '../../receipts/storage';
@@ -25,8 +26,11 @@ function buildOfflineReceiptSale({ payload, cart, paymentMethod, user, settings,
   const totals = cart.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 0)), 0);
   const header = activeTemplate.schema.sections.header;
   const phoneLines = String(header.phone || '').split(/[\n,]+/).map((entry) => entry.trim()).filter(Boolean);
-  const taxPercent = Number(header.taxPercent || 0);
-  const taxAmount = Number((totals * taxPercent / 100).toFixed(2));
+  const taxTotals = resolveInclusiveTaxTotals(
+    totals,
+    Number(header.taxPercent || 0),
+    Boolean(activeTemplate.schema.sections.totals.showTax)
+  );
   return {
     id: null,
     local_only: true,
@@ -49,7 +53,7 @@ function buildOfflineReceiptSale({ payload, cart, paymentMethod, user, settings,
       currency_code: activeTemplate.schema.sections.transaction.currencyCode || 'ETB',
       decimals: Number(activeTemplate.schema.sections.transaction.decimals ?? 2),
       items: cart.map((item) => ({ product_id: item.product_id, product_name: item.name, quantity: item.quantity, unit_price: Number(item.price), subtotal: Number(item.price) * Number(item.quantity) })),
-      totals: { subtotal: totals, tax: taxAmount, discounts: 0, serviceCharge: 0, total: totals + taxAmount, paidAmount: totals + taxAmount, change: 0 },
+      totals: { subtotal: taxTotals.subtotal, tax: taxTotals.tax, discounts: 0, serviceCharge: 0, total: taxTotals.total, paidAmount: taxTotals.total, change: 0 },
       footer_text: activeTemplate.schema.sections.footer.footerText || '',
       website: activeTemplate.schema.sections.footer.website || '',
     },
