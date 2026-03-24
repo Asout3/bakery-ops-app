@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import { buildReceiptPayload, normalizeReceiptSettings, normalizeReceiptTemplateSchema, summarizePrintEvents } from './receiptService.js';
 
 test('normalize receipt settings keeps strict reprint defaults', () => {
-  const settings = normalizeReceiptSettings({ printMode: 'ask', reprintPolicy: { adminOverrideAfterWindow: true } });
+  const settings = normalizeReceiptSettings({ printMode: 'ask', printerProfile: { saleAdapter: 'network', networkEnabled: true, networkHost: '192.168.1.22', networkPort: 9100 }, reprintPolicy: { adminOverrideAfterWindow: true } });
   assert.equal(settings.printMode, 'ask');
   assert.equal(settings.showReceiptAfterSale, true);
+  assert.equal(settings.printerProfile.saleAdapter, 'network');
+  assert.equal(settings.printerProfile.networkEnabled, true);
   assert.equal(settings.reprintPolicy.windowMinutes, 20);
   assert.equal(settings.reprintPolicy.maxManualReprints, 2);
   assert.equal(settings.reprintPolicy.adminOverrideAfterWindow, true);

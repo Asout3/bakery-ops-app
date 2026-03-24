@@ -34,8 +34,9 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
   const itemLayout = normalizedTemplate.sections.items || {};
   const transaction = normalizedTemplate.sections.transaction || {};
   const totalSection = normalizedTemplate.sections.totals || {};
-  const customerLabel = payload.customer_phone ? `${payload.customer_name || 'Customer'} · ${payload.customer_phone}` : (payload.customer_name || '');
   const itemMetrics = resolveReceiptItemLayoutMetrics(itemLayout, normalizedTemplate.paperWidth);
+  const isPreOrder = String(payload.receipt_number || sale.receipt_number || '').toUpperCase().startsWith('PO-')
+    || String(printLabel || '').toUpperCase().includes('PRE-ORDER');
 
   const html = `<!DOCTYPE html>
 <html>
@@ -105,9 +106,6 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
           ${transaction.showDateTime ? renderLine('Date', new Date(payload.sale_date || sale.sale_date || Date.now()).toLocaleString()) : ''}
           ${transaction.showCashier ? renderLine(normalizedTemplate.sections.header.cashierLabel || 'Cashier', payload.cashier_name || sale.cashier_name || '') : ''}
           ${transaction.showPaymentMethod ? renderLine('Payment', payload.payment_method || sale.payment_method || '') : ''}
-          ${transaction.showCustomerInfo && customerLabel ? renderLine('Customer', customerLabel) : ''}
-          ${transaction.showInternalRef && payload.internal_ref ? renderLine('Reference', payload.internal_ref) : ''}
-          ${transaction.showNotes && payload.notes ? `<div class="receipt-note">${escapeHtml(payload.notes)}</div>` : ''}
         </div>
         <div class="receipt-separator receipt-separator-${normalizedTemplate.separatorStyle === 'dotted' ? 'dotted' : 'solid'}"></div>
         <div class="receipt-section">
@@ -118,7 +116,7 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
               <div class="receipt-item-value">${escapeHtml(itemLayout.totalLabel || 'TOTAL')}</div>
             </div>
           </div>
-          ${items.map((item) => `<div class="receipt-item-row"><div class="receipt-item-name">${escapeHtml(item.product_name || '')}${item.notes ? `<div>${escapeHtml(item.notes)}</div>` : ''}</div><div class="receipt-item-values"><div class="receipt-item-qty">${escapeHtml(item.quantity)}</div><div class="receipt-item-value">${escapeHtml(formatMoney(item.subtotal, currencyCode, decimals))}</div></div></div>${itemLayout.showUnitPrice ? `<div class="receipt-item-price">${escapeHtml(formatMoney(item.unit_price, currencyCode, decimals))} ea</div>` : ''}`).join('')}
+          ${items.map((item) => `<div class="receipt-item-row"><div class="receipt-item-name">${escapeHtml(item.product_name || '')}${item.notes ? `<div>${escapeHtml(item.notes)}</div>` : ''}</div><div class="receipt-item-values"><div class="receipt-item-qty">${escapeHtml(item.quantity)}</div><div class="receipt-item-value">${escapeHtml(formatMoney(item.subtotal, currencyCode, decimals))}</div></div></div>`).join('')}
         </div>
         <div class="receipt-separator receipt-separator-${normalizedTemplate.separatorStyle === 'dotted' ? 'dotted' : 'solid'}"></div>
         <div class="receipt-section receipt-meta">
@@ -127,9 +125,8 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
           ${totalSection.showTax && Number(totals.tax || 0) > 0 ? renderLine(`Tax (${Number(normalizedTemplate.sections.header.taxPercent || 0)}%)`, formatMoney(totals.tax, currencyCode, decimals)) : ''}
           ${totalSection.showServiceCharge && Number(totals.serviceCharge || 0) > 0 ? renderLine('Service', formatMoney(totals.serviceCharge, currencyCode, decimals)) : ''}
           <div class="receipt-total-box">${renderLine(totalSection.totalLabel || 'TOTAL', formatMoney(totals.total, currencyCode, decimals), true)}</div>
-          ${totalSection.showPaidAmount ? renderLine(totalSection.paidLabel || 'PAID', formatMoney(totals.paidAmount ?? totals.total, currencyCode, decimals)) : ''}
+          ${isPreOrder && totalSection.showPaidAmount ? renderLine(totalSection.paidLabel || 'PAID', formatMoney(totals.paidAmount ?? totals.total, currencyCode, decimals)) : ''}
           ${totalSection.showBalanceDue && Number(totals.balanceDue || 0) > 0 ? renderLine(totalSection.balanceLabel || 'BALANCE', formatMoney(totals.balanceDue, currencyCode, decimals)) : ''}
-          ${totalSection.showChange && Number(totals.change || 0) >= 0 ? renderLine(totalSection.changeLabel || 'CHANGE', formatMoney(totals.change || 0, currencyCode, decimals)) : ''}
         </div>
         <div class="receipt-footer receipt-center">
           ${payload.footer_text ? `<div>${escapeHtml(payload.footer_text)}</div>` : ''}

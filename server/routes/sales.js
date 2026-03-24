@@ -1,4 +1,5 @@
 import express from 'express';
+import net from 'node:net';
 import { body, validationResult } from 'express-validator';
 import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
@@ -27,6 +28,37 @@ function clampLimit(value, fallback = 100, max = 500) {
 
 function isValidDateFilter(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+}
+
+function toSafePort(value) {
+  const port = Number(value || 9100);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return 9100;
+  return port;
+}
+
+function openNetworkPrinterSocket({ host, port, payload = null, timeoutMs = 3000 }) {
+  return new Promise((resolve, reject) => {
+    const socket = new net.Socket();
+    let settled = false;
+    const finish = (err, result) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      if (err) reject(err);
+      else resolve(result);
+    };
+
+    socket.setTimeout(timeoutMs);
+    socket.once('timeout', () => finish(new Error('Connection timed out')));
+    socket.once('error', (err) => finish(err));
+    socket.connect(port, host, () => {
+      if (!payload) {
+        finish(null, { connected: true });
+        return;
+      }
+      socket.write(payload, 'utf8', () => finish(null, { connected: true, printed: true }));
+    });
+  });
 }
 
 async function notifyLocationAdmins(tx, locationId, title, message, notificationType = 'audit_event') {
@@ -277,6 +309,39 @@ router.put('/receipt-settings', authenticateToken, authorizeRoles('admin'), asyn
   } catch (err) {
     console.error('Update receipt settings error:', err);
     res.status(500).json({ error: 'Failed to update receipt settings', code: 'RECEIPT_SETTINGS_UPDATE_ERROR', requestId: req.requestId });
+  }
+});
+
+router.post('/network-printer/status', authenticateToken, authorizeRoles('admin', 'cashier', 'manager'), async (req, res) => {
+  try {
+    const host = String(req.body.host || '').trim();
+    const port = toSafePort(req.body.port);
+    if (!host) {
+      return res.status(400).json({ error: 'Network printer host is required', code: 'NETWORK_PRINTER_HOST_REQUIRED', requestId: req.requestId });
+    }
+    await openNetworkPrinterSocket({ host, port, payload: null, timeoutMs: 2000 });
+    res.json({ connected: true, mode: 'network', host, port });
+  } catch (error) {
+    res.json({ connected: false, mode: 'network', error: error.message });
+  }
+});
+
+router.post('/network-printer/print', authenticateToken, authorizeRoles('admin', 'cashier', 'manager'), async (req, res) => {
+  try {
+    const host = String(req.body.host || '').trim();
+    const port = toSafePort(req.body.port);
+    const receiptText = String(req.body.receiptText || '').trim();
+    if (!host) {
+      return res.status(400).json({ error: 'Network printer host is required', code: 'NETWORK_PRINTER_HOST_REQUIRED', requestId: req.requestId });
+    }
+    if (!receiptText) {
+      return res.status(400).json({ error: 'Receipt text is required', code: 'NETWORK_PRINT_TEXT_REQUIRED', requestId: req.requestId });
+    }
+
+    await openNetworkPrinterSocket({ host, port, payload: `${receiptText}\n\n` });
+    res.json({ status: 'success', mode: 'network', host, port });
+  } catch (error) {
+    res.status(502).json({ error: `Network printer unavailable: ${error.message}`, code: 'NETWORK_PRINT_FAILED', requestId: req.requestId });
   }
 });
 

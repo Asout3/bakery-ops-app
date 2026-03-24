@@ -12,6 +12,7 @@ export function buildPreOrderReceipt(order, template) {
   const receiptNumber = order.order_code || `ORD-${String(order.id || 'LOCAL').padStart(6, '0')}`;
   const header = normalizedTemplate.sections.header;
   const footer = normalizedTemplate.sections.footer;
+  const phoneLines = String(header.phone || '').split(/[\n,]+/).map((entry) => entry.trim()).filter(Boolean);
   const note = order.customer_note || '';
   const items = (order.items || []).map((item) => ({
     product_id: item.product_id,
@@ -45,7 +46,7 @@ export function buildPreOrderReceipt(order, template) {
         header.branchName,
         header.slogan,
         header.address,
-        header.phone,
+        ...phoneLines,
         order.pickup_at ? `Pickup: ${new Date(order.pickup_at).toLocaleString()}` : '',
       ].filter(Boolean),
       currency_code: normalizedTemplate.sections.transaction.currencyCode || 'ETB',

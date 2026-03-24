@@ -28,7 +28,10 @@ export function normalizeReceiptSettings(settings = {}) {
   const normalized = mergeDeep(DEFAULT_RECEIPT_SETTINGS, settings);
   normalized.printMode = normalized.printMode === 'ask' ? 'ask' : 'auto';
   normalized.showReceiptAfterSale = normalized.showReceiptAfterSale !== false;
-  normalized.printerProfile.saleAdapter = 'browser';
+  normalized.printerProfile.saleAdapter = normalized.printerProfile.saleAdapter === 'network' ? 'network' : 'browser';
+  normalized.printerProfile.networkEnabled = Boolean(normalized.printerProfile.networkEnabled);
+  normalized.printerProfile.networkHost = String(normalized.printerProfile.networkHost || '').trim();
+  normalized.printerProfile.networkPort = Number(normalized.printerProfile.networkPort || 9100);
   return normalized;
 }
 

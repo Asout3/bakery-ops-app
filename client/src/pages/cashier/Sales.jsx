@@ -24,6 +24,7 @@ function buildOfflineReceiptSale({ payload, cart, paymentMethod, user, settings,
   const now = new Date().toISOString();
   const totals = cart.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 0)), 0);
   const header = activeTemplate.schema.sections.header;
+  const phoneLines = String(header.phone || '').split(/[\n,]+/).map((entry) => entry.trim()).filter(Boolean);
   const taxPercent = Number(header.taxPercent || 0);
   const taxAmount = Number((totals * taxPercent / 100).toFixed(2));
   return {
@@ -44,7 +45,7 @@ function buildOfflineReceiptSale({ payload, cart, paymentMethod, user, settings,
       sale_date: now,
       payment_method: paymentMethod,
       cashier_name: user?.username || 'Cashier',
-      header_lines: [header.businessName, header.branchName, header.slogan, header.address, header.phone].filter(Boolean),
+      header_lines: [header.businessName, header.branchName, header.slogan, header.address, ...phoneLines].filter(Boolean),
       currency_code: activeTemplate.schema.sections.transaction.currencyCode || 'ETB',
       decimals: Number(activeTemplate.schema.sections.transaction.decimals ?? 2),
       items: cart.map((item) => ({ product_id: item.product_id, product_name: item.name, quantity: item.quantity, unit_price: Number(item.price), subtotal: Number(item.price) * Number(item.quantity) })),

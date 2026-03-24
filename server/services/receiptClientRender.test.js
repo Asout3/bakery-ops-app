@@ -65,6 +65,8 @@ test('createReceiptDocument applies qty and total spacing only inside the item v
   assert.match(documentPayload.html, /receipt-separator-solid/);
   assert.match(documentPayload.html, /Tax \(15%\)/);
   assert.match(documentPayload.html, /https:\/\/bakery\.test/);
+  assert.doesNotMatch(documentPayload.html, /CHANGE/);
+  assert.doesNotMatch(documentPayload.html, />PAID</);
 });
 
 test('buildPreOrderReceipt keeps pickup and balance details for pre-order printing', () => {

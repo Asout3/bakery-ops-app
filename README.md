@@ -209,11 +209,13 @@ When a remote reviewer reports they cannot see merged changes, confirm the follo
 - On login, the app checks USB printer availability and shows a toast:
   - `Thermal printer plugged in.`
   - `Thermal printer not plugged in.`
+- Optional network-printer mode is available for Wi-Fi test setups (e.g., Android POS simulator) using `IP + port 9100`, with connection check and print test from receipt settings.
 - The admin receipt settings page now includes:
   - Persistent `Print Mode` (`Auto print after sale` vs `Ask every time`).
   - `Show receipt after sale` toggle to control whether the preview modal opens after checkout.
   - Tax percentage configuration (`Tax (%)`) applied in receipt totals (not header top).
   - Footer website link rendered at the bottom of receipts.
+- Number-input spinner controls are disabled globally so all numeric entry is manual-typing first.
 - Removed fake/testing adapter controls and QR/legal footer controls from admin settings to keep production print behavior focused on real device flow.
 
 ## Pre-Order Workflow

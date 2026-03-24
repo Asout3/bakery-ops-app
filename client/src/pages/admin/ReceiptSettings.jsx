@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Printer, Save, RotateCcw, Eye, FileText, CheckCircle2, Copy, Settings2, LayoutTemplate, ScrollText } from 'lucide-react';
+import { Printer, Save, RotateCcw, Eye, FileText, CheckCircle2, Copy, Settings2, LayoutTemplate, ScrollText, PlugZap } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -26,6 +26,8 @@ function buildPreviewSale(template, user) {
   totals.paidAmount = totals.total;
   totals.change = 0;
 
+  const phoneLines = String(header.phone || '').split(/[\n,]+/).map((entry) => entry.trim()).filter(Boolean);
+
   return {
     id: null,
     client_transaction_id: generateClientTransactionId(),
@@ -49,7 +51,7 @@ function buildPreviewSale(template, user) {
         header.branchName,
         header.slogan,
         header.address,
-        header.phone,
+        ...phoneLines,
         header.storeCode ? `Store: ${header.storeCode}` : '',
         header.deviceLabel ? `Terminal: ${header.deviceLabel}` : '',
       ].filter(Boolean),
@@ -100,6 +102,7 @@ export default function ReceiptSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [savingInline, setSavingInline] = useState(false);
   const [templates, setTemplates] = useState([]);
   const [activeTemplateId, setActiveTemplateId] = useState(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState(null);
@@ -192,6 +195,19 @@ export default function ReceiptSettingsPage() {
       toast.error(error.response?.data?.error || 'Failed to save receipt settings.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const patchSettings = async (nextSettings) => {
+    setSettings(nextSettings);
+    setSavingInline(true);
+    try {
+      await api.put('/sales/receipt-settings', { settings: nextSettings, active_template_id: activeTemplateId });
+      persistReceiptConfigCache({ settings: nextSettings, activeTemplate: templates.find((item) => item.id === activeTemplateId) || draftTemplate, templates });
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to persist receipt settings.');
+    } finally {
+      setSavingInline(false);
     }
   };
 
@@ -368,17 +384,50 @@ export default function ReceiptSettingsPage() {
               </div>
               <div className="receipt-field">
                 <label className="form-label">Print Mode</label>
-                <select className="form-select" value={settings.printMode} onChange={(e) => setSettings((current) => ({ ...current, printMode: e.target.value }))}>
+                <select className="form-select" value={settings.printMode} onChange={(e) => patchSettings({ ...settings, printMode: e.target.value })}>
                   <option value="auto">Auto print after sale</option>
                   <option value="ask">Ask every time</option>
                 </select>
               </div>
               <div className="receipt-field">
                 <label className="form-label">Show receipt after sale</label>
-                <select className="form-select" value={settings.showReceiptAfterSale ? 'on' : 'off'} onChange={(e) => setSettings((current) => ({ ...current, showReceiptAfterSale: e.target.value === 'on' }))}>
+                <select className="form-select" value={settings.showReceiptAfterSale ? 'on' : 'off'} onChange={(e) => patchSettings({ ...settings, showReceiptAfterSale: e.target.value === 'on' })}>
                   <option value="on">On</option>
                   <option value="off">Off</option>
                 </select>
+              </div>
+              <div className="receipt-field">
+                <label className="form-label">Printer Connection</label>
+                <select
+                  className="form-select"
+                  value={settings.printerProfile.saleAdapter === 'network' ? 'network' : 'browser'}
+                  onChange={(e) => patchSettings({
+                    ...settings,
+                    printerProfile: { ...settings.printerProfile, saleAdapter: e.target.value === 'network' ? 'network' : 'browser', networkEnabled: e.target.value === 'network' },
+                  })}
+                >
+                  <option value="browser">USB / Browser print</option>
+                  <option value="network">Network (IP:9100)</option>
+                </select>
+              </div>
+              <div className="receipt-field">
+                <label className="form-label">Network Printer IP</label>
+                <input
+                  className="form-control"
+                  placeholder="192.168.1.120"
+                  value={settings.printerProfile.networkHost || ''}
+                  onChange={(e) => patchSettings({ ...settings, printerProfile: { ...settings.printerProfile, networkHost: e.target.value } })}
+                />
+              </div>
+              <div className="receipt-field">
+                <label className="form-label">Network Printer Port</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  className="form-control"
+                  value={String(settings.printerProfile.networkPort || 9100)}
+                  onChange={(e) => patchSettings({ ...settings, printerProfile: { ...settings.printerProfile, networkPort: Number(e.target.value.replace(/[^\d]/g, '') || 9100) } })}
+                />
               </div>
               <div className="receipt-field">
                 <label className="form-label">Reprint Window (minutes)</label>
@@ -401,7 +450,7 @@ export default function ReceiptSettingsPage() {
               <div className="receipt-field"><label className="form-label">Branch / Store Name</label><input className="form-control" value={templateHeader.branchName || ''} onChange={(e) => setHeaderField('branchName', e.target.value)} /></div>
               <div className="receipt-field"><label className="form-label">Slogan</label><input className="form-control" value={templateHeader.slogan || ''} onChange={(e) => setHeaderField('slogan', e.target.value)} /></div>
               <div className="receipt-field receipt-field--span-2"><label className="form-label">Address</label><textarea className="form-control receipt-textarea" rows="3" value={templateHeader.address || ''} onChange={(e) => setHeaderField('address', e.target.value)} /></div>
-              <div className="receipt-field"><label className="form-label">Phone</label><input className="form-control" value={templateHeader.phone || ''} onChange={(e) => setHeaderField('phone', e.target.value)} /></div>
+              <div className="receipt-field"><label className="form-label">Phone(s)</label><textarea className="form-control receipt-textarea" rows="2" placeholder="0911 22 33 44, 0912 33 44 55" value={templateHeader.phone || ''} onChange={(e) => setHeaderField('phone', e.target.value)} /></div>
               <div className="receipt-field"><label className="form-label">Tax (%)</label><input type="number" min="0" max="100" step="0.01" className="form-control" value={templateHeader.taxPercent ?? 0} onChange={(e) => setHeaderField('taxPercent', Number(e.target.value || 0))} /></div>
               <div className="receipt-field"><label className="form-label">Store Code</label><input className="form-control" value={templateHeader.storeCode || ''} onChange={(e) => setHeaderField('storeCode', e.target.value)} /></div>
               <div className="receipt-field"><label className="form-label">Terminal Label</label><input className="form-control" value={templateHeader.deviceLabel || ''} onChange={(e) => setHeaderField('deviceLabel', e.target.value)} /></div>
@@ -452,11 +501,26 @@ export default function ReceiptSettingsPage() {
               <>
                 <button className="btn btn-outline-secondary btn-sm" onClick={() => previewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}><Eye size={14} /> Jump to Preview</button>
                 <button className="btn btn-outline-secondary btn-sm" onClick={handleTestPrint} disabled={testing}><FileText size={14} /> Test Real Print</button>
+                <button className="btn btn-outline-secondary btn-sm" onClick={async () => {
+                  try {
+                    const response = await api.post('/sales/network-printer/status', {
+                      host: settings.printerProfile.networkHost,
+                      port: settings.printerProfile.networkPort,
+                    });
+                    if (response.data.connected) {
+                      toast.success('POS connected via network printer.');
+                    } else {
+                      toast.warning('Network printer not connected.');
+                    }
+                  } catch (error) {
+                    toast.error(error.response?.data?.error || 'Network printer check failed.');
+                  }
+                }}><PlugZap size={14} /> Test Network 9100</button>
               </>
             )}
           >
             <div className="receipt-settings-testing-note">
-              <strong>Tip:</strong> the live preview below updates instantly while you type, so you can test layout without opening a separate window.
+              <strong>Tip:</strong> the live preview below updates instantly while you type, so you can test layout without opening a separate window. {savingInline ? 'Saving…' : ''}
             </div>
             <div className="receipt-settings-preview-wrap" ref={previewSectionRef}>
               <ReceiptPreview sale={previewSale} template={draftTemplate.schema} settings={settings} />

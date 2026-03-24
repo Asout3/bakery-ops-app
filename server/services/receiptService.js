@@ -7,6 +7,9 @@ const DEFAULT_RECEIPT_SETTINGS = Object.freeze({
     profileName: 'Front Counter',
     paperWidth: '80mm',
     saleAdapter: 'browser',
+    networkEnabled: false,
+    networkHost: '',
+    networkPort: 9100,
     copies: 1,
   },
   reprintPolicy: {
@@ -60,9 +63,9 @@ const DEFAULT_TEMPLATE_SCHEMA = Object.freeze({
       showDateTime: true,
       showCashier: true,
       showPaymentMethod: true,
-      showCustomerInfo: true,
-      showInternalRef: true,
-      showNotes: true,
+      showCustomerInfo: false,
+      showInternalRef: false,
+      showNotes: false,
       dateTimeFormat: 'locale',
       currencyCode: 'ETB',
       decimals: 2,
@@ -85,8 +88,8 @@ const DEFAULT_TEMPLATE_SCHEMA = Object.freeze({
       showTax: true,
       showDiscounts: true,
       showServiceCharge: true,
-      showPaidAmount: true,
-      showChange: true,
+      showPaidAmount: false,
+      showChange: false,
       showBalanceDue: true,
       totalLabel: 'TOTAL',
       paidLabel: 'PAID',
@@ -134,7 +137,10 @@ export function normalizeReceiptSettings(settings = {}) {
   const normalized = mergeDeep(DEFAULT_RECEIPT_SETTINGS, settings);
   normalized.printMode = normalized.printMode === 'ask' ? 'ask' : 'auto';
   normalized.showReceiptAfterSale = normalized.showReceiptAfterSale !== false;
-  normalized.printerProfile.saleAdapter = 'browser';
+  normalized.printerProfile.saleAdapter = normalized.printerProfile.saleAdapter === 'network' ? 'network' : 'browser';
+  normalized.printerProfile.networkEnabled = Boolean(normalized.printerProfile.networkEnabled);
+  normalized.printerProfile.networkHost = String(normalized.printerProfile.networkHost || '').trim();
+  normalized.printerProfile.networkPort = Number(normalized.printerProfile.networkPort || 9100);
   return normalized;
 }
 
@@ -156,7 +162,8 @@ export function createDefaultReceiptTemplatePayload(overrides = {}) {
 
 function buildHeaderLines(template, sale) {
   const header = template.sections.header;
-  const lines = [header.businessName, header.branchName, header.slogan, header.address, header.phone].filter(Boolean);
+  const phoneLines = String(header.phone || '').split(/[\n,]+/).map((entry) => entry.trim()).filter(Boolean);
+  const lines = [header.businessName, header.branchName, header.slogan, header.address, ...phoneLines].filter(Boolean);
   if (header.storeCode) lines.push(`Store: ${header.storeCode}`);
   const deviceLabel = sale.receipt_context?.device_label || header.deviceLabel;
   if (deviceLabel) lines.push(`Terminal: ${deviceLabel}`);

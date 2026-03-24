@@ -14,6 +14,7 @@ import { useToast } from '../context/ToastContext';
 import OfflineIndicator from './OfflineIndicator';
 import { useOfflineSync } from '../hooks/useOfflineSync';
 import { getPendingCount } from '../utils/offlineQueue';
+import { getReceiptConfigCache, normalizeReceiptSettings } from '../receipts/helpers';
 import './Layout.css';
 
 export default function Layout() {
@@ -77,6 +78,24 @@ export default function Layout() {
     let disposed = false;
 
     const notifyPrinterStatus = async () => {
+      const cachedConfig = getReceiptConfigCache();
+      const receiptSettings = normalizeReceiptSettings(cachedConfig?.settings || {});
+      if (receiptSettings.printerProfile.saleAdapter === 'network' && receiptSettings.printerProfile.networkEnabled && receiptSettings.printerProfile.networkHost) {
+        try {
+          const statusResponse = await api.post('/sales/network-printer/status', {
+            host: receiptSettings.printerProfile.networkHost,
+            port: receiptSettings.printerProfile.networkPort,
+          });
+          if (statusResponse.data?.connected) {
+            toast.success('POS connected via network printer.');
+          } else {
+            toast.warning('POS network printer not connected.');
+          }
+        } catch {
+          toast.warning('POS network printer status unavailable.');
+        }
+        return;
+      }
       if (!navigator.usb || typeof navigator.usb.getDevices !== 'function') {
         toast.warning('Thermal printer not detected. Connect printer and allow USB access.');
         return;
