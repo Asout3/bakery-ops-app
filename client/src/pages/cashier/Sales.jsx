@@ -24,6 +24,8 @@ function buildOfflineReceiptSale({ payload, cart, paymentMethod, user, settings,
   const now = new Date().toISOString();
   const totals = cart.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 0)), 0);
   const header = activeTemplate.schema.sections.header;
+  const taxPercent = Number(header.taxPercent || 0);
+  const taxAmount = Number((totals * taxPercent / 100).toFixed(2));
   return {
     id: null,
     local_only: true,
@@ -42,14 +44,13 @@ function buildOfflineReceiptSale({ payload, cart, paymentMethod, user, settings,
       sale_date: now,
       payment_method: paymentMethod,
       cashier_name: user?.username || 'Cashier',
-      header_lines: [header.businessName, header.branchName, header.slogan, header.address, header.phone, header.taxId].filter(Boolean),
+      header_lines: [header.businessName, header.branchName, header.slogan, header.address, header.phone].filter(Boolean),
       currency_code: activeTemplate.schema.sections.transaction.currencyCode || 'ETB',
       decimals: Number(activeTemplate.schema.sections.transaction.decimals ?? 2),
       items: cart.map((item) => ({ product_id: item.product_id, product_name: item.name, quantity: item.quantity, unit_price: Number(item.price), subtotal: Number(item.price) * Number(item.quantity) })),
-      totals: { subtotal: totals, tax: 0, discounts: 0, serviceCharge: 0, total: totals, paidAmount: totals, change: 0 },
+      totals: { subtotal: totals, tax: taxAmount, discounts: 0, serviceCharge: 0, total: totals + taxAmount, paidAmount: totals + taxAmount, change: 0 },
       footer_text: activeTemplate.schema.sections.footer.footerText || '',
-      legal_text: activeTemplate.schema.sections.footer.legalText || '',
-      qr_value: activeTemplate.schema.sections.footer.showQr ? (activeTemplate.schema.sections.footer.qrValue || payload.receipt_number) : '',
+      website: activeTemplate.schema.sections.footer.website || '',
     },
     print_summary: {
       receipt_generated: true,
@@ -259,10 +260,14 @@ export default function Sales() {
         attemptType: 'original',
       });
       toast.success('Receipt print started.');
-      setReceiptData(resolveSaleForPrinting({ ...sale, print_summary: { ...(sale.print_summary || {}), printed: true, last_print_result: 'success' } }));
+      if (activeSettings.showReceiptAfterSale) {
+        setReceiptData(resolveSaleForPrinting({ ...sale, print_summary: { ...(sale.print_summary || {}), printed: true, last_print_result: 'success' } }));
+      }
     } catch (error) {
       setPrintFailure({ sale, message: error.message || 'Printing failed.' });
-      setReceiptData(resolveSaleForPrinting(sale));
+      if (activeSettings.showReceiptAfterSale) {
+        setReceiptData(resolveSaleForPrinting(sale));
+      }
     }
   };
 
@@ -290,7 +295,9 @@ export default function Sales() {
     try {
       const response = await api.post('/sales', payload);
       const completedSale = resolveSaleForPrinting({ ...response.data, client_transaction_id: response.data.client_transaction_id || clientTransactionId });
-      setReceiptData(completedSale);
+      if (receiptConfig.settings.showReceiptAfterSale) {
+        setReceiptData(completedSale);
+      }
       applySaleToLocalStock(payload.items);
       setCart([]);
       toast.success('Sale completed.');
@@ -302,7 +309,9 @@ export default function Sales() {
         applySaleToLocalStock(payload.items);
         const offlineSale = buildOfflineReceiptSale({ payload, cart, paymentMethod, user, settings: receiptConfig.settings, activeTemplate: receiptConfig.activeTemplate });
         const storedOfflineSale = resolveSaleForPrinting(offlineSale);
-        setReceiptData(storedOfflineSale);
+        if (receiptConfig.settings.showReceiptAfterSale) {
+          setReceiptData(storedOfflineSale);
+        }
         setCart([]);
         toast.info('Sale queued offline and will sync automatically when online.');
         await maybeStartPrintFlow(storedOfflineSale);

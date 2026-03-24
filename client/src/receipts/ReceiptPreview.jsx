@@ -14,7 +14,6 @@ export default function ReceiptPreview({ sale, template, settings, printLabel = 
   const totals = payload.totals || {};
   const currency = payload.currency_code || normalizedTemplate.sections.transaction.currencyCode || 'ETB';
   const decimals = Number(payload.decimals ?? normalizedTemplate.sections.transaction.decimals ?? 2);
-  const separator = normalizedTemplate.separatorStyle === 'dotted' ? '. '.repeat(24) : '-'.repeat(32);
   const typography = normalizedTemplate.typography || {};
   const itemLayout = normalizedTemplate.sections.items || {};
   const transaction = normalizedTemplate.sections.transaction || {};
@@ -46,7 +45,7 @@ export default function ReceiptPreview({ sale, template, settings, printLabel = 
         <div className="thermal-receipt__business">{payload.header_lines?.[0] || normalizedTemplate.sections.header.businessName}</div>
         {(payload.header_lines || []).slice(1).map((line) => <div key={line}>{line}</div>)}
       </div>
-      <pre className="thermal-receipt__separator">{separator}</pre>
+      <div className={`thermal-receipt__separator thermal-receipt__separator--${normalizedTemplate.separatorStyle === 'dotted' ? 'dotted' : 'solid'}`} />
       <div className="thermal-receipt__meta">
         {transaction.showReceiptNumber ? <div className="thermal-receipt__line"><span>Receipt</span><span>{payload.receipt_number || sale.receipt_number}</span></div> : null}
         {transaction.showDateTime && receiptDate ? <div className="thermal-receipt__line"><span>Date</span><span>{new Date(receiptDate).toLocaleString()}</span></div> : null}
@@ -56,7 +55,7 @@ export default function ReceiptPreview({ sale, template, settings, printLabel = 
         {transaction.showInternalRef && payload.internal_ref ? <div className="thermal-receipt__line"><span>Reference</span><span>{payload.internal_ref}</span></div> : null}
         {transaction.showNotes && payload.notes ? <div className="thermal-receipt__note">{payload.notes}</div> : null}
       </div>
-      <pre className="thermal-receipt__separator">{separator}</pre>
+      <div className={`thermal-receipt__separator thermal-receipt__separator--${normalizedTemplate.separatorStyle === 'dotted' ? 'dotted' : 'solid'}`} />
       <div className="thermal-receipt__items-header">
         <span>ITEM</span>
         <span className="thermal-receipt__item-values">
@@ -78,11 +77,11 @@ export default function ReceiptPreview({ sale, template, settings, printLabel = 
           </div>
         ))}
       </div>
-      <pre className="thermal-receipt__separator">{separator}</pre>
+      <div className={`thermal-receipt__separator thermal-receipt__separator--${normalizedTemplate.separatorStyle === 'dotted' ? 'dotted' : 'solid'}`} />
       <div className="thermal-receipt__totals">
         {totalSection.showSubtotal ? <div className="thermal-receipt__line"><span>Subtotal</span><span>{formatMoney(totals.subtotal, currency, decimals)}</span></div> : null}
         {totalSection.showDiscounts && Number(totals.discounts || 0) > 0 ? <div className="thermal-receipt__line"><span>Discounts</span><span>{formatMoney(totals.discounts, currency, decimals)}</span></div> : null}
-        {totalSection.showTax && Number(totals.tax || 0) > 0 ? <div className="thermal-receipt__line"><span>Tax</span><span>{formatMoney(totals.tax, currency, decimals)}</span></div> : null}
+        {totalSection.showTax && Number(totals.tax || 0) > 0 ? <div className="thermal-receipt__line"><span>Tax ({Number(normalizedTemplate.sections.header.taxPercent || 0)}%)</span><span>{formatMoney(totals.tax, currency, decimals)}</span></div> : null}
         {totalSection.showServiceCharge && Number(totals.serviceCharge || 0) > 0 ? <div className="thermal-receipt__line"><span>Service</span><span>{formatMoney(totals.serviceCharge, currency, decimals)}</span></div> : null}
         <div className="thermal-receipt__line thermal-receipt__line--bold"><span>{totalSection.totalLabel || 'TOTAL'}</span><span>{formatMoney(totals.total, currency, decimals)}</span></div>
         {totalSection.showPaidAmount ? <div className="thermal-receipt__line"><span>{totalSection.paidLabel || 'PAID'}</span><span>{formatMoney(totals.paidAmount ?? totals.total, currency, decimals)}</span></div> : null}
@@ -91,8 +90,7 @@ export default function ReceiptPreview({ sale, template, settings, printLabel = 
       </div>
       <div className="thermal-receipt__footer thermal-receipt__header--center">
         {payload.footer_text ? <div>{payload.footer_text}</div> : null}
-        {payload.legal_text ? <div>{payload.legal_text}</div> : null}
-        {payload.qr_value ? <div>{payload.qr_value}</div> : null}
+        {payload.website ? <div>{payload.website}</div> : null}
       </div>
     </div>
   );

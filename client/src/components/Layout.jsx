@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
 import { useBranch } from '../context/BranchContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useToast } from '../context/ToastContext';
 import OfflineIndicator from './OfflineIndicator';
 import { useOfflineSync } from '../hooks/useOfflineSync';
 import { getPendingCount } from '../utils/offlineQueue';
@@ -24,6 +25,7 @@ export default function Layout() {
   const [locations, setLocations] = useState([]);
   const { selectedLocationId, setLocation } = useBranch();
   const { language, setLang, t } = useLanguage();
+  const toast = useToast();
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
   const [showLogoutWarning, setShowLogoutWarning] = useState(false);
   const [pendingLogoutCount, setPendingLogoutCount] = useState(0);
@@ -69,6 +71,41 @@ export default function Layout() {
   useEffect(() => {
     refreshNotifications();
   }, [user?.id, user?.role, selectedLocationId, refreshNotifications]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    let disposed = false;
+
+    const notifyPrinterStatus = async () => {
+      if (!navigator.usb || typeof navigator.usb.getDevices !== 'function') {
+        toast.warning('Thermal printer not detected. Connect printer and allow USB access.');
+        return;
+      }
+      try {
+        const devices = await navigator.usb.getDevices();
+        if (disposed) return;
+        if (devices.length > 0) {
+          toast.success('Thermal printer plugged in.');
+        } else {
+          toast.warning('Thermal printer not plugged in.');
+        }
+      } catch {
+        if (!disposed) toast.warning('Thermal printer status unavailable.');
+      }
+    };
+
+    const handleConnect = () => toast.success('Thermal printer plugged in.');
+    const handleDisconnect = () => toast.warning('Thermal printer not plugged in.');
+
+    notifyPrinterStatus();
+    navigator.usb?.addEventListener?.('connect', handleConnect);
+    navigator.usb?.addEventListener?.('disconnect', handleDisconnect);
+    return () => {
+      disposed = true;
+      navigator.usb?.removeEventListener?.('connect', handleConnect);
+      navigator.usb?.removeEventListener?.('disconnect', handleDisconnect);
+    };
+  }, [toast, user]);
 
   const navItems = useMemo(() => {
     const role = user?.role;

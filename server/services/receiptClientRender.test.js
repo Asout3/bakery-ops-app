@@ -36,8 +36,9 @@ test('createReceiptDocument applies qty and total spacing only inside the item v
       cashier_name: 'Mimi',
       payment_method: 'cash',
       items: [{ product_name: 'Milk Bread', quantity: 2, unit_price: 20, subtotal: 40 }],
-      totals: { subtotal: 40, total: 40, paidAmount: 40, change: 0 },
+      totals: { subtotal: 40, tax: 6, total: 46, paidAmount: 46, change: 0 },
       header_lines: ['Bakery'],
+      website: 'https://bakery.test',
     },
   };
 
@@ -46,6 +47,7 @@ test('createReceiptDocument applies qty and total spacing only inside the item v
     template: {
       paperWidth: '80mm',
       sections: {
+        header: { taxPercent: 15 },
         items: {
           columnGap: 24,
           quantityColumnWidth: 72,
@@ -60,6 +62,9 @@ test('createReceiptDocument applies qty and total spacing only inside the item v
   assert.match(documentPayload.html, /--receipt-values-width: 194px;/);
   assert.match(documentPayload.html, /\.receipt-line \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto; gap: 10px;/);
   assert.match(documentPayload.html, /class="receipt-item-values"/);
+  assert.match(documentPayload.html, /receipt-separator-solid/);
+  assert.match(documentPayload.html, /Tax \(15%\)/);
+  assert.match(documentPayload.html, /https:\/\/bakery\.test/);
 });
 
 test('buildPreOrderReceipt keeps pickup and balance details for pre-order printing', () => {

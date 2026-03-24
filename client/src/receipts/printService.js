@@ -63,6 +63,12 @@ function openReceiptWindow(documentPayload, title) {
 
 const adapters = {
   async browser({ documentPayload }) {
+    if (navigator.usb && typeof navigator.usb.getDevices === 'function') {
+      const devices = await navigator.usb.getDevices();
+      if (!devices.length) {
+        throw new Error('Thermal printer not detected.');
+      }
+    }
     await printReceiptIframe(documentPayload);
     return { status: 'success', adapterMode: 'browser' };
   },
@@ -73,12 +79,6 @@ const adapters = {
   async pdf({ documentPayload }) {
     await printReceiptIframe(documentPayload);
     return { status: 'success', adapterMode: 'pdf' };
-  },
-  async fake({ settings }) {
-    if (settings?.printerProfile?.simulateFailure) {
-      throw new Error('Simulated printer failure is enabled.');
-    }
-    return { status: 'success', adapterMode: 'fake' };
   },
 };
 

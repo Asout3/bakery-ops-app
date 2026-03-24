@@ -15,11 +15,6 @@ function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
-function renderSeparator(style) {
-  if (style === 'dotted') return '. '.repeat(24);
-  return '-'.repeat(32);
-}
-
 function renderLine(label, value, bold = false) {
   return `<div class="receipt-line ${bold ? 'receipt-line-bold' : ''}"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>`;
 }
@@ -73,7 +68,9 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
       .receipt-meta, .receipt-footer { font-size: var(--receipt-meta-font-size); line-height: var(--receipt-line-height); text-align: var(--receipt-body-align); }
       .receipt-footer { text-align: var(--receipt-footer-align); }
       .receipt-section { margin-top: 10px; }
-      .receipt-separator { white-space: pre; overflow: hidden; font-size: 12px; line-height: 1; margin: 8px 0; }
+      .receipt-separator { width: 100%; margin: 8px 0; border-top: 1px solid #111; }
+      .receipt-separator-dotted { border-top-style: dotted; }
+      .receipt-separator-solid { border-top-style: solid; }
       .receipt-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; font-size: var(--receipt-meta-font-size); line-height: var(--receipt-line-height); }
       .receipt-line span:last-child { text-align: right; }
       .receipt-line-bold { font-weight: 700; }
@@ -112,7 +109,7 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
           ${transaction.showInternalRef && payload.internal_ref ? renderLine('Reference', payload.internal_ref) : ''}
           ${transaction.showNotes && payload.notes ? `<div class="receipt-note">${escapeHtml(payload.notes)}</div>` : ''}
         </div>
-        <div class="receipt-separator">${escapeHtml(renderSeparator(normalizedTemplate.separatorStyle))}</div>
+        <div class="receipt-separator receipt-separator-${normalizedTemplate.separatorStyle === 'dotted' ? 'dotted' : 'solid'}"></div>
         <div class="receipt-section">
           <div class="receipt-items-header">
             <div>ITEM</div>
@@ -123,11 +120,11 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
           </div>
           ${items.map((item) => `<div class="receipt-item-row"><div class="receipt-item-name">${escapeHtml(item.product_name || '')}${item.notes ? `<div>${escapeHtml(item.notes)}</div>` : ''}</div><div class="receipt-item-values"><div class="receipt-item-qty">${escapeHtml(item.quantity)}</div><div class="receipt-item-value">${escapeHtml(formatMoney(item.subtotal, currencyCode, decimals))}</div></div></div>${itemLayout.showUnitPrice ? `<div class="receipt-item-price">${escapeHtml(formatMoney(item.unit_price, currencyCode, decimals))} ea</div>` : ''}`).join('')}
         </div>
-        <div class="receipt-separator">${escapeHtml(renderSeparator(normalizedTemplate.separatorStyle))}</div>
+        <div class="receipt-separator receipt-separator-${normalizedTemplate.separatorStyle === 'dotted' ? 'dotted' : 'solid'}"></div>
         <div class="receipt-section receipt-meta">
           ${totalSection.showSubtotal ? renderLine('Subtotal', formatMoney(totals.subtotal, currencyCode, decimals)) : ''}
           ${totalSection.showDiscounts && Number(totals.discounts || 0) > 0 ? renderLine('Discounts', formatMoney(totals.discounts, currencyCode, decimals)) : ''}
-          ${totalSection.showTax && Number(totals.tax || 0) > 0 ? renderLine('Tax', formatMoney(totals.tax, currencyCode, decimals)) : ''}
+          ${totalSection.showTax && Number(totals.tax || 0) > 0 ? renderLine(`Tax (${Number(normalizedTemplate.sections.header.taxPercent || 0)}%)`, formatMoney(totals.tax, currencyCode, decimals)) : ''}
           ${totalSection.showServiceCharge && Number(totals.serviceCharge || 0) > 0 ? renderLine('Service', formatMoney(totals.serviceCharge, currencyCode, decimals)) : ''}
           <div class="receipt-total-box">${renderLine(totalSection.totalLabel || 'TOTAL', formatMoney(totals.total, currencyCode, decimals), true)}</div>
           ${totalSection.showPaidAmount ? renderLine(totalSection.paidLabel || 'PAID', formatMoney(totals.paidAmount ?? totals.total, currencyCode, decimals)) : ''}
@@ -136,8 +133,7 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
         </div>
         <div class="receipt-footer receipt-center">
           ${payload.footer_text ? `<div>${escapeHtml(payload.footer_text)}</div>` : ''}
-          ${payload.legal_text ? `<div>${escapeHtml(payload.legal_text)}</div>` : ''}
-          ${payload.qr_value ? `<div>${escapeHtml(payload.qr_value)}</div>` : ''}
+          ${payload.website ? `<div>${escapeHtml(payload.website)}</div>` : ''}
         </div>
       </article>
     </div>

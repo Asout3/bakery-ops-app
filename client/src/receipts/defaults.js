@@ -1,13 +1,11 @@
 export const DEFAULT_RECEIPT_SETTINGS = {
   printMode: 'auto',
+  showReceiptAfterSale: true,
   printerProfile: {
     profileName: 'Front Counter',
     paperWidth: '80mm',
     saleAdapter: 'browser',
-    testingAdapter: 'fake',
-    previewAdapter: 'preview',
     copies: 1,
-    simulateFailure: false,
   },
   reprintPolicy: {
     windowMinutes: 20,
@@ -21,8 +19,6 @@ export const DEFAULT_RECEIPT_SETTINGS = {
     preOrder: 'PRE-ORDER',
   },
   testing: {
-    fakeModeEnabled: true,
-    previewEnabled: true,
     pdfEnabled: true,
   },
 };
@@ -50,8 +46,7 @@ export const DEFAULT_TEMPLATE_SCHEMA = {
       slogan: '',
       address: '',
       phone: '',
-      taxId: '',
-      website: '',
+      taxPercent: 0,
       storeCode: '',
       deviceLabel: '',
       cashierLabel: 'Cashier',
@@ -98,9 +93,7 @@ export const DEFAULT_TEMPLATE_SCHEMA = {
     },
     footer: {
       footerText: 'Thank you for shopping with us.',
-      legalText: '',
-      showQr: false,
-      qrValue: '',
+      website: '',
     },
   },
   sectionOrder: ['header', 'transaction', 'items', 'totals', 'footer'],

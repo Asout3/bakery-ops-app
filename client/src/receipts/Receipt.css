@@ -40,9 +40,17 @@
 }
 
 .thermal-receipt__separator {
+  width: 100%;
   margin: 8px 0;
-  overflow: hidden;
-  white-space: pre;
+  border-top: 1px solid #111;
+}
+
+.thermal-receipt__separator--dotted {
+  border-top-style: dotted;
+}
+
+.thermal-receipt__separator--solid {
+  border-top-style: solid;
 }
 
 .thermal-receipt__line {

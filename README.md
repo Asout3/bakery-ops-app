@@ -67,6 +67,7 @@ flowchart TB
 - Dynamic expense categories with audit-friendly expense codes and creator attribution.
 - Branch-aware access via role and location constraints.
 - In-app and browser-level operational notifications with polling + service-worker delivery for background alerts.
+- Thermal-receipt workflow with real print detection, auto/ask print modes, and consistent live-preview vs printed structure.
 - Scheduled archive jobs.
 - Addis Ababa timezone-consistent UI presentation.
 
@@ -201,6 +202,19 @@ When a remote reviewer reports they cannot see merged changes, confirm the follo
 - New server notifications trigger in-app toast banners while the app is open.
 - When the tab is in the background and browser permission is granted, the service worker displays OS-level browser notifications using the Notifications API.
 - Duplicate alerts are suppressed client-side by tracking seen notification IDs and service-worker notification tags.
+
+## Receipt Printing Behavior
+
+- Receipt printing now always uses the real browser print flow (`window.print`) for sale receipts and pre-order receipts.
+- On login, the app checks USB printer availability and shows a toast:
+  - `Thermal printer plugged in.`
+  - `Thermal printer not plugged in.`
+- The admin receipt settings page now includes:
+  - Persistent `Print Mode` (`Auto print after sale` vs `Ask every time`).
+  - `Show receipt after sale` toggle to control whether the preview modal opens after checkout.
+  - Tax percentage configuration (`Tax (%)`) applied in receipt totals (not header top).
+  - Footer website link rendered at the bottom of receipts.
+- Removed fake/testing adapter controls and QR/legal footer controls from admin settings to keep production print behavior focused on real device flow.
 
 ## Pre-Order Workflow
 

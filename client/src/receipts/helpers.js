@@ -25,7 +25,11 @@ function mergeDeep(base, override) {
 }
 
 export function normalizeReceiptSettings(settings = {}) {
-  return mergeDeep(DEFAULT_RECEIPT_SETTINGS, settings);
+  const normalized = mergeDeep(DEFAULT_RECEIPT_SETTINGS, settings);
+  normalized.printMode = normalized.printMode === 'ask' ? 'ask' : 'auto';
+  normalized.showReceiptAfterSale = normalized.showReceiptAfterSale !== false;
+  normalized.printerProfile.saleAdapter = 'browser';
+  return normalized;
 }
 
 export function normalizeReceiptTemplate(template = {}) {

@@ -3,9 +3,12 @@ import { normalizeReceiptTemplate } from './helpers.js';
 export function buildPreOrderReceipt(order, template) {
   const normalizedTemplate = normalizeReceiptTemplate(template || {});
   const totalAmount = Number(order.total_amount || 0);
+  const taxPercent = Number(normalizedTemplate.sections.header.taxPercent || 0);
+  const taxAmount = Number((totalAmount * taxPercent / 100).toFixed(2));
+  const grandTotal = totalAmount + taxAmount;
   const paidAmount = Number(order.paid_amount || 0);
-  const balanceDue = Math.max(totalAmount - paidAmount, 0);
-  const change = Math.max(paidAmount - totalAmount, 0);
+  const balanceDue = Math.max(grandTotal - paidAmount, 0);
+  const change = Math.max(paidAmount - grandTotal, 0);
   const receiptNumber = order.order_code || `ORD-${String(order.id || 'LOCAL').padStart(6, '0')}`;
   const header = normalizedTemplate.sections.header;
   const footer = normalizedTemplate.sections.footer;
@@ -43,7 +46,6 @@ export function buildPreOrderReceipt(order, template) {
         header.slogan,
         header.address,
         header.phone,
-        header.taxId ? `TIN: ${header.taxId}` : '',
         order.pickup_at ? `Pickup: ${new Date(order.pickup_at).toLocaleString()}` : '',
       ].filter(Boolean),
       currency_code: normalizedTemplate.sections.transaction.currencyCode || 'ETB',
@@ -51,17 +53,16 @@ export function buildPreOrderReceipt(order, template) {
       items,
       totals: {
         subtotal: totalAmount,
-        tax: 0,
+        tax: taxAmount,
         discounts: 0,
         serviceCharge: 0,
-        total: totalAmount,
+        total: grandTotal,
         paidAmount,
         balanceDue,
         change,
       },
       footer_text: footer.footerText || '',
-      legal_text: footer.legalText || '',
-      qr_value: footer.showQr ? (footer.qrValue || receiptNumber) : '',
+      website: footer.website || '',
     },
   };
 }
