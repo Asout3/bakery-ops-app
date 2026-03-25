@@ -3,7 +3,6 @@ import { body, validationResult } from 'express-validator';
 import { query } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
-import { processExpiredInventoryForAllLocations, processExpiredInventoryForLocation } from '../services/wasteService.js';
 
 const router = express.Router();
 
@@ -67,16 +66,6 @@ function normalizeShelfLifeDays(value) {
   return Math.trunc(normalized);
 }
 
-async function processExpiredForRequest(req) {
-  if (req.user?.role === 'admin' && !req.headers['x-location-id'] && !req.user?.location_id) {
-    await processExpiredInventoryForAllLocations(query, req.user.id);
-    return;
-  }
-
-  const locationId = await getTargetLocationId(req, query);
-  await processExpiredInventoryForLocation(query, locationId, req.user.id);
-}
-
 router.get('/categories', authenticateToken, async (req, res) => {
   try {
     const result = await query('SELECT id, name FROM categories ORDER BY name ASC');
@@ -108,7 +97,6 @@ router.post('/categories', authenticateToken, authorizeRoles('admin', 'manager')
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    await processExpiredForRequest(req);
     const locationId = await getTargetLocationId(req, query);
     const role = req.user?.role;
     const { hasGroupName } = await getProductSchemaSupport();
@@ -151,7 +139,6 @@ router.get('/', authenticateToken, async (req, res) => {
 
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    await processExpiredForRequest(req);
     const { hasGroupName } = await getProductSchemaSupport();
     const groupExpr = hasGroupName ? 'COALESCE(p.group_name, p.name)' : 'p.name';
     const result = await query(
@@ -182,8 +169,9 @@ router.post(
   authorizeRoles('admin', 'manager'),
   body('name').trim().notEmpty(),
   body('price').isFloat({ min: 0 }),
+  body('low_stock_threshold').isInt({ min: 0 }),
   body('source').optional().isIn(['baked', 'purchased']),
-  body('shelf_life_days').optional({ values: 'falsy' }).isInt({ min: 0 }),
+  body('shelf_life_days').isInt({ min: 1 }),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -192,6 +180,10 @@ router.post(
 
     const { name, group_name, category_id, price, cost, unit, source } = req.body;
     const shelfLifeDays = normalizeShelfLifeDays(req.body.shelf_life_days);
+    const lowStockThreshold = normalizeLowStockThreshold(req.body.low_stock_threshold);
+    if (!Number.isInteger(shelfLifeDays) || shelfLifeDays < 1 || !Number.isInteger(lowStockThreshold) || lowStockThreshold < 0) {
+      return res.status(400).json({ error: 'shelf_life_days and low_stock_threshold are required', code: 'VALIDATION_ERROR', requestId: req.requestId });
+    }
 
     try {
       const { hasGroupName } = await getProductSchemaSupport();
@@ -210,13 +202,13 @@ router.post(
             `INSERT INTO products (name, group_name, category_id, price, cost, unit, source, created_by, low_stock_threshold, shelf_life_days)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              RETURNING *`,
-            [name, effectiveGroup, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, normalizeLowStockThreshold(req.body.low_stock_threshold), shelfLifeDays ?? null]
+            [name, effectiveGroup, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, lowStockThreshold, shelfLifeDays]
           )
         : await query(
             `INSERT INTO products (name, category_id, price, cost, unit, source, created_by, low_stock_threshold, shelf_life_days)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              RETURNING *`,
-            [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, normalizeLowStockThreshold(req.body.low_stock_threshold), shelfLifeDays ?? null]
+            [name, category_id || null, price, cost || null, unit || 'piece', source || 'baked', req.user.id, lowStockThreshold, shelfLifeDays]
           );
 
       const createdProduct = result.rows[0];

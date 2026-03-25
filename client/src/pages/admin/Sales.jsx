@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import api from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { Eye, DollarSign, CreditCard, Calendar, Search, RotateCcw } from 'lucide-react';
+import { Eye, DollarSign, CreditCard, Calendar, Search, RotateCcw, Package } from 'lucide-react';
 import { formatAddisDateTime } from '../../utils/time';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -26,7 +26,9 @@ export default function SalesPage() {
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedSale, setSelectedSale] = useState(null);
+  const [selectedBatch, setSelectedBatch] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [batchDetailLoading, setBatchDetailLoading] = useState(false);
   const [filters, setFilters] = useState(initialFilters);
   const cachedConfig = getReceiptConfigCache();
   const receiptSettings = normalizeReceiptSettings(cachedConfig?.settings || {});
@@ -62,6 +64,19 @@ export default function SalesPage() {
       toast.error('Could not load full sale details.');
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const openBatchDetails = async (batch) => {
+    setBatchDetailLoading(true);
+    try {
+      const response = await api.get(`/inventory/batches/${batch.id}`);
+      setSelectedBatch(response.data);
+    } catch {
+      setSelectedBatch(batch);
+      toast.error('Could not load full batch details.');
+    } finally {
+      setBatchDetailLoading(false);
     }
   };
 
@@ -132,6 +147,7 @@ export default function SalesPage() {
       </div>
 
       {detailLoading ? <div className="alert alert-info mb-3">Loading sale details...</div> : null}
+      {batchDetailLoading ? <div className="alert alert-info mb-3">Loading batch details...</div> : null}
 
       {activeView === 'sales' ? (
         <>
@@ -147,14 +163,61 @@ export default function SalesPage() {
           </tbody></table></div></div></div>
         </>
       ) : (
-        <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>Batch #</th><th>Created At</th><th>Created By</th><th>Status</th><th>Items</th><th>Total Cost</th><th>Sync</th></tr></thead><tbody>
-          {filteredBatches.length === 0 ? <tr><td colSpan="7" className="text-center text-muted py-4">No batches found</td></tr> : filteredBatches.map((batch) => (
-            <tr key={batch.id}><td>#{batch.id}</td><td>{formatAddisDateTime(batch.created_at, { hour12: true })}</td><td>{batch.display_creator_name || batch.created_by_name}</td><td><span className={`badge ${batch.status === 'voided' ? 'badge-danger' : batch.status === 'edited' ? 'badge-warning' : 'badge-success'}`}>{batch.status || 'sent'}</span></td><td>{Number(batch.items_count || 0)}</td><td>ETB {Number(batch.total_cost || 0).toFixed(2)}</td><td>{batch.was_synced ? 'Synced' : batch.is_offline ? 'Offline' : 'Online'}</td></tr>
+        <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>Batch #</th><th>Created At</th><th>Created By</th><th>Status</th><th>Items</th><th>Total Cost</th><th>Sync</th><th>Details</th></tr></thead><tbody>
+          {filteredBatches.length === 0 ? <tr><td colSpan="8" className="text-center text-muted py-4">No batches found</td></tr> : filteredBatches.map((batch) => (
+            <tr key={batch.id}><td>#{batch.id}</td><td>{formatAddisDateTime(batch.created_at, { hour12: true })}</td><td>{batch.display_creator_name || batch.created_by_name}</td><td><span className={`badge ${batch.status === 'voided' ? 'badge-danger' : batch.status === 'edited' ? 'badge-warning' : 'badge-success'}`}>{batch.status || 'sent'}</span></td><td>{Number(batch.items_count || 0)}</td><td>ETB {Number(batch.total_cost || 0).toFixed(2)}</td><td>{batch.was_synced ? 'Synced' : batch.is_offline ? 'Offline' : 'Online'}</td><td><button className="btn btn-sm btn-outline-primary" onClick={() => openBatchDetails(batch)}><Eye size={14} /> View</button></td></tr>
           ))}
         </tbody></table></div></div></div>
       )}
 
       {selectedSale ? <SaleReceiptDetail sale={selectedSale} settings={receiptSettings} currentRole={user?.role || 'admin'} onClose={() => setSelectedSale(null)} onSaleUpdated={fetchData} toast={toast} /> : null}
+      {selectedBatch ? (
+        <div className="modal-overlay" onClick={() => setSelectedBatch(null)}>
+          <div className="modal-content modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3><Package size={18} className="me-2" />Batch #{selectedBatch.id}</h3>
+              <button className="close-btn" onClick={() => setSelectedBatch(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="row g-3 mb-3">
+                <div className="col-md-4"><strong>Created:</strong><div>{formatAddisDateTime(selectedBatch.created_at || selectedBatch.batch_date, { hour12: true })}</div></div>
+                <div className="col-md-4"><strong>Created By:</strong><div>{selectedBatch.display_creator_name || selectedBatch.created_by_name || '—'}</div></div>
+                <div className="col-md-4"><strong>Status:</strong><div><span className={`badge ${selectedBatch.status === 'voided' ? 'badge-danger' : selectedBatch.status === 'edited' ? 'badge-warning' : 'badge-success'}`}>{selectedBatch.status || 'sent'}</span></div></div>
+              </div>
+              <div className="row g-3 mb-3">
+                <div className="col-md-4"><strong>Total Items:</strong><div>{selectedBatch.items?.length || selectedBatch.items_count || 0}</div></div>
+                <div className="col-md-4"><strong>Total Cost:</strong><div>ETB {Number(selectedBatch.total_cost || 0).toFixed(2)}</div></div>
+                <div className="col-md-4"><strong>Sync:</strong><div>{selectedBatch.was_synced ? 'Synced' : selectedBatch.is_offline ? 'Offline' : 'Online'}</div></div>
+              </div>
+              <h5 className="mb-2">Batch Items</h5>
+              <div className="table-responsive">
+                <table className="table table-sm table-bordered">
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th>Quantity</th>
+                      <th>Source</th>
+                      <th>Unit Cost</th>
+                      <th>Line Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(selectedBatch.items || []).map((item, index) => (
+                      <tr key={item.id || index}>
+                        <td>{item.product_name || item.product_id}</td>
+                        <td>{Number(item.quantity || 0)}</td>
+                        <td>{item.source || '—'}</td>
+                        <td>ETB {Number(item.unit_cost || 0).toFixed(2)}</td>
+                        <td>ETB {(Number(item.unit_cost || 0) * Number(item.quantity || 0)).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
