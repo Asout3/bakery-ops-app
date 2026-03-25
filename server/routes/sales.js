@@ -81,7 +81,13 @@ function createServerReceiptNumber() {
   return `RC-${y}${m}${d}-${time}-${suffix}`;
 }
 
-function buildSaleCreateResponse(sale) {
+function buildSaleCreateResponse(sale, options = {}) {
+  const {
+    saleItems = [],
+    receiptPayload = null,
+    receiptTemplateSnapshot = null,
+    printSummary = null,
+  } = options;
   if (!sale) return null;
   return {
     id: sale.id,
@@ -95,6 +101,19 @@ function buildSaleCreateResponse(sale) {
     status: sale.status,
     sale_date: sale.sale_date,
     receipt_generated_at: sale.receipt_generated_at || null,
+    items: saleItems,
+    receipt_template_snapshot: normalizeReceiptTemplateSchema(receiptTemplateSnapshot || sale.receipt_template_snapshot || {}),
+    receipt_payload: receiptPayload,
+    print_summary: printSummary || {
+      receipt_generated: Boolean(receiptPayload),
+      printed: false,
+      print_attempts: 0,
+      last_print_result: 'unprinted',
+      reprint_count: 0,
+      reprints_remaining: 2,
+      in_reprint_window: true,
+      print_events: [],
+    },
   };
 }
 
@@ -550,7 +569,10 @@ router.post(
           );
           if (existingByClientId.rows.length > 0) {
             return {
-              responsePayload: buildSaleCreateResponse(existingByClientId.rows[0]),
+              responsePayload: buildSaleCreateResponse(existingByClientId.rows[0], {
+                receiptPayload: existingByClientId.rows[0].receipt_payload || null,
+                receiptTemplateSnapshot: existingByClientId.rows[0].receipt_template_snapshot || {},
+              }),
               postCommitData: null,
             };
           }
@@ -604,13 +626,6 @@ router.post(
 
         const createdSale = saleResult.rows[0];
 
-        const lowStockRule = await tx.query(
-          `SELECT threshold FROM alert_rules
-           WHERE location_id = $1 AND event_type = 'low_stock' AND enabled = true
-           ORDER BY updated_at DESC LIMIT 1`,
-          [locationId]
-        );
-        const defaultLowStockThreshold = Number(lowStockRule.rows[0]?.threshold || 5);
         const lowStockProductIds = new Set();
 
         if (saleItems.length > 0) {
@@ -654,16 +669,26 @@ router.post(
             [locationId, item.product_id, -item.quantity, createdSale.id, effectiveCashierId, JSON.stringify({ remaining_quantity: remainingQty, stock_batches: batchConsumption.consumed, synced_by_user_id: req.user.id })]
           );
 
-          const itemLowStockThreshold = Number.isFinite(Number(item.low_stock_threshold))
-            ? Number(item.low_stock_threshold)
-            : defaultLowStockThreshold;
-
-          if (remainingQty <= itemLowStockThreshold) {
-            lowStockProductIds.add(item.product_id);
-          }
+          lowStockProductIds.add(item.product_id);
         }
 
-        const responsePayload = buildSaleCreateResponse(createdSale);
+        const responseTemplate = normalizeReceiptTemplateSchema(receipt_template_snapshot || {});
+        const responseReceiptPayload = buildReceiptPayload({
+          sale: {
+            ...createdSale,
+            receipt_context,
+            cashier_name: req.user.username,
+          },
+          items: saleItems,
+          template: responseTemplate,
+          settings: normalizeReceiptSettings({}),
+        });
+
+        const responsePayload = buildSaleCreateResponse(createdSale, {
+          saleItems,
+          receiptPayload: responseReceiptPayload,
+          receiptTemplateSnapshot: responseTemplate,
+        });
 
         if (idempotencyKey) {
           await tx.query(
