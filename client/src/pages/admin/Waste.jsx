@@ -12,6 +12,8 @@ export default function WastePage() {
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [reasonFilter, setReasonFilter] = useState('all');
 
   const loadWasteData = async () => {
     setError('');
@@ -45,30 +47,35 @@ export default function WastePage() {
     }
   };
 
-  const groupedLoss = useMemo(() => wasteRows.reduce((acc, row) => {
-    const key = `${row.group_name}::${row.product_name}`;
-    if (!acc[key]) {
-      acc[key] = {
-        key,
-        label: `${row.group_name} / ${row.product_name}`,
-        quantity: 0,
-        totalLoss: 0,
-        occurrences: 0,
-        lastWastedAt: row.wasted_at,
-        unit: row.unit,
-      };
-    }
+  const groupedRows = useMemo(() => {
+    const grouped = wasteRows.reduce((acc, row) => {
+      const key = `${row.group_name}::${row.product_name}`;
+      if (!acc[key]) {
+        acc[key] = {
+          key,
+          label: `${row.group_name} / ${row.product_name}`,
+          quantity: 0,
+          totalLoss: 0,
+          occurrences: 0,
+          lastWastedAt: row.wasted_at,
+          unit: row.unit,
+        };
+      }
+      acc[key].quantity += Number(row.quantity_wasted || 0);
+      acc[key].totalLoss += Number(row.total_loss || 0);
+      acc[key].occurrences += 1;
+      if (new Date(row.wasted_at).getTime() > new Date(acc[key].lastWastedAt).getTime()) acc[key].lastWastedAt = row.wasted_at;
+      return acc;
+    }, {});
+    return Object.values(grouped).sort((a, b) => b.totalLoss - a.totalLoss);
+  }, [wasteRows]);
 
-    acc[key].quantity += Number(row.quantity_wasted || 0);
-    acc[key].totalLoss += Number(row.total_loss || 0);
-    acc[key].occurrences += 1;
-    if (new Date(row.wasted_at).getTime() > new Date(acc[key].lastWastedAt).getTime()) {
-      acc[key].lastWastedAt = row.wasted_at;
-    }
-    return acc;
-  }, {}), [wasteRows]);
-
-  const groupedRows = Object.values(groupedLoss).sort((a, b) => b.totalLoss - a.totalLoss);
+  const visibleWasteRows = useMemo(() => wasteRows.filter((row) => {
+    if (reasonFilter !== 'all' && String(row.reason || '').toLowerCase() !== reasonFilter) return false;
+    if (!searchTerm) return true;
+    const text = `${row.group_name || ''} ${row.product_name || ''} ${row.location_name || ''} ${row.created_by_name || ''}`.toLowerCase();
+    return text.includes(searchTerm.toLowerCase());
+  }), [reasonFilter, searchTerm, wasteRows]);
   const selectedWasteCard = useMemo(() => {
     if (period === 'weekly') {
       return {
@@ -145,7 +152,7 @@ export default function WastePage() {
       </div>
 
       <div className="card mb-4">
-        <div className="card-header"><h3>Loss by item</h3></div>
+        <div className="card-header"><h3>Loss by product (aggregated)</h3></div>
         <div className="card-body">
           {!groupedRows.length ? (
             <div className="empty-state">
@@ -183,9 +190,20 @@ export default function WastePage() {
       </div>
 
       <div className="card">
-        <div className="card-header"><h3>Waste ledger</h3></div>
+        <div className="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <h3 className="mb-0">Waste event ledger (detailed)</h3>
+          <div className="d-flex gap-2">
+            <select className="form-select" style={{ minWidth: 160 }} value={reasonFilter} onChange={(e) => setReasonFilter(e.target.value)}>
+              <option value="all">All reasons</option>
+              <option value="expired">Expired</option>
+              <option value="damaged">Damaged</option>
+              <option value="other">Other</option>
+            </select>
+            <input className="form-control" style={{ minWidth: 220 }} placeholder="Search product, location, user..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          </div>
+        </div>
         <div className="card-body">
-          {!wasteRows.length ? (
+          {!visibleWasteRows.length ? (
             <div className="empty-state">
               <Trash2 size={40} className="text-muted" />
               <h4>No waste activity yet</h4>
@@ -197,19 +215,25 @@ export default function WastePage() {
                 <thead>
                   <tr>
                     <th>Timestamp</th>
+                    <th>Location</th>
+                    <th>Processed By</th>
                     <th>Product</th>
                     <th>Quantity</th>
+                    <th>Expiry Date</th>
                     <th>Cost / Unit</th>
                     <th>Total Loss</th>
                     <th>Reason</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {wasteRows.map((row) => (
+                  {visibleWasteRows.map((row) => (
                     <tr key={row.id}>
                       <td>{new Date(row.wasted_at).toLocaleString()}</td>
+                      <td>{row.location_name || '—'}</td>
+                      <td>{row.created_by_name || 'System'}</td>
                       <td>{row.group_name} / {row.product_name}</td>
                       <td>{Number(row.quantity_wasted || 0)} {row.unit || 'unit'}</td>
+                      <td>{row.expires_at ? new Date(row.expires_at).toLocaleDateString() : 'No expiry'}</td>
                       <td>{formatMoney(row.cost_per_unit)}</td>
                       <td>{formatMoney(row.total_loss)}</td>
                       <td><span className="badge badge-danger text-uppercase">{row.reason}</span></td>

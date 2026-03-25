@@ -190,9 +190,10 @@ When a remote reviewer reports they cannot see merged changes, confirm the follo
 
 ## Waste Tracking and Alerts
 
-- Products now store an optional `expiration_date`; once that date is older than the current day, remaining on-hand inventory is automatically moved into `waste_records`.
+- Products store `shelf_life_days`; stock batches with computed `expires_at` timestamps are moved into `waste_records` when expired.
 - Each waste record stores `product_id`, `location_id`, `quantity_wasted`, `cost_per_unit`, `total_loss`, `reason`, `wasted_at`, and related metadata for auditing.
-- Expired inventory processing runs before product, inventory, dashboard, and waste reads, and before sale creation, keeping operational screens accurate without needing a manual cleanup job.
+- Expired inventory processing is intentionally write-triggered (sale post-commit flow or explicit `POST /api/waste/process-expired`) so read endpoints do not mutate ledger state.
+- Expiry processing ignores products without shelf-life (`shelf_life_days <= 0` or null) to prevent accidental waste creation.
 - Admins have a dedicated Waste page that surfaces grouped loss by item plus current-day, current-week, and current-month waste-loss cards.
 - Inventory low-stock notifications are triggered after manual stock edits, sales, and expiry-driven waste movements.
 
@@ -427,16 +428,23 @@ Main docs/                 primary onboarding and operational guides
 
 ## Testing Strategy
 
-- Unit tests for middleware and utility critical paths.
-- Offline queue behavior tests for replay and failure semantics.
-- Error handler tests for envelope consistency.
-- Build/lint checks for integration-level confidence.
+Current automated coverage in this repository:
 
-Recommended expansion:
+- `npm test` runs **server-side** tests only (`node --test server/**/*.test.js`).
+- `npm run lint` lints **server-side** code only (`eslint server/`).
+- `npm run build` verifies client production build output.
 
-- Add route-level integration tests for auth/inventory/archive.
-- Add API contract snapshot tests for error and pagination behavior.
-- Add scheduled-job simulation tests for multi-instance scenarios.
+Production gate recommendation (required before each release):
+
+1. Run `npm test` and confirm no failed tests.
+2. Run `npm run lint` and ensure no new warnings/errors are introduced.
+3. Run `npm run build` and confirm Vite build success.
+4. Execute manual UAT on staging for:
+   - checkout latency and receipt behavior (enabled/disabled modes),
+   - waste processing correctness (with and without shelf-life products),
+   - offline replay and idempotent duplicate prevention,
+   - admin batch detail inspection and reporting visibility.
+5. Verify runtime metrics and logs for 24h canary period before full rollout.
 
 ---
 
@@ -446,6 +454,20 @@ See dedicated deployment guidance in:
 
 - `Main docs/deployment-and-infrastructure.md`
 - `docs/architecture-and-ops-playbook.md`
+
+### Production Rollout Flow
+
+```mermaid
+flowchart TD
+  A["Code freeze"] --> B["CI checks: test + lint + build"]
+  B --> C["Staging deploy"]
+  C --> D["UAT sign-off"]
+  D --> E["Canary production deploy"]
+  E --> F["Monitor logs, errors, latency, queue health"]
+  F --> G{"Healthy after canary window?"}
+  G -->|Yes| H["Full production rollout"]
+  G -->|No| I["Rollback + hotfix"]
+```
 
 ---
 
@@ -473,10 +495,15 @@ See dedicated deployment guidance in:
 - [ ] `DATABASE_URL` configured with SSL
 - [ ] `ALLOWED_ORIGINS` configured
 - [ ] migrations applied successfully
+- [ ] `npm test` passes in CI/CD environment
+- [ ] `npm run lint` passes with no newly introduced warnings/errors
+- [ ] `npm run build` succeeds
 - [ ] health/readiness probes validated
-- [ ] offline contract verified in client replay flows
-- [ ] build/test/lint green in CI
+- [ ] offline contract verified in replay flows (`X-Idempotency-Key`, queued actor headers)
+- [ ] waste processing verified against real shelf-life data in staging
+- [ ] receipt enable/disable behavior verified in cashier/admin flows
 - [ ] scheduler locks validated in multi-instance deployment
+- [ ] rollback procedure tested (database + app versions)
 
 ---
 

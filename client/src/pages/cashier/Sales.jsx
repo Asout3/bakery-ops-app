@@ -252,6 +252,9 @@ export default function Sales() {
 
   const maybeStartPrintFlow = async (sale) => {
     const activeSettings = receiptConfig.settings;
+    if (activeSettings.enabled === false) {
+      return;
+    }
     if (activeSettings.printMode === 'ask') {
       setPendingPrintSale(sale);
       return;
@@ -295,12 +298,13 @@ export default function Sales() {
         created_at: new Date().toISOString(),
       },
       receipt_template_snapshot: receiptConfig.activeTemplate.schema,
+      receipt_enabled: receiptConfig.settings.enabled !== false,
     };
 
     try {
       const response = await api.post('/sales', payload);
       const completedSale = resolveSaleForPrinting({ ...response.data, client_transaction_id: response.data.client_transaction_id || clientTransactionId });
-      if (receiptConfig.settings.showReceiptAfterSale) {
+      if (receiptConfig.settings.enabled !== false && receiptConfig.settings.showReceiptAfterSale) {
         setReceiptData(completedSale);
       }
       applySaleToLocalStock(payload.items);
@@ -314,7 +318,7 @@ export default function Sales() {
         applySaleToLocalStock(payload.items);
         const offlineSale = buildOfflineReceiptSale({ payload, cart, paymentMethod, user, settings: receiptConfig.settings, activeTemplate: receiptConfig.activeTemplate });
         const storedOfflineSale = resolveSaleForPrinting(offlineSale);
-        if (receiptConfig.settings.showReceiptAfterSale) {
+        if (receiptConfig.settings.enabled !== false && receiptConfig.settings.showReceiptAfterSale) {
           setReceiptData(storedOfflineSale);
         }
         setCart([]);
@@ -407,7 +411,7 @@ export default function Sales() {
         <div className="cart-section">
           <div className="card"><div className="card-header"><h3><ShoppingCart size={20} />Cart ({cart.length})</h3></div><div className="card-body cart-body">
             {cart.length === 0 ? <div className="empty-cart"><ShoppingCart size={48} /><p>{t('cartEmpty')}</p></div> : <div className="cart-items">{cart.map((item) => <div key={item.product_id} className="cart-item"><div className="cart-item-details"><div className="cart-item-name">{item.name}</div><div className="cart-item-price">ETB {Number(item.price).toFixed(2)}</div></div><div className="cart-item-actions"><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, -1)}><Minus size={14} /></button><input type="number" min="1" className="form-control form-control-sm" style={{ width: '72px', textAlign: 'center' }} value={item.quantity} onChange={(e) => setQuantity(item.product_id, Number(e.target.value))} /><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, 1)}><Plus size={14} /></button><button className="btn btn-sm btn-danger" onClick={() => removeFromCart(item.product_id)}><Trash2 size={14} /></button></div><div className="cart-item-subtotal">ETB {(item.price * item.quantity).toFixed(2)}</div></div>)}</div>}
-          </div><div className="card-footer"><div className="payment-method-select"><label htmlFor="payment-method">Payment Method</label><select id="payment-method" className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div><div className="cart-total"><span className="cart-total-label">Total:</span><span className="cart-total-amount">ETB {calculateTotal().toFixed(2)}</span></div><div className="alert alert-light mt-3 mb-0"><Printer size={14} className="me-2" />Print mode: {receiptConfig.settings.printMode === 'ask' ? 'Ask every time' : `Auto via ${receiptConfig.settings.printerProfile.saleAdapter}`}</div><button className="btn btn-success btn-lg" onClick={handleCheckout} disabled={loading || cart.length === 0} style={{ width: '100%', marginTop: '1rem' }}>{loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}</button></div></div>
+          </div><div className="card-footer"><div className="payment-method-select"><label htmlFor="payment-method">Payment Method</label><select id="payment-method" className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div><div className="cart-total"><span className="cart-total-label">Total:</span><span className="cart-total-amount">ETB {calculateTotal().toFixed(2)}</span></div><div className="alert alert-light mt-3 mb-0"><Printer size={14} className="me-2" />Print mode: {receiptConfig.settings.enabled === false ? 'Disabled' : (receiptConfig.settings.printMode === 'ask' ? 'Ask every time' : `Auto via ${receiptConfig.settings.printerProfile.saleAdapter}`)}</div><button className="btn btn-success btn-lg" onClick={handleCheckout} disabled={loading || cart.length === 0} style={{ width: '100%', marginTop: '1rem' }}>{loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}</button></div></div>
         </div>
       </div>
 

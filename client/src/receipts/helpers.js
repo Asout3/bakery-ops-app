@@ -26,6 +26,7 @@ function mergeDeep(base, override) {
 
 export function normalizeReceiptSettings(settings = {}) {
   const normalized = mergeDeep(DEFAULT_RECEIPT_SETTINGS, settings);
+  normalized.enabled = normalized.enabled !== false;
   normalized.printMode = normalized.printMode === 'ask' ? 'ask' : 'auto';
   normalized.showReceiptAfterSale = normalized.showReceiptAfterSale !== false;
   normalized.printerProfile.saleAdapter = ['network', 'bluetooth'].includes(normalized.printerProfile.saleAdapter) ? normalized.printerProfile.saleAdapter : 'browser';
