@@ -1,4 +1,5 @@
 export const DEFAULT_RECEIPT_SETTINGS = {
+  enabled: true,
   printMode: 'auto',
   showReceiptAfterSale: true,
   printerProfile: {

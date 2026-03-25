@@ -63,6 +63,7 @@ export async function processExpiredInventoryForLocation(dbOrQuery, locationId, 
      WHERE sb.location_id = $1
        AND sb.quantity_remaining > 0
        AND sb.expires_at IS NOT NULL
+       AND COALESCE(p.shelf_life_days, 0) > 0
        AND sb.expires_at <= NOW()
      ORDER BY sb.expires_at ASC, sb.id ASC`,
     [locationId]

@@ -141,6 +141,7 @@ async function runSalePostCommitEffects({
   createdSale,
   receiptContext,
   receiptTemplateSnapshot,
+  receiptEnabled = true,
   fallbackCashierName,
   clientTransactionId,
   lowStockProductIds,
@@ -152,28 +153,32 @@ async function runSalePostCommitEffects({
   }
 
   try {
-    const cashierResult = await query('SELECT username FROM users WHERE id = $1', [effectiveCashierId]);
-    const { settings, activeTemplate } = await getReceiptConfig(locationId || null);
-    const resolvedTemplate = normalizeReceiptTemplateSchema(receiptTemplateSnapshot || activeTemplate?.schema || {});
-    const receiptPayload = buildReceiptPayload({
-      sale: {
-        ...createdSale,
-        receipt_context: receiptContext,
-        cashier_name: cashierResult.rows[0]?.username || fallbackCashierName,
-      },
-      items: saleItems,
-      template: resolvedTemplate,
-      settings,
-    });
+    if (receiptEnabled) {
+      const cashierResult = await query('SELECT username FROM users WHERE id = $1', [effectiveCashierId]);
+      const { settings, activeTemplate } = await getReceiptConfig(locationId || null);
+      if (settings.enabled !== false) {
+        const resolvedTemplate = normalizeReceiptTemplateSchema(receiptTemplateSnapshot || activeTemplate?.schema || {});
+        const receiptPayload = buildReceiptPayload({
+          sale: {
+            ...createdSale,
+            receipt_context: receiptContext,
+            cashier_name: cashierResult.rows[0]?.username || fallbackCashierName,
+          },
+          items: saleItems,
+          template: resolvedTemplate,
+          settings,
+        });
 
-    await query(
-      `UPDATE sales
-       SET receipt_payload = $1,
-           receipt_template_snapshot = $2,
-           receipt_generated_at = NOW()
-       WHERE id = $3`,
-      [JSON.stringify(receiptPayload), JSON.stringify(resolvedTemplate), createdSale.id]
-    );
+        await query(
+          `UPDATE sales
+           SET receipt_payload = $1,
+               receipt_template_snapshot = $2,
+               receipt_generated_at = NOW()
+           WHERE id = $3`,
+          [JSON.stringify(receiptPayload), JSON.stringify(resolvedTemplate), createdSale.id]
+        );
+      }
+    }
   } catch (err) {
     console.error('Sale post-commit receipt generation failed:', err);
   }
@@ -520,7 +525,7 @@ router.post(
       return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
     }
 
-    const { items, payment_method, cashier_timing_ms, receipt_number, client_transaction_id, receipt_context, receipt_template_snapshot } = req.body;
+    const { items, payment_method, cashier_timing_ms, receipt_number, client_transaction_id, receipt_context, receipt_template_snapshot, receipt_enabled } = req.body;
     const queuedActorIdHeader = req.headers['x-offline-actor-id'];
     const idempotencyKey = req.headers['x-idempotency-key'];
     const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
@@ -673,7 +678,8 @@ router.post(
         }
 
         const responseTemplate = normalizeReceiptTemplateSchema(receipt_template_snapshot || {});
-        const responseReceiptPayload = buildReceiptPayload({
+        const receiptEnabled = receipt_enabled !== false;
+        const responseReceiptPayload = receiptEnabled ? buildReceiptPayload({
           sale: {
             ...createdSale,
             receipt_context,
@@ -682,7 +688,7 @@ router.post(
           items: saleItems,
           template: responseTemplate,
           settings: normalizeReceiptSettings({}),
-        });
+        }) : null;
 
         const responsePayload = buildSaleCreateResponse(createdSale, {
           saleItems,
@@ -711,6 +717,7 @@ router.post(
             createdSale,
             receiptContext: receipt_context,
             receiptTemplateSnapshot: receipt_template_snapshot,
+            receiptEnabled,
             fallbackCashierName: req.user.username,
             clientTransactionId: client_transaction_id,
             lowStockProductIds: [...lowStockProductIds],

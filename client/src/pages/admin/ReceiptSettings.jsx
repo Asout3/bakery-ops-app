@@ -381,6 +381,13 @@ export default function ReceiptSettingsPage() {
                 </select>
               </div>
               <div className="receipt-field">
+                <label className="form-label">Receipt System</label>
+                <select className="form-select" value={settings.enabled === false ? 'off' : 'on'} onChange={(e) => patchSettings({ ...settings, enabled: e.target.value === 'on' })}>
+                  <option value="on">On</option>
+                  <option value="off">Off</option>
+                </select>
+              </div>
+              <div className="receipt-field">
                 <label className="form-label">Print Mode</label>
                 <select className="form-select" value={settings.printMode} onChange={(e) => patchSettings({ ...settings, printMode: e.target.value })}>
                   <option value="auto">Auto print after sale</option>

@@ -16,19 +16,8 @@ function isValidDateFilter(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
 }
 
-async function processExpiredForRequest(req) {
-  if (req.user?.role === 'admin' && !req.headers['x-location-id'] && !req.user?.location_id) {
-    return processExpiredInventoryForAllLocations(query, req.user.id);
-  }
-
-  const locationId = await getTargetLocationId(req, query);
-  await processExpiredInventoryForLocation(query, locationId, req.user.id);
-  return [];
-}
-
 router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
-    await processExpiredForRequest(req);
     const locationId = await getTargetLocationId(req, query);
     const limit = clampLimit(req.query.limit, 100, 500);
     const startDate = req.query.start_date;
@@ -87,7 +76,6 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (re
 
 router.get('/summary', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
-    await processExpiredForRequest(req);
     const locationId = await getTargetLocationId(req, query);
     const params = [locationId || null];
 
