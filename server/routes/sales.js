@@ -81,6 +81,146 @@ function createServerReceiptNumber() {
   return `RC-${y}${m}${d}-${time}-${suffix}`;
 }
 
+function buildSaleCreateResponse(sale) {
+  if (!sale) return null;
+  return {
+    id: sale.id,
+    location_id: sale.location_id,
+    cashier_id: sale.cashier_id,
+    total_amount: sale.total_amount,
+    payment_method: sale.payment_method,
+    receipt_number: sale.receipt_number,
+    is_offline: sale.is_offline,
+    client_transaction_id: sale.client_transaction_id,
+    status: sale.status,
+    sale_date: sale.sale_date,
+    receipt_generated_at: sale.receipt_generated_at || null,
+  };
+}
+
+function buildBulkSaleItemsInsert(saleId, saleItems = []) {
+  const values = [];
+  const placeholders = [];
+  let cursor = 1;
+
+  for (const item of saleItems) {
+    placeholders.push(`($${cursor}, $${cursor + 1}, $${cursor + 2}, $${cursor + 3}, $${cursor + 4})`);
+    values.push(saleId, item.product_id, item.quantity, item.unit_price, item.subtotal);
+    cursor += 5;
+  }
+
+  return { values, placeholders: placeholders.join(', ') };
+}
+
+async function runSalePostCommitEffects({
+  locationId,
+  effectiveCashierId,
+  totalAmount,
+  cashierTimingMs,
+  items,
+  saleItems,
+  createdSale,
+  receiptContext,
+  receiptTemplateSnapshot,
+  fallbackCashierName,
+  clientTransactionId,
+  lowStockProductIds,
+}) {
+  try {
+    await processExpiredInventoryForLocation({ query }, locationId, effectiveCashierId);
+  } catch (err) {
+    console.error('Sale post-commit expired inventory processing failed:', err);
+  }
+
+  try {
+    const cashierResult = await query('SELECT username FROM users WHERE id = $1', [effectiveCashierId]);
+    const { settings, activeTemplate } = await getReceiptConfig(locationId || null);
+    const resolvedTemplate = normalizeReceiptTemplateSchema(receiptTemplateSnapshot || activeTemplate?.schema || {});
+    const receiptPayload = buildReceiptPayload({
+      sale: {
+        ...createdSale,
+        receipt_context: receiptContext,
+        cashier_name: cashierResult.rows[0]?.username || fallbackCashierName,
+      },
+      items: saleItems,
+      template: resolvedTemplate,
+      settings,
+    });
+
+    await query(
+      `UPDATE sales
+       SET receipt_payload = $1,
+           receipt_template_snapshot = $2,
+           receipt_generated_at = NOW()
+       WHERE id = $3`,
+      [JSON.stringify(receiptPayload), JSON.stringify(resolvedTemplate), createdSale.id]
+    );
+  } catch (err) {
+    console.error('Sale post-commit receipt generation failed:', err);
+  }
+
+  try {
+    await query(
+      `INSERT INTO kpi_events (location_id, user_id, event_type, event_value, metric_key, duration_ms, metadata)
+       VALUES ($1, $2, 'sale_created', $3, $4, $5, $6)`,
+      [
+        locationId,
+        effectiveCashierId,
+        totalAmount,
+        'cashier_order_processing_time',
+        Number(cashierTimingMs) || null,
+        JSON.stringify({ sale_id: createdSale.id, items_count: items.length, client_transaction_id: clientTransactionId || null })
+      ]
+    );
+  } catch (err) {
+    console.error('Sale post-commit KPI logging failed:', err);
+  }
+
+  try {
+    const highSaleRule = await query(
+      `SELECT threshold FROM alert_rules
+       WHERE location_id = $1 AND event_type = 'high_sale' AND enabled = true
+       ORDER BY updated_at DESC LIMIT 1`,
+      [locationId]
+    );
+    const highSaleThreshold = Number(highSaleRule.rows[0]?.threshold || 0);
+
+    if (highSaleThreshold > 0 && totalAmount >= highSaleThreshold) {
+      await query(
+        `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+         SELECT id, $1, 'High Sale Alert', $2, 'sales_anomaly'
+         FROM users WHERE role IN ('admin', 'manager') AND location_id = $1`,
+        [locationId, `Sale ${createdSale.receipt_number} reached $${Number(totalAmount).toFixed(2)} (threshold $${highSaleThreshold.toFixed(2)}).`]
+      );
+    }
+  } catch (err) {
+    console.error('Sale post-commit high-sale notification failed:', err);
+  }
+
+  try {
+    await query(
+      `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        effectiveCashierId,
+        locationId,
+        'sale_created',
+        `Sale ${createdSale.receipt_number} - Total: ${totalAmount}`,
+        JSON.stringify({ sale_id: createdSale.id, receipt_number: createdSale.receipt_number, items_count: items.length, client_transaction_id: clientTransactionId || null }),
+      ]
+    );
+  } catch (err) {
+    console.error('Sale post-commit activity logging failed:', err);
+  }
+
+  for (const productId of lowStockProductIds || []) {
+    try {
+      await createLowStockNotificationIfNeeded({ query }, locationId, productId);
+    } catch (err) {
+      console.error(`Sale post-commit low-stock notification failed for product ${productId}:`, err);
+    }
+  }
+}
 
 function getReceiptScopeKey(locationId = null) {
   return locationId ? `location:${Number(locationId)}` : 'global';
@@ -368,7 +508,7 @@ router.post(
 
     try {
       const locationId = await getTargetLocationId(req, query);
-      const sale = await withTransaction(async (tx) => {
+      const saleExecution = await withTransaction(async (tx) => {
         let effectiveCashierId = req.user.id;
 
         if (isFromOfflineQueue && queuedActorIdHeader) {
@@ -391,38 +531,49 @@ router.post(
           if (existing.rows.length > 0) {
             const existingPayload = existing.rows[0].response_payload;
             if (typeof existingPayload === 'string') {
-              return JSON.parse(existingPayload);
+              return {
+                responsePayload: JSON.parse(existingPayload),
+                postCommitData: null,
+              };
             }
-            return existingPayload;
+            return {
+              responsePayload: existingPayload,
+              postCommitData: null,
+            };
           }
         }
 
         if (client_transaction_id) {
           const existingByClientId = await tx.query(
-            'SELECT id FROM sales WHERE client_transaction_id = $1 LIMIT 1',
+            'SELECT * FROM sales WHERE client_transaction_id = $1 LIMIT 1',
             [client_transaction_id]
           );
           if (existingByClientId.rows.length > 0) {
-            return getSaleWithItems(existingByClientId.rows[0].id, tx);
+            return {
+              responsePayload: buildSaleCreateResponse(existingByClientId.rows[0]),
+              postCommitData: null,
+            };
           }
         }
 
-        await processExpiredInventoryForLocation(tx, locationId, effectiveCashierId);
-
         let totalAmount = 0;
         const saleItems = [];
+        const uniqueProductIds = [...new Set(items.map((item) => Number(item.product_id)).filter((productId) => Number.isInteger(productId) && productId > 0))];
+        const productsResult = await tx.query(
+          `SELECT id, name, price, low_stock_threshold, is_active
+           FROM products
+           WHERE id = ANY($1::int[])`,
+          [uniqueProductIds]
+        );
+        const productsById = new Map(productsResult.rows.map((row) => [Number(row.id), row]));
 
         for (const item of items) {
-          const productResult = await tx.query(`SELECT id, name, price, low_stock_threshold, is_active
-                                                FROM products
-                                                WHERE id = $1`, [item.product_id]);
-          if (productResult.rows.length === 0) {
+          const product = productsById.get(Number(item.product_id));
+          if (!product) {
             const err = new Error(`Product ${item.product_id} not found`);
             err.status = 404;
             throw err;
           }
-
-          const product = productResult.rows[0];
           if (product.is_active === false) {
             const inactiveError = new Error(`${product.name} is inactive and cannot be sold`);
             inactiveError.status = 400;
@@ -460,14 +611,18 @@ router.post(
           [locationId]
         );
         const defaultLowStockThreshold = Number(lowStockRule.rows[0]?.threshold || 5);
+        const lowStockProductIds = new Set();
 
-        for (const item of saleItems) {
+        if (saleItems.length > 0) {
+          const { values, placeholders } = buildBulkSaleItemsInsert(createdSale.id, saleItems);
           await tx.query(
             `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [createdSale.id, item.product_id, item.quantity, item.unit_price, item.subtotal]
+             VALUES ${placeholders}`,
+            values
           );
+        }
 
+        for (const item of saleItems) {
           let batchConsumption;
           try {
             batchConsumption = await consumeStockBatches(tx, {
@@ -504,90 +659,47 @@ router.post(
             : defaultLowStockThreshold;
 
           if (remainingQty <= itemLowStockThreshold) {
-            await createLowStockNotificationIfNeeded(tx, locationId, item.product_id);
+            lowStockProductIds.add(item.product_id);
           }
         }
 
-        const cashierResult = await tx.query('SELECT username FROM users WHERE id = $1', [effectiveCashierId]);
-        const { settings, activeTemplate } = await getReceiptConfig(locationId || null, tx);
-        const resolvedTemplate = normalizeReceiptTemplateSchema(receipt_template_snapshot || activeTemplate?.schema || {});
-        const receiptPayload = buildReceiptPayload({
-          sale: {
-            ...createdSale,
-            receipt_context,
-            cashier_name: cashierResult.rows[0]?.username || req.user.username,
-          },
-          items: saleItems,
-          template: resolvedTemplate,
-          settings,
-        });
-
-        await tx.query(
-          `UPDATE sales
-           SET receipt_payload = $1,
-               receipt_template_snapshot = $2,
-               receipt_generated_at = NOW()
-           WHERE id = $3`,
-          [JSON.stringify(receiptPayload), JSON.stringify(resolvedTemplate), createdSale.id]
-        );
-
-        await tx.query(
-          `INSERT INTO kpi_events (location_id, user_id, event_type, event_value, metric_key, duration_ms, metadata)
-           VALUES ($1, $2, 'sale_created', $3, $4, $5, $6)`,
-          [
-            locationId,
-            effectiveCashierId,
-            totalAmount,
-            'cashier_order_processing_time',
-            Number(cashier_timing_ms) || null,
-            JSON.stringify({ sale_id: createdSale.id, items_count: items.length, client_transaction_id: client_transaction_id || null })
-          ]
-        );
-
-        const highSaleRule = await tx.query(
-          `SELECT threshold FROM alert_rules
-           WHERE location_id = $1 AND event_type = 'high_sale' AND enabled = true
-           ORDER BY updated_at DESC LIMIT 1`,
-          [locationId]
-        );
-        const highSaleThreshold = Number(highSaleRule.rows[0]?.threshold || 0);
-
-        if (highSaleThreshold > 0 && totalAmount >= highSaleThreshold) {
-          await tx.query(
-            `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-             SELECT id, $1, 'High Sale Alert', $2, 'sales_anomaly'
-             FROM users WHERE role IN ('admin', 'manager') AND location_id = $1`,
-            [locationId, `Sale ${receiptNumber} reached $${Number(totalAmount).toFixed(2)} (threshold $${highSaleThreshold.toFixed(2)}).`]
-          );
-        }
-
-        await tx.query(
-          `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [
-            effectiveCashierId,
-            locationId,
-            'sale_created',
-            `Sale ${receiptNumber} - Total: ${totalAmount}`,
-            JSON.stringify({ sale_id: createdSale.id, receipt_number: receiptNumber, items_count: items.length, client_transaction_id: client_transaction_id || null }),
-          ]
-        );
-
-        const completeSale = await getSaleWithItems(createdSale.id, tx, settings);
+        const responsePayload = buildSaleCreateResponse(createdSale);
 
         if (idempotencyKey) {
           await tx.query(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
-            [effectiveCashierId, locationId, idempotencyKey, '/api/sales', JSON.stringify(completeSale)]
+            [effectiveCashierId, locationId, idempotencyKey, '/api/sales', JSON.stringify(responsePayload)]
           );
         }
 
-        return completeSale;
+        return {
+          responsePayload,
+          postCommitData: {
+            locationId,
+            effectiveCashierId,
+            totalAmount,
+            cashierTimingMs: cashier_timing_ms,
+            items,
+            saleItems,
+            createdSale,
+            receiptContext: receipt_context,
+            receiptTemplateSnapshot: receipt_template_snapshot,
+            fallbackCashierName: req.user.username,
+            clientTransactionId: client_transaction_id,
+            lowStockProductIds: [...lowStockProductIds],
+          },
+        };
       });
 
-      res.status(201).json(sale);
+      if (saleExecution.postCommitData) {
+        runSalePostCommitEffects(saleExecution.postCommitData).catch((error) => {
+          console.error('Sale post-commit effects failed:', error);
+        });
+      }
+
+      res.status(201).json(saleExecution.responsePayload);
     } catch (err) {
       console.error('Create sale error:', err);
       res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: err.code || 'SALES_CREATE_ERROR', details: err.details || null, requestId: req.requestId });
