@@ -106,7 +106,7 @@ export default function OfflineIndicator({ sync }) {
         {statusIcon}
         <span>{statusLabel}</span>
         {queueStats.pending > 0 && <span className="badge">{queueStats.pending}</span>}
-        <button type="button" className="minimize-btn" onClick={(e) => { e.stopPropagation(); setCollapsed(true); setExpanded(false); }}>
+        <button type="button" className="minimize-btn" onClick={(e) => { e.stopPropagation(); setCollapsed(true); setExpanded(false); }} title="Minimize" aria-label="Minimize offline status">
           <Minimize2 size={14} />
         </button>
       </div>
