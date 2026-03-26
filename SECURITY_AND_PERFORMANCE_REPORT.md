@@ -1,80 +1,79 @@
-# 🛡️ Sentinel: Security & Performance Analysis Report (V2)
+# 🛡️ Sentinel: Security & Performance Analysis Report (V3 - Final)
 
-This report provides a detailed analysis of security vulnerabilities, performance bottlenecks, and data integrity concerns identified in the Bakery Operations App.
+This final comprehensive report provides a deep-dive analysis of security vulnerabilities, performance bottlenecks, and architectural risks identified in the Bakery Operations App.
 
 ## 🚨 Security Vulnerabilities
 
 ### 1. [HIGH] SSRF (Server-Side Request Forgery) in Network Printing
-**File:** `server/routes/sales.js`
-**Function:** `openNetworkPrinterSocket`
-**Vulnerability:** The `/network-printer/status` and `/network-printer/print` endpoints allow users to provide an arbitrary `host` and `port`. The server then attempts to open a TCP socket to that destination.
-**Impact:** An attacker could use the server as a proxy to scan internal network ports, probe internal services (like the database or other internal APIs), or even launch attacks against other systems in the local network.
-**Recommendation:** Implement a whitelist of allowed printer IP addresses or restrict the `host` to a specific subnet. Validate that the `port` is a standard printing port (e.g., 9100).
+- **Vulnerability:** `/network-printer/status` and `/network-printer/print` accept arbitrary `host` and `port` inputs.
+- **Impact:** Attackers can probe internal networks, scanning for open ports on the database server or internal microservices.
+- **Recommendation:** Implement a strict IP whitelist for printers or restrict hostnames to a known internal subdomain.
 
 ### 2. [HIGH] Audit Log Identity Spoofing during Sync
-**File:** `server/routes/sync.js`
-**Function:** `resolveAuditActor`
-**Vulnerability:** The bulk audit log sync endpoint trusts the `actor_user_id` provided in the request body from the client.
-**Impact:** Any authenticated user can submit audit logs that appear to have been performed by another user (e.g., an admin). This undermines the integrity of the audit trail and makes it impossible to reliably trace malicious activity.
-**Recommendation:** Always use `req.user.id` for the audit actor unless the user has administrative privileges and there is a valid reason to record a different actor.
+- **Vulnerability:** Sync endpoint trusts `actor_user_id` from the client request body.
+- **Impact:** Any authenticated user can falsify the audit trail, attributing their actions to admins or other users.
+- **Recommendation:** Always use the authenticated `req.user.id` as the source of truth for logs.
 
-### 3. [MEDIUM] Broken Access Control in Activity Logs
-**File:** `server/routes/activity.js`
-**Vulnerability:** The activity log endpoint uses `authenticateToken` but misses `authorizeRoles`.
-**Impact:** Any authenticated user (including Cashiers) can view the full activity log for their location, which may include sensitive administrative actions or system events they should not have access to.
-**Recommendation:** Add `authorizeRoles('admin', 'manager')` to the route.
+### 3. [HIGH] Insecure JWT Verification
+- **Vulnerability:** `jwt.verify` calls in `server/middleware/auth.js` do not explicitly specify allowed `algorithms`.
+- **Impact:** Potential for algorithm confusion attacks (e.g., forcing HMAC-SHA256 with a public key) if the library version is vulnerable.
+- **Recommendation:** Add `{ algorithms: ['HS256'] }` to all `jwt.verify` options.
 
-### 4. [MEDIUM] Potential Denial of Service (DoS) via Unclamped Limits
-**File:** `server/routes/activity.js`
-**Vulnerability:** The `limit` parameter is parsed as an integer but not clamped to a maximum value.
-**Impact:** An attacker could request a very large number of activity logs (e.g., `?limit=1000000`), causing high memory usage and database strain, potentially crashing the API or making it unresponsive.
-**Recommendation:** Use a helper like `clampLimit(value, fallback, max)` to ensure limits are always within a safe range (e.g., max 500).
+### 4. [MEDIUM] CSV Injection in Report Exports
+- **Vulnerability:** Report exports (Sales CSV) do not consistently sanitize cell data that starts with special characters like `=`, `+`, `-`, or `@`.
+- **Impact:** If an admin opens an exported CSV in Excel, malicious formulas could be executed on their machine.
+- **Recommendation:** Prepend a single quote `'` to any cell value starting with injection characters.
 
-### 5. [LOW] Inconsistent Authorization Patterns
-**File:** `server/routes/locations.js`
-**Vulnerability:** Uses manual `req.user?.role !== 'admin'` checks inside the route handlers instead of the `authorizeRoles` middleware.
-**Impact:** Increased risk of developer error where a new route is added without the manual check, leading to unauthorized access.
-**Recommendation:** Consistently use the `authorizeRoles('admin')` middleware for all admin-only routes.
+### 5. [MEDIUM] Broken Access Control in Activity Logs & Reports
+- **Vulnerability:** `GET /api/activity` and all `/api/reports/*` routes (daily, weekly, monthly) are missing `authorizeRoles` middleware.
+- **Impact:** Any authenticated user (including Cashiers) can access detailed financial and activity reports for their branch by calling the API directly.
+- **Recommendation:** Add `authorizeRoles('admin', 'manager')` to these routes.
 
 ---
 
 ## ⚡ Performance Bottlenecks
 
-### 1. [CRITICAL] N+1-like Impact on Sale Creation
-**File:** `server/routes/sales.js`
-**Issue:** The `processExpiredInventoryForLocation` function is called on *every single sale creation*. This function queries all expired stock batches for the location and then iterates through them, performing multiple database operations for *each* expired batch.
-**Impact:** As the number of expired batches grows, sale processing will become increasingly slow.
-**Recommendation:** Move expired inventory processing to a background worker or a scheduled job.
+### 1. [CRITICAL] POS Slowdown (N+1 Expired Inventory Processing)
+- **Issue:** `processExpiredInventoryForLocation` is called inside the sale creation transaction. It performs individual DB writes for *every* expired batch.
+- **Impact:** As the bakery operates over months, this will make the POS increasingly sluggish.
+- **Recommendation:** Decouple expiration processing into a background job or use a single bulk SQL statement for the updates.
 
-### 2. [MEDIUM] Bulk Sync Audit Logging
-**File:** `server/routes/sync.js`
-**Issue:** The `/audit/bulk` route performs individual `INSERT` queries in a loop for up to 200 events.
-**Impact:** High database overhead and slow response times for large sync batches.
-**Recommendation:** Use a single bulk `INSERT` query.
+### 2. [MEDIUM] Slow Branch Deletion (Missing FK Indexes)
+- **Issue:** Many foreign keys (e.g., `expenses.location_id`, `staff_payments.user_id`) lack indexes.
+- **Impact:** Large-scale deletions or complex joins for reports will cause full table scans.
+- **Recommendation:** Add indexes to all foreign key columns.
+
+### 3. [MEDIUM] Lazy Schema Migrations in Read Routes
+- **Issue:** Routes like `/api/products` and `/api/expenses` check for and apply schema migrations (adding columns/tables) on the fly.
+- **Impact:** High-traffic read routes are slowed by `information_schema` queries. Potential for race conditions during concurrent startup.
+- **Recommendation:** Move all schema adjustments to a dedicated migration script run at deployment.
 
 ---
 
-## 🔒 Data Integrity & Logic
+## 🔒 Data Integrity & Concurrency
 
 ### 1. [VERIFIED] FEFO (First Expired, First Out) Strategy
-**File:** `server/services/stockBatchService.js`
-**Finding:** The `consumeStockBatches` function correctly implements FEFO by ordering batches by `expires_at ASC NULLS LAST`.
+- **Finding:** The inventory system correctly prioritizes items closest to expiration, minimizing waste.
 
-### 2. [LOW] Idempotency Key Trust
-**File:** `server/routes/sales.js`
-**Issue:** Reused idempotency keys return the cached response without verifying if the request body is identical to the original one.
-**Recommendation:** Include a hash of the request body in the idempotency check.
+### 2. [MEDIUM] Race Condition in Batch Consumption
+- **Issue:** `consumeStockBatches` uses `FOR UPDATE` but relies on the application layer to calculate totals after the lock.
+- **Impact:** Under extreme POS rush, slight discrepancies in stock levels could occur if transactions are not handled with the strictest isolation.
+- **Recommendation:** Perform more of the quantity calculation within a single SQL statement.
+
+### 3. [LOW] Idempotency Hash Verification
+- **Recommendation:** Include a hash of the request body in `idempotency_keys` to prevent returning cached data for different requests using the same key.
 
 ---
 
-## 🚀 Optimization Strategies for Speed
+## 🚀 Speed Optimization Checklist
 
-1. **Database Indexing:** Ensure indexes exist for all foreign keys and columns used in `WHERE` and `ORDER BY` clauses.
-2. **Batch Processing:** Use bulk inserts and updates wherever possible.
-3. **Caching:** Implement server-side caching (e.g., Redis) for frequently accessed data.
-4. **Background Tasks:** Move non-critical side effects to an asynchronous queue.
+1. **Move side-effects (Notifications, KPI logs) to a queue.**
+2. **Implement Redis caching for Product/Category lists.**
+3. **Use Bulk INSERTs for sync/audit routes.**
+4. **Tune connection pool size for peak POS hours.**
 
 ---
 
 **Report Prepared By:** Sentinel 🛡️
 **Date:** 2024-05-22
+**Status:** Final Deep Dive Complete
