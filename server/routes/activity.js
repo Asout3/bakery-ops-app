@@ -1,14 +1,21 @@
 import express from 'express';
 import { query } from '../db.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
+import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
 
 // Get activity log
-router.get('/', authenticateToken, async (req, res) => {
+function clampLimit(value, fallback = 100, max = 500) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(10, Math.min(max, parsed));
+}
+
+router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
-    const locationId = req.user.location_id || req.query.location_id;
-    const limit = parseInt(req.query.limit) || 100;
+    const locationId = await getTargetLocationId(req, query);
+    const limit = clampLimit(req.query.limit, 100, 500);
     const activityType = req.query.activity_type;
 
     let queryText = `

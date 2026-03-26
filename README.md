@@ -165,6 +165,7 @@ sequenceDiagram
 - Idempotent write headers for retry-safe replay.
 - Replay status model (`synced`, `failed`, `conflict`, `needs_review`, `ignored`, `resolved`).
 - Offline replay preserves the original actor identity (`X-Offline-Actor-Id`) so synced records remain attributed to the initiating cashier/manager, not the user who triggers replay later.
+- Sync audit ingestion now stores actor identity from authenticated server context (client-sent actor hints are retained only as metadata for diagnostics), preventing audit actor spoofing.
 - Staff account roles are immutable after account creation; updates can change credentials/location but not role.
 - API error envelope consistency (`error`, `code`, `requestId`) for client classification.
 - Sales stock failures now return structured `INSUFFICIENT_STOCK` details so offline sync can surface actionable retry guidance (`requested_quantity` vs `available_quantity`).
@@ -210,6 +211,7 @@ When a remote reviewer reports they cannot see merged changes, confirm the follo
   - `Thermal printer plugged in.`
   - `Thermal printer not plugged in.`
 - Optional network-printer mode is available for Wi-Fi test setups (e.g., Android POS simulator) via a preconfigured network relay connection check and print test from receipt settings.
+- Network-printer calls are now host-restricted. Configure `NETWORK_PRINTER_ALLOWED_HOSTS` (comma-separated) and/or `NETWORK_PRINTER_HOST`; unlisted hosts are rejected.
 - The admin receipt settings page now includes:
   - Persistent `Print Mode` (`Auto print after sale` vs `Ask every time`).
   - `Show receipt after sale` toggle to control whether the preview modal opens after checkout.
@@ -217,6 +219,8 @@ When a remote reviewer reports they cannot see merged changes, confirm the follo
   - Footer website link rendered at the bottom of receipts.
 - Number-input spinner controls are disabled globally so all numeric entry is manual-typing first.
 - Removed fake/testing adapter controls and QR/legal footer controls from admin settings to keep production print behavior focused on real device flow.
+- Receipt preview now falls back to sale/items-derived totals when a persisted `receipt_payload` is incomplete, preventing zero-value subtotal/total previews.
+- Print-event logging is now tolerant of delayed sale visibility and stores unresolved references without failing the cashier flow.
 
 ## Pre-Order Workflow
 

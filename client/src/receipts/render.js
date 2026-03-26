@@ -19,6 +19,22 @@ function renderLine(label, value, bold = false) {
   return `<div class="receipt-line ${bold ? 'receipt-line-bold' : ''}"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>`;
 }
 
+function resolveFallbackTotals(payloadTotals, items, saleTotalAmount) {
+  const itemSubtotal = items.reduce((sum, item) => sum + Number(item.subtotal || (Number(item.quantity || 0) * Number(item.unit_price || 0))), 0);
+  const safeTotal = Number(saleTotalAmount || payloadTotals?.total || itemSubtotal || 0);
+  const safeSubtotal = Number(payloadTotals?.subtotal ?? itemSubtotal ?? safeTotal);
+  return {
+    subtotal: Number.isFinite(safeSubtotal) ? safeSubtotal : 0,
+    tax: Number(payloadTotals?.tax || 0),
+    discounts: Number(payloadTotals?.discounts || 0),
+    serviceCharge: Number(payloadTotals?.serviceCharge || 0),
+    total: Number.isFinite(safeTotal) ? safeTotal : 0,
+    paidAmount: Number(payloadTotals?.paidAmount ?? safeTotal),
+    change: Number(payloadTotals?.change || 0),
+    balanceDue: Number(payloadTotals?.balanceDue || 0),
+  };
+}
+
 export function createReceiptDocument({ sale, template, settings, options = {} }) {
   const normalizedTemplate = normalizeReceiptTemplate(template || {});
   const normalizedSettings = normalizeReceiptSettings(settings || {});
@@ -26,8 +42,8 @@ export function createReceiptDocument({ sale, template, settings, options = {} }
   const headerLines = payload.header_lines || [];
   const decimals = Number(payload.decimals ?? normalizedTemplate.sections.transaction.decimals ?? 2);
   const currencyCode = payload.currency_code || normalizedTemplate.sections.transaction.currencyCode || 'ETB';
-  const totals = payload.totals || {};
-  const items = payload.items || sale.items || [];
+  const items = (Array.isArray(payload.items) && payload.items.length ? payload.items : (sale.items || []));
+  const totals = resolveFallbackTotals(payload.totals || {}, items, sale.total_amount);
   const printLabel = options.printLabel || (options.isReprint ? normalizedSettings.labels.reprint : '');
   const voidLabel = sale.status === 'voided' ? normalizedSettings.labels.voided : '';
   const typography = normalizedTemplate.typography || {};

@@ -75,6 +75,7 @@ export async function processExpiredInventoryForLocation(dbOrQuery, locationId, 
 
   const processedItems = [];
   let totalLoss = 0;
+  const affectedProductIds = new Set();
 
   for (const row of expiredResult.rows) {
     const quantity = Number(row.quantity || 0);
@@ -107,7 +108,7 @@ export async function processExpiredInventoryForLocation(dbOrQuery, locationId, 
       [JSON.stringify({ waste_record_id: wasteResult.rows[0].id, expired_processed_at: new Date().toISOString() }), row.stock_batch_id]
     );
 
-    await syncInventoryFromStockBatches(db, row.location_id, row.product_id);
+    affectedProductIds.add(Number(row.product_id));
 
     await db.query(
       `INSERT INTO inventory_movements
@@ -117,30 +118,33 @@ export async function processExpiredInventoryForLocation(dbOrQuery, locationId, 
     );
 
     await db.query(
-      `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-       SELECT id, $1, $2, $3, 'waste'
-       FROM users
-       WHERE role IN ('admin', 'manager')
-         AND location_id = $1
-         AND is_active = true`,
-      [
-        row.location_id,
-        'Expired stock moved to waste',
-        `${row.group_name} / ${row.product_name} expired on ${new Date(row.expires_at).toLocaleDateString()} and ${quantity} unit(s) were moved to waste. Loss: ETB ${loss.toFixed(2)}.`,
-      ]
-    );
-
-    await db.query(
       `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
        VALUES ($1, $2, 'inventory_wasted', $3, $4)`,
       [actorUserId, row.location_id, `Expired stock moved to waste for product ${row.product_id}`, JSON.stringify({ ...metadata, waste_record_id: wasteResult.rows[0].id, total_loss: loss })]
     );
 
-    await createLowStockNotificationIfNeeded(db, row.location_id, row.product_id);
-
     totalLoss += loss;
     processedItems.push(wasteResult.rows[0]);
   }
+
+  for (const productId of affectedProductIds) {
+    await syncInventoryFromStockBatches(db, locationId, productId);
+    await createLowStockNotificationIfNeeded(db, locationId, productId);
+  }
+
+  await db.query(
+    `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+     SELECT id, $1, $2, $3, 'waste'
+     FROM users
+     WHERE role IN ('admin', 'manager')
+       AND location_id = $1
+       AND is_active = true`,
+    [
+      locationId,
+      'Expired stock moved to waste',
+      `${processedItems.length} expired stock batch(es) were moved to waste. Total loss: ETB ${Number(totalLoss).toFixed(2)}.`,
+    ]
+  );
 
   return {
     processedCount: processedItems.length,

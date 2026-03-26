@@ -4,6 +4,23 @@ import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
+let notificationIndexWarmup = null;
+
+async function ensureNotificationIndexes() {
+  if (notificationIndexWarmup) {
+    return notificationIndexWarmup;
+  }
+
+  notificationIndexWarmup = (async () => {
+    await query('CREATE INDEX IF NOT EXISTS idx_notifications_user_sort ON notifications(user_id, is_read, created_at DESC, id DESC)');
+    await query('CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, is_read) WHERE is_read = false');
+  })().catch((error) => {
+    notificationIndexWarmup = null;
+    throw error;
+  });
+
+  return notificationIndexWarmup;
+}
 
 router.get('/rules', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
@@ -61,6 +78,7 @@ router.put('/rules/:id', authenticateToken, authorizeRoles('admin'), async (req,
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
+    await ensureNotificationIndexes();
     const unreadOnly = req.query.unread_only === 'true';
     const requestedLimit = Number.parseInt(req.query.limit, 10);
     const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 100) : 50;
