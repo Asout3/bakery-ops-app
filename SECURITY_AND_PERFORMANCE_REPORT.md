@@ -1,4 +1,4 @@
-# 🛡️ Sentinel: Security & Performance Analysis Report
+# 🛡️ Sentinel: Security & Performance Analysis Report (V2)
 
 This report provides a detailed analysis of security vulnerabilities, performance bottlenecks, and data integrity concerns identified in the Bakery Operations App.
 
@@ -18,12 +18,23 @@ This report provides a detailed analysis of security vulnerabilities, performanc
 **Impact:** Any authenticated user can submit audit logs that appear to have been performed by another user (e.g., an admin). This undermines the integrity of the audit trail and makes it impossible to reliably trace malicious activity.
 **Recommendation:** Always use `req.user.id` for the audit actor unless the user has administrative privileges and there is a valid reason to record a different actor.
 
-### 3. [MEDIUM] Weak Input Sanitization
-**File:** `server/middleware/security.js`
-**Function:** `sanitizeInput`
-**Vulnerability:** The current sanitization only removes `<` and `>` characters and trims the string. This is insufficient to prevent many types of XSS or other injection attacks. Furthermore, this function is not consistently applied across all routes.
-**Impact:** Potential for Stored XSS if malicious strings are saved to the database and then rendered in the frontend without proper escaping.
-**Recommendation:** Use a robust library like `dompurify` (for HTML) or ensure consistent use of `express-validator`'s `escape()` and `trim()` functions for all user-facing inputs.
+### 3. [MEDIUM] Broken Access Control in Activity Logs
+**File:** `server/routes/activity.js`
+**Vulnerability:** The activity log endpoint uses `authenticateToken` but misses `authorizeRoles`.
+**Impact:** Any authenticated user (including Cashiers) can view the full activity log for their location, which may include sensitive administrative actions or system events they should not have access to.
+**Recommendation:** Add `authorizeRoles('admin', 'manager')` to the route.
+
+### 4. [MEDIUM] Potential Denial of Service (DoS) via Unclamped Limits
+**File:** `server/routes/activity.js`
+**Vulnerability:** The `limit` parameter is parsed as an integer but not clamped to a maximum value.
+**Impact:** An attacker could request a very large number of activity logs (e.g., `?limit=1000000`), causing high memory usage and database strain, potentially crashing the API or making it unresponsive.
+**Recommendation:** Use a helper like `clampLimit(value, fallback, max)` to ensure limits are always within a safe range (e.g., max 500).
+
+### 5. [LOW] Inconsistent Authorization Patterns
+**File:** `server/routes/locations.js`
+**Vulnerability:** Uses manual `req.user?.role !== 'admin'` checks inside the route handlers instead of the `authorizeRoles` middleware.
+**Impact:** Increased risk of developer error where a new route is added without the manual check, leading to unauthorized access.
+**Recommendation:** Consistently use the `authorizeRoles('admin')` middleware for all admin-only routes.
 
 ---
 
@@ -31,15 +42,15 @@ This report provides a detailed analysis of security vulnerabilities, performanc
 
 ### 1. [CRITICAL] N+1-like Impact on Sale Creation
 **File:** `server/routes/sales.js`
-**Issue:** The `processExpiredInventoryForLocation` function is called on *every single sale creation*. This function queries all expired stock batches for the location and then iterates through them, performing multiple database operations (waste record insertion, stock update, inventory movement, notifications, and activity logs) for *each* expired batch.
-**Impact:** As the number of expired batches grows, sale processing will become increasingly slow, leading to a poor user experience at the POS.
-**Recommendation:** Move expired inventory processing to a background worker or a scheduled job (cron). At the very least, optimize the function to perform bulk updates instead of per-batch operations.
+**Issue:** The `processExpiredInventoryForLocation` function is called on *every single sale creation*. This function queries all expired stock batches for the location and then iterates through them, performing multiple database operations for *each* expired batch.
+**Impact:** As the number of expired batches grows, sale processing will become increasingly slow.
+**Recommendation:** Move expired inventory processing to a background worker or a scheduled job.
 
 ### 2. [MEDIUM] Bulk Sync Audit Logging
 **File:** `server/routes/sync.js`
 **Issue:** The `/audit/bulk` route performs individual `INSERT` queries in a loop for up to 200 events.
 **Impact:** High database overhead and slow response times for large sync batches.
-**Recommendation:** Use a single bulk `INSERT` query with multiple value sets to significantly improve performance.
+**Recommendation:** Use a single bulk `INSERT` query.
 
 ---
 
@@ -47,22 +58,21 @@ This report provides a detailed analysis of security vulnerabilities, performanc
 
 ### 1. [VERIFIED] FEFO (First Expired, First Out) Strategy
 **File:** `server/services/stockBatchService.js`
-**Finding:** The `consumeStockBatches` function correctly implements FEFO by ordering batches by `expires_at ASC NULLS LAST`. This ensures that items closer to their expiration date are sold first, reducing waste.
+**Finding:** The `consumeStockBatches` function correctly implements FEFO by ordering batches by `expires_at ASC NULLS LAST`.
 
 ### 2. [LOW] Idempotency Key Trust
 **File:** `server/routes/sales.js`
-**Issue:** The system uses `X-Idempotency-Key` for offline safety, which is good. However, if a key is reused across different endpoints or with different payloads, the system returns the *cached* response without verifying if the new request is actually the same as the original one.
-**Recommendation:** Include a hash of the request body in the idempotency check to ensure that a reused key for a different request doesn't return incorrect data.
+**Issue:** Reused idempotency keys return the cached response without verifying if the request body is identical to the original one.
+**Recommendation:** Include a hash of the request body in the idempotency check.
 
 ---
 
 ## 🚀 Optimization Strategies for Speed
 
-1. **Database Indexing:** Ensure indexes exist for all foreign keys and columns used in `WHERE` and `ORDER BY` clauses (e.g., `sale_date`, `location_id`, `expires_at`).
-2. **Batch Processing:** As mentioned, use bulk inserts and updates wherever possible.
-3. **Caching:** Implement server-side caching (e.g., Redis) for frequently accessed but rarely changed data, like product categories or branch settings.
-4. **Connection Pooling:** Monitor and tune the `pg` pool settings based on the production load.
-5. **Background Tasks:** Move non-critical side effects (like sending notifications or logging activity) to an asynchronous queue so they don't block the main request-response cycle.
+1. **Database Indexing:** Ensure indexes exist for all foreign keys and columns used in `WHERE` and `ORDER BY` clauses.
+2. **Batch Processing:** Use bulk inserts and updates wherever possible.
+3. **Caching:** Implement server-side caching (e.g., Redis) for frequently accessed data.
+4. **Background Tasks:** Move non-critical side effects to an asynchronous queue.
 
 ---
 

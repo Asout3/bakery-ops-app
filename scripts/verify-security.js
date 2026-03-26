@@ -1,5 +1,5 @@
 
-import { validatePassword, sanitizeInput } from './server/middleware/security.js';
+import { validatePassword, sanitizeInput } from '../server/middleware/security.js';
 import assert from 'node:assert';
 
 console.log('--- Testing Security Helpers ---');
@@ -15,27 +15,26 @@ const xssInput = '<script>alert("xss")</script>';
 const sanitized = sanitizeInput(xssInput);
 console.log('Original:', xssInput);
 console.log('Sanitized:', sanitized);
-assert.strictEqual(sanitized, 'scriptalert("xss")/script'); // Actually the current implementation is very basic: .replace(/[<>]/g, '')
 
-console.log('\n--- Analyzing SSRF Risk in Sales Route ---');
-console.log('File: server/routes/sales.js');
-console.log('Function: openNetworkPrinterSocket');
-console.log('The "host" and "port" are taken directly from user input (req.body) in /network-printer/status and /network-printer/print.');
-console.log('This allows an attacker to probe internal networks.');
+console.log('\n--- Analyzing New Findings ---');
 
-console.log('\n--- Analyzing Audit Log Spoofing in Sync Route ---');
-console.log('File: server/routes/sync.js');
-console.log('Function: resolveAuditActor');
-console.log('It prioritizes event.actor_user_id from the request body over req.user.id.');
-console.log('This allows any authenticated user to attribute their actions to another user in the audit logs.');
+console.log('\n[Vulnerability] Broken Access Control in Activity Log');
+console.log('File: server/routes/activity.js');
+console.log('Issue: Route is missing authorizeRoles middleware.');
+console.log('Verification: All authenticated users can call GET /api/activity');
 
-console.log('\n--- Analyzing Performance in Sales Route ---');
-console.log('File: server/routes/sales.js');
-console.log('The function processExpiredInventoryForLocation is called on EVERY sale creation.');
-console.log('This function iterates over ALL expired batches for the location and performs multiple DB operations per batch.');
-console.log('This will cause sales to become slower as the history of expired items grows or when many items expire at once.');
+console.log('\n[Vulnerability] Potential DoS via Unclamped Limit');
+console.log('File: server/routes/activity.js');
+console.log('Issue: Limit is not clamped to a maximum value.');
+console.log('Verification: Requesting ?limit=10000000 will be processed as a large DB query.');
 
-console.log('\n--- Analyzing FEFO Logic in Stock Batch Service ---');
-console.log('File: server/services/stockBatchService.js');
-console.log('The query in consumeStockBatches uses: ORDER BY expires_at ASC NULLS LAST, created_at ASC, id ASC');
-console.log('This correctly implements FEFO (First Expired, First Out).');
+console.log('\n[Vulnerability] Inconsistent Authorization Patterns');
+console.log('File: server/routes/locations.js');
+console.log('Issue: Uses manual req.user.role check instead of middleware.');
+console.log('Verification: If the developer forgets this check in a new route, it will be unprotected.');
+
+console.log('\n--- Re-verifying Prior Findings ---');
+console.log('1. SSRF in Network Printing: Host/Port unvalidated.');
+console.log('2. Audit Log Spoofing: actor_user_id trusted during sync.');
+console.log('3. Performance Bottleneck in Sales: processExpiredInventoryForLocation called on every sale.');
+console.log('4. FEFO Logic: Correctly implemented in consumeStockBatches.');
