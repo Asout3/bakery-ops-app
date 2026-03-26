@@ -193,6 +193,7 @@ router.get('/daily', authenticateToken, async (req, res) => {
        item_totals AS (
           SELECT si.sale_id, COALESCE(SUM(si.quantity), 0) as items_sold
           FROM sale_items si
+          JOIN sale_base sb ON sb.id = si.sale_id
           GROUP BY si.sale_id
        )
        SELECT u.username as cashier_name,
@@ -447,6 +448,7 @@ router.get('/weekly', authenticateToken, async (req, res) => {
        item_totals AS (
           SELECT si.sale_id, COALESCE(SUM(si.quantity), 0) as items_sold
           FROM sale_items si
+          JOIN sale_base sb ON sb.id = si.sale_id
           GROUP BY si.sale_id
        )
        SELECT u.username as cashier_name,
@@ -731,6 +733,7 @@ router.get('/monthly', authenticateToken, async (req, res) => {
        item_totals AS (
           SELECT si.sale_id, COALESCE(SUM(si.quantity), 0) as items_sold
           FROM sale_items si
+          JOIN sale_base sb ON sb.id = si.sale_id
           GROUP BY si.sale_id
        )
        SELECT u.username as cashier_name,

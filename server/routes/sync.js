@@ -6,11 +6,9 @@ import { AppError, asyncHandler } from '../utils/errors.js';
 const router = express.Router();
 
 function resolveAuditActor(event, reqUser) {
-  const eventActorId = Number(event?.actor_user_id);
-  const hasEventActorId = Number.isInteger(eventActorId) && eventActorId > 0;
   return {
-    actorUserId: hasEventActorId ? eventActorId : reqUser.id,
-    actorUsername: (typeof event?.actor_username === 'string' && event.actor_username.trim()) ? event.actor_username.trim() : (reqUser.username || null),
+    actorUserId: reqUser.id,
+    actorUsername: reqUser.username || null,
   };
 }
 
@@ -33,6 +31,11 @@ router.post('/audit/bulk', authenticateToken, asyncHandler(async (req, res) => {
       : (req.user.location_id ? Number(req.user.location_id) : null);
 
     const actor = resolveAuditActor(event, req.user);
+    const trustedMetadata = {
+      ...(event.metadata && typeof event.metadata === 'object' ? event.metadata : {}),
+      client_actor_user_id: event?.actor_user_id ?? null,
+      client_actor_username: event?.actor_username ?? null,
+    };
 
     await query(
       `INSERT INTO sync_audit_logs
@@ -49,7 +52,7 @@ router.post('/audit/bulk', authenticateToken, asyncHandler(async (req, res) => {
         status,
         event.reason ? String(event.reason) : null,
         Number(event.retry_count || 0),
-        event.metadata ? JSON.stringify(event.metadata) : '{}',
+        JSON.stringify(trustedMetadata),
         event.created_at || null,
       ]
     );

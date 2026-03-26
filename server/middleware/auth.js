@@ -14,6 +14,7 @@ if (JWT_SECRET.length < 32) {
 
 const TOKEN_EXPIRY = '24h';
 const ISSUER = 'bakery-ops';
+const ACCEPTED_ALGORITHMS = ['HS256'];
 
 function getRequestId(req) {
   return req.requestId || req.headers['x-request-id'] || `req-${Date.now()}`;
@@ -33,7 +34,8 @@ export const authenticateToken = (req, res, next) => {
 
   jwt.verify(token, JWT_SECRET, {
     issuer: ISSUER,
-    maxAge: '24h'
+    maxAge: '24h',
+    algorithms: ACCEPTED_ALGORITHMS,
   }, (err, user) => {
     if (err) {
       if (err.name === 'TokenExpiredError') {
@@ -113,7 +115,8 @@ export const optionalAuth = (req, res, next) => {
 
   jwt.verify(token, JWT_SECRET, {
     issuer: ISSUER,
-    maxAge: '24h'
+    maxAge: '24h',
+    algorithms: ACCEPTED_ALGORITHMS,
   }, (err, user) => {
     if (err) {
       req.user = null;
@@ -172,7 +175,8 @@ export const generateToken = (user) => {
 export const verifyToken = (token) => {
   try {
     return jwt.verify(token, JWT_SECRET, {
-      issuer: ISSUER
+      issuer: ISSUER,
+      algorithms: ACCEPTED_ALGORITHMS,
     });
   } catch (err) {
     return null;
