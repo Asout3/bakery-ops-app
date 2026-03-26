@@ -39,6 +39,13 @@ function generateRefreshTokenValue() {
   return crypto.randomBytes(48).toString('hex');
 }
 
+function safeEqualSecrets(left, right) {
+  const leftBuf = Buffer.from(String(left || ''), 'utf8');
+  const rightBuf = Buffer.from(String(right || ''), 'utf8');
+  if (leftBuf.length !== rightBuf.length) return false;
+  return crypto.timingSafeEqual(leftBuf, rightBuf);
+}
+
 async function issueRefreshToken(tx, userId, replacedTokenId = null) {
   const plainToken = generateRefreshTokenValue();
   const tokenHash = hashRefreshToken(plainToken);
@@ -458,7 +465,7 @@ router.post('/recover-admin-account',
       throw new AppError('Admin recovery is not configured on this server', 503, 'RECOVERY_NOT_CONFIGURED');
     }
 
-    if (recovery_key !== configuredRecoveryKey) {
+    if (!safeEqualSecrets(recovery_key, configuredRecoveryKey)) {
       throw new AppError('Invalid recovery key', 401, 'INVALID_RECOVERY_KEY');
     }
 

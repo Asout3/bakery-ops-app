@@ -19,6 +19,8 @@ import {
 } from '../services/receiptService.js';
 
 const router = express.Router();
+const expiryProcessingCooldownMs = Number(process.env.EXPIRED_WASTE_PROCESS_COOLDOWN_MS || (15 * 60 * 1000));
+const expiryProcessingLastRunByLocation = new Map();
 
 function clampLimit(value, fallback = 100, max = 500) {
   const parsed = Number(value);
@@ -34,6 +36,32 @@ function toSafePort(value) {
   const port = Number(value || 9100);
   if (!Number.isInteger(port) || port < 1 || port > 65535) return 9100;
   return port;
+}
+
+function getAllowedPrinterHosts() {
+  const configuredHost = String(process.env.NETWORK_PRINTER_HOST || '').trim();
+  const configuredAllowed = String(process.env.NETWORK_PRINTER_ALLOWED_HOSTS || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return new Set([configuredHost, ...configuredAllowed].filter(Boolean).map((entry) => entry.toLowerCase()));
+}
+
+function isAllowedPrinterHost(host) {
+  const normalized = String(host || '').trim().toLowerCase();
+  if (!normalized) return false;
+  const allowed = getAllowedPrinterHosts();
+  if (!allowed.size) return false;
+  return allowed.has(normalized);
+}
+
+function shouldRunExpiryProcessing(locationId) {
+  const key = Number(locationId);
+  const now = Date.now();
+  const lastRun = expiryProcessingLastRunByLocation.get(key) || 0;
+  if ((now - lastRun) < expiryProcessingCooldownMs) return false;
+  expiryProcessingLastRunByLocation.set(key, now);
+  return true;
 }
 
 function openNetworkPrinterSocket({ host, port, payload = null, timeoutMs = 3000 }) {
@@ -147,7 +175,9 @@ async function runSalePostCommitEffects({
   lowStockProductIds,
 }) {
   try {
-    await processExpiredInventoryForLocation({ query }, locationId, effectiveCashierId);
+    if (shouldRunExpiryProcessing(locationId)) {
+      await processExpiredInventoryForLocation({ query }, locationId, effectiveCashierId);
+    }
   } catch (err) {
     console.error('Sale post-commit expired inventory processing failed:', err);
   }
@@ -483,6 +513,9 @@ router.post('/network-printer/status', authenticateToken, authorizeRoles('admin'
     if (!host) {
       return res.status(400).json({ error: 'Network printer host is required', code: 'NETWORK_PRINTER_HOST_REQUIRED', requestId: req.requestId });
     }
+    if (!isAllowedPrinterHost(host)) {
+      return res.status(403).json({ error: 'Network printer host is not allowed', code: 'NETWORK_PRINTER_HOST_NOT_ALLOWED', requestId: req.requestId });
+    }
     await openNetworkPrinterSocket({ host, port, payload: null, timeoutMs: 2000 });
     res.json({ connected: true, mode: 'network', host, port });
   } catch (error) {
@@ -497,6 +530,9 @@ router.post('/network-printer/print', authenticateToken, authorizeRoles('admin',
     const receiptText = String(req.body.receiptText || '').trim();
     if (!host) {
       return res.status(400).json({ error: 'Network printer host is required', code: 'NETWORK_PRINTER_HOST_REQUIRED', requestId: req.requestId });
+    }
+    if (!isAllowedPrinterHost(host)) {
+      return res.status(403).json({ error: 'Network printer host is not allowed', code: 'NETWORK_PRINTER_HOST_NOT_ALLOWED', requestId: req.requestId });
     }
     if (!receiptText) {
       return res.status(400).json({ error: 'Receipt text is required', code: 'NETWORK_PRINT_TEXT_REQUIRED', requestId: req.requestId });

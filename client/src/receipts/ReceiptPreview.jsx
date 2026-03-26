@@ -7,11 +7,27 @@ const FONT_FAMILY_MAP = {
   serif: "Georgia, 'Times New Roman', serif",
 };
 
+function resolveFallbackTotals(payloadTotals, items, saleTotalAmount) {
+  const itemSubtotal = items.reduce((sum, item) => sum + Number(item.subtotal || (Number(item.quantity || 0) * Number(item.unit_price || 0))), 0);
+  const safeTotal = Number(saleTotalAmount || payloadTotals?.total || itemSubtotal || 0);
+  const safeSubtotal = Number(payloadTotals?.subtotal ?? itemSubtotal ?? safeTotal);
+  return {
+    subtotal: Number.isFinite(safeSubtotal) ? safeSubtotal : 0,
+    tax: Number(payloadTotals?.tax || 0),
+    discounts: Number(payloadTotals?.discounts || 0),
+    serviceCharge: Number(payloadTotals?.serviceCharge || 0),
+    total: Number.isFinite(safeTotal) ? safeTotal : 0,
+    paidAmount: Number(payloadTotals?.paidAmount ?? safeTotal),
+    change: Number(payloadTotals?.change || 0),
+    balanceDue: Number(payloadTotals?.balanceDue || 0),
+  };
+}
+
 export default function ReceiptPreview({ sale, template, settings, printLabel = '' }) {
   const normalizedTemplate = normalizeReceiptTemplate(template || {});
   const payload = sale.receipt_payload || {};
-  const items = payload.items || sale.items || [];
-  const totals = payload.totals || {};
+  const items = (Array.isArray(payload.items) && payload.items.length ? payload.items : (sale.items || []));
+  const totals = resolveFallbackTotals(payload.totals || {}, items, sale.total_amount);
   const currency = payload.currency_code || normalizedTemplate.sections.transaction.currencyCode || 'ETB';
   const decimals = Number(payload.decimals ?? normalizedTemplate.sections.transaction.decimals ?? 2);
   const typography = normalizedTemplate.typography || {};
