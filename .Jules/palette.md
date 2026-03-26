@@ -1,3 +1,3 @@
-## 2025-05-22 - [Accessibility and Micro-UX Improvement]
-**Learning:** Adding descriptive ARIA labels to icon-only buttons (e.g., cart actions, minimize buttons) significantly improves the accessibility of the POS for screen readers. A "Clear Cart" button enhances the micro-UX by providing a quick way for cashiers to reset the cart after a mistaken entry.
-**Action:** Always include ARIA labels and titles for icon-only buttons in future PRs. Consider micro-UX features like "Clear" or "Reset" for frequently used forms.
+## 2025-05-22 - [POS Accessibility & Micro-UX Audit (Deep Dive)]
+**Learning:** Icon-only buttons are pervasive in this POS application (Cart, Inventory, Products, Expenses, Staff Payments, Offline Indicator). Without ARIA labels and titles, these are completely inaccessible to screen reader users and lack helpful hints for new users. Adding these attributes, along with explicit "Reset" and "Clear" actions for complex filters/carts, significantly enhances the "invisible" UX of the app.
+**Action:** Audit all pages for icon-only buttons and ensure `aria-label` and `title` are present. Use `aria-pressed` for toggle/filter buttons to indicate state. Ensure all search/filter areas have a quick "Reset" action to improve micro-UX in fast-paced retail environments.

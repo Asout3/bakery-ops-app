@@ -251,9 +251,10 @@ export default function StaffPaymentsPage() {
 
       <div className="card mb-3">
         <div className="card-body">
-          <div className="row g-2">
-            <div className="col-md-8"><input className="form-control" placeholder="Search by payment ID, staff name, creator..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
-            <div className="col-md-4"><select className="form-select" value={frequencyFilter} onChange={(e) => setFrequencyFilter(e.target.value)}><option value="all">All Frequencies</option>{FREQUENCY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+          <div className="row g-2 align-items-center">
+            <div className="col-md-7"><label className="form-label d-none" htmlFor="payment-search">Search Payments</label><input id="payment-search" className="form-control" placeholder="Search by payment ID, staff name, creator..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} aria-label="Search payments" /></div>
+            <div className="col-md-3"><label className="form-label d-none" htmlFor="frequency-filter">Filter Frequency</label><select id="frequency-filter" className="form-select" value={frequencyFilter} onChange={(e) => setFrequencyFilter(e.target.value)} aria-label="Filter by payment frequency"><option value="all">All Frequencies</option>{FREQUENCY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+            <div className="col-md-2">{(searchTerm || frequencyFilter !== 'all') && <button className="btn btn-outline-secondary w-100" onClick={() => { setSearchTerm(''); setFrequencyFilter('all'); }} title="Reset search and filters" aria-label="Reset search and filters">Reset</button>}</div>
           </div>
         </div>
       </div>
@@ -286,9 +287,9 @@ export default function StaffPaymentsPage() {
                   <td>ETB {Number(payment.amount || 0).toFixed(2)}</td>
                   <td>{new Date(payment.payment_date).toLocaleDateString()}</td>
                   <td>{isPaymentEditable(payment) ? <span className="badge badge-warning"><Clock size={12} className="me-1" />{minutesRemaining(payment)}m left</span> : <span className="badge badge-secondary">Locked</span>}</td>
-                  <td><button className="btn btn-sm btn-outline-secondary" onClick={() => setNotePreview(getReadableNote(payment.notes)) }><Eye size={14} /> View</button></td><td>
-                    <button className="btn btn-sm btn-outline-primary me-2" onClick={() => openEditModal(payment)} disabled={!isPaymentEditable(payment)}><Edit size={14} /></button>
-                    <button className="btn btn-sm btn-outline-danger" onClick={() => setDeleteTarget(payment)} disabled={!isPaymentEditable(payment)}><Trash2 size={14} /></button>
+                  <td><button className="btn btn-sm btn-outline-secondary" onClick={() => setNotePreview(getReadableNote(payment.notes)) } title="View payment note" aria-label={`View note for payment ${payment.payment_code || payment.id}`}><Eye size={14} /> View</button></td><td>
+                    <button className="btn btn-sm btn-outline-primary me-2" onClick={() => openEditModal(payment)} disabled={!isPaymentEditable(payment)} title="Edit payment" aria-label={`Edit payment ${payment.payment_code || payment.id}`}><Edit size={14} /></button>
+                    <button className="btn btn-sm btn-outline-danger" onClick={() => setDeleteTarget(payment)} disabled={!isPaymentEditable(payment)} title="Delete payment" aria-label={`Delete payment ${payment.payment_code || payment.id}`}><Trash2 size={14} /></button>
                   </td>
                 </tr>
               ))}
