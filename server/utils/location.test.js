@@ -9,7 +9,12 @@ test('non-admin always uses own location', async () => {
     user: { id: 2, role: 'manager', location_id: 5 },
   };
 
-  const locationId = await getTargetLocationId(req, async () => ({ rows: [] }));
+  const locationId = await getTargetLocationId(req, async (sql, params) => {
+    if (sql.includes('FROM locations') && sql.includes('WHERE id = $1') && Number(params?.[0]) === 5) {
+      return { rows: [{ id: 5 }] };
+    }
+    return { rows: [] };
+  });
   assert.equal(locationId, 5);
 });
 
@@ -31,8 +36,36 @@ test('admin with no explicit assignments can access requested location', async (
     user: { id: 1, role: 'admin', location_id: null },
   };
 
-  const locationId = await getTargetLocationId(req, async () => ({ rows: [] }));
+  const locationId = await getTargetLocationId(req, async (sql, params) => {
+    if (sql.includes('FROM locations') && sql.includes('WHERE id = $1') && Number(params?.[0]) === 9) {
+      return { rows: [{ id: 9 }] };
+    }
+    return { rows: [] };
+  });
   assert.equal(locationId, 9);
+});
+
+test('falls back to existing active location when requested location does not exist', async () => {
+  const req = {
+    headers: { 'x-location-id': '1' },
+    query: {},
+    user: { id: 1, role: 'admin', location_id: null },
+  };
+
+  const locationId = await getTargetLocationId(req, async (sql, params) => {
+    if (sql.includes('FROM locations') && sql.includes('WHERE id = $1') && Number(params?.[0]) === 1) {
+      return { rows: [] };
+    }
+    if (sql.includes('FROM locations') && sql.includes('WHERE is_active = true')) {
+      return { rows: [{ id: 2 }] };
+    }
+    if (sql.includes('SELECT location_id AS id FROM users')) {
+      return { rows: [] };
+    }
+    return { rows: [] };
+  });
+
+  assert.equal(locationId, 2);
 });
 
 test('admin forbidden location throws 403 when assignments exist', async () => {
