@@ -884,6 +884,14 @@ router.post('/print-events', authenticateToken, authorizeRoles('admin', 'cashier
       }
 
       if (!sale) {
+        if (req.headers['x-queued-request'] === 'true') {
+          return {
+            id: null,
+            event_id,
+            status: 'skipped_sale_not_found',
+            sale_id: null,
+          };
+        }
         const error = new Error('Sale not found for print event');
         error.status = 404;
         error.code = 'SALE_NOT_FOUND_FOR_PRINT_EVENT';

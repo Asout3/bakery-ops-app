@@ -322,7 +322,7 @@ export async function consumeStockBatches(dbOrQuery, {
     let cursor = 2;
 
     for (const row of plannedDeductions) {
-      valuePlaceholders.push(`($${cursor}, $${cursor + 1})`);
+      valuePlaceholders.push(`($${cursor}::bigint, $${cursor + 1}::integer)`);
       params.push(row.id, row.quantity);
       cursor += 2;
     }
