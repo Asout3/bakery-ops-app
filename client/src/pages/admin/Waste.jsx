@@ -97,6 +97,10 @@ export default function WastePage() {
       : summary.daily_loss;
 
   const periodLabel = period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly';
+  const expiringStats = useMemo(() => ({
+    batches: expiringRows.length,
+    itemsLeft: expiringRows.reduce((sum, row) => sum + Number(row.quantity_remaining || 0), 0),
+  }), [expiringRows]);
 
   if (loading) {
     return <div className="loading-container"><div className="spinner"></div></div>;
@@ -166,7 +170,7 @@ export default function WastePage() {
                 <div className="waste-list-item" key={row.id}>
                   <div>
                     <div className="waste-item-title">{row.group_name} / {row.product_name}</div>
-                    <div className="waste-item-meta">{new Date(row.wasted_at).toLocaleString()} • {row.location_name || '—'} • {row.created_by_name || 'System'}</div>
+                    <div className="waste-item-meta">{new Date(row.wasted_at).toLocaleString()} • {row.created_by_name || 'System'}</div>
                   </div>
                   <div className="waste-item-values">
                     <div><strong>{Number(row.quantity_wasted || 0)}</strong> {row.unit || 'unit'}</div>
@@ -182,7 +186,10 @@ export default function WastePage() {
       <div className="card">
         <div className="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
           <h3 className="mb-0">Sell first: nearest to expiry</h3>
-          <span className="text-muted small d-inline-flex align-items-center gap-1"><Clock3 size={14} />Batches are sorted by nearest expiry time</span>
+          <span className="text-muted small d-inline-flex align-items-center gap-1">
+            <Clock3 size={14} />
+            {expiringStats.batches} batches about to expire • {expiringStats.itemsLeft} items left
+          </span>
         </div>
         <div className="card-body">
           {!expiringRows.length ? (

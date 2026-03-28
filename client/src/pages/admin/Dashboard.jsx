@@ -1,21 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
-import {
-  Calendar,
-  DollarSign,
-  Wallet,
-  Users,
-  Receipt,
-} from 'lucide-react';
+import { Calendar, DollarSign, Wallet, Users, Receipt } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { useBranch } from '../../context/BranchContext';
@@ -165,14 +149,6 @@ export default function Dashboard() {
   const expenseRows = report?.details?.expenses || [];
   const staffPaymentRows = report?.details?.staff_payments || [];
   const cashierRows = report?.details?.cashier_performance || [];
-  const chartRows = topProducts.slice(0, 10).map((row) => ({
-    ...row,
-    shortName: String(row.name || '')
-      .split(' ')
-      .slice(0, 4)
-      .join(' '),
-  }));
-
   const periodLabel = period === 'daily'
     ? formatShortDate(dailyDate)
     : period === 'weekly'
@@ -224,22 +200,33 @@ export default function Dashboard() {
 
       <div className="details-grid">
         <div className="card">
-          <div className="card-header"><h3>Top Products</h3></div>
-          <div className="card-body">
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={chartRows} layout="vertical" margin={{ top: 8, right: 24, left: 12, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                <XAxis type="number" tickFormatter={(value) => `ETB ${Number(value || 0).toFixed(0)}`} />
-                <YAxis type="category" dataKey="shortName" width={170} tick={{ fontSize: 13 }} />
-                <Tooltip
-                  formatter={(value) => formatMoney(value)}
-                  labelFormatter={(_, payload) => payload?.[0]?.payload?.name || ''}
-                />
-                <Bar dataKey="revenue" radius={[0, 6, 6, 0]} barSize={18}>
-                  {chartRows.map((_, idx) => <Cell key={idx} fill={idx === 0 ? '#2563eb' : '#93c5fd'} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="card-header"><h3>Top Products (Readable List)</h3></div>
+          <div className="card-body table-responsive">
+            <table className="table transparency-table">
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Product</th>
+                  <th>Units Sold</th>
+                  <th>Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topProducts.slice(0, 10).map((row, idx) => (
+                  <tr key={`${row.name}-${idx}`}>
+                    <td>#{idx + 1}</td>
+                    <td>{row.name}</td>
+                    <td>{Number(row.total_sold || 0)}</td>
+                    <td>{formatMoney(row.revenue)}</td>
+                  </tr>
+                ))}
+                {!topProducts.length && (
+                  <tr>
+                    <td colSpan={4} className="text-center text-muted">No products sold in this period.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
 

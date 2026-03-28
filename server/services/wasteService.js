@@ -60,7 +60,10 @@ export async function processExpiredInventoryForLocation(dbOrQuery, locationId, 
             p.unit
      FROM inventory_stock_batches sb
      JOIN products p ON p.id = sb.product_id
+     JOIN inventory i ON i.location_id = sb.location_id AND i.product_id = sb.product_id
      WHERE sb.location_id = $1
+       AND i.quantity > 0
+       AND p.is_active = true
        AND sb.quantity_remaining > 0
        AND sb.expires_at IS NOT NULL
        AND COALESCE(p.shelf_life_days, 0) > 0
@@ -197,7 +200,10 @@ export async function getExpiringStockBatchesForLocation(dbOrQuery, locationId, 
        EXTRACT(EPOCH FROM (sb.expires_at - NOW()))::bigint AS seconds_until_expiry
      FROM inventory_stock_batches sb
      JOIN products p ON p.id = sb.product_id
+     JOIN inventory i ON i.location_id = sb.location_id AND i.product_id = sb.product_id
      WHERE sb.location_id = $1
+       AND i.quantity > 0
+       AND p.is_active = true
        AND sb.quantity_remaining > 0
        AND sb.expires_at IS NOT NULL
        AND sb.expires_at > NOW()

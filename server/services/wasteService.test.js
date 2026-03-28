@@ -100,6 +100,7 @@ test('getExpiringStockBatchesForLocation returns normalized expiring rows', asyn
   const db = {
     async query(text, params) {
       assert.ok(text.includes("NOW() + INTERVAL '7 days'"));
+      assert.ok(text.includes('JOIN inventory i'));
       assert.equal(params[0], 3);
       assert.equal(params[1], 20);
       return {
