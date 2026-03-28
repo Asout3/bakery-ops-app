@@ -1,21 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
-import {
-  Calendar,
-  DollarSign,
-  Wallet,
-  Users,
-  Receipt,
-} from 'lucide-react';
+import { Calendar, DollarSign, Wallet, Users, Receipt } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { useBranch } from '../../context/BranchContext';
@@ -37,7 +21,6 @@ export default function Dashboard() {
 
   const [report, setReport] = useState(null);
   const [orders, setOrders] = useState([]);
-  const [wasteSummary, setWasteSummary] = useState({ daily_loss: 0, weekly_loss: 0, monthly_loss: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -57,9 +40,6 @@ export default function Dashboard() {
           reportRes = await api.get(`/reports/monthly?year=${year}&month=${Number(month)}`);
         }
         setReport(reportRes.data || null);
-
-        const wasteRes = await api.get('/waste/summary');
-        setWasteSummary(wasteRes.data || { daily_loss: 0, weekly_loss: 0, monthly_loss: 0 });
 
         if (user?.role === 'admin') {
           const ordersRes = await api.get('/orders', { params: { include_completed: true } });
@@ -169,31 +149,6 @@ export default function Dashboard() {
   const expenseRows = report?.details?.expenses || [];
   const staffPaymentRows = report?.details?.staff_payments || [];
   const cashierRows = report?.details?.cashier_performance || [];
-  const selectedWasteCard = useMemo(() => {
-    if (period === 'weekly') {
-      return {
-        label: 'Weekly Waste Loss',
-        value: wasteSummary.weekly_loss,
-        sub: 'Current week waste exposure',
-        tone: 'warning',
-      };
-    }
-    if (period === 'monthly') {
-      return {
-        label: 'Monthly Waste Loss',
-        value: wasteSummary.monthly_loss,
-        sub: 'Current month waste exposure',
-        tone: 'danger',
-      };
-    }
-    return {
-      label: 'Daily Waste Loss',
-      value: wasteSummary.daily_loss,
-      sub: 'Expired stock moved to waste today',
-      tone: 'danger',
-    };
-  }, [period, wasteSummary.daily_loss, wasteSummary.weekly_loss, wasteSummary.monthly_loss]);
-
   const periodLabel = period === 'daily'
     ? formatShortDate(dailyDate)
     : period === 'weekly'
@@ -243,34 +198,7 @@ export default function Dashboard() {
         <StatCard icon={<Receipt size={18} />} label="Order Revenue" value={formatMoney(totals.orderRevenue)} sub={`${totals.orderCount} picked-up`} tone="info" />
       </div>
 
-      <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
-        <StatCard
-          icon={<Receipt size={18} />}
-          label={selectedWasteCard.label}
-          value={formatMoney(selectedWasteCard.value)}
-          sub={selectedWasteCard.sub}
-          tone={selectedWasteCard.tone}
-        />
-      </div>
-
       <div className="details-grid">
-        <div className="card">
-          <div className="card-header"><h3>Top Products</h3></div>
-          <div className="card-body">
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={topProducts.slice(0, 8)}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip formatter={(value) => formatMoney(value)} />
-                <Bar dataKey="revenue" radius={[6, 6, 0, 0]}>
-                  {topProducts.slice(0, 8).map((_, idx) => <Cell key={idx} fill={idx === 0 ? '#2563eb' : '#93c5fd'} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
         <div className="card">
           <div className="card-header"><h3>Payment Methods ({period === 'daily' ? 'Today' : 'Selected period'})</h3></div>
           <div className="card-body payment-methods">
@@ -288,7 +216,12 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <DataTable title="Products Sold" headers={['Product', 'Units', 'Revenue']} rows={topProducts.map((r) => [r.name, Number(r.total_sold || 0), formatMoney(r.revenue)])} empty="No products sold in this period." />
+      <DataTable
+        title="Top Products"
+        headers={['Product', 'Units Sold', 'Revenue']}
+        rows={topProducts.map((r) => [r.name, Number(r.total_sold || 0), formatMoney(r.revenue)])}
+        empty="No products sold in this period."
+      />
 
       <DataTable
         title="Cashier & Ground Manager Performance"
@@ -330,6 +263,7 @@ export default function Dashboard() {
           <SummaryItem label="Total Revenue" value={formatMoney(totals.revenue)} />
           <SummaryItem label="Total Expenses" value={formatMoney(totals.expenses)} />
           <SummaryItem label="Total Staff Payments" value={formatMoney(totals.staffPayments)} />
+          <SummaryItem label="Waste Loss" value={formatMoney(totals.wasteLoss)} />
           <SummaryItem label="Total Costs" value={formatMoney(totals.totalCosts)} />
           <SummaryItem label="Pre-Order Revenue (Picked Up)" value={formatMoney(totals.orderRevenue)} />
           <SummaryItem label="Net Profit" value={formatMoney(totals.netProfit)} bold />

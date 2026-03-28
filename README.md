@@ -171,6 +171,7 @@ sequenceDiagram
 - API error envelope consistency (`error`, `code`, `requestId`) for client classification.
 - Sales stock failures now return structured `INSUFFICIENT_STOCK` details so offline sync can surface actionable retry guidance (`requested_quantity` vs `available_quantity`).
 - Admin dashboard cashier performance now includes Telebirr totals alongside Cash and Mobile splits for daily/weekly/monthly periods.
+- Admin dashboard top-products visualization now uses a larger readable horizontal revenue chart, and the period summary now includes an explicit waste-loss line item.
 - Cache fallback in key manager/cashier pages for continuity.
 - Single-flight offline queue flush locking to prevent overlapping replay runs.
 - Offline replay now emits an `offline-queue-synced` browser event after successful replay cycles so cashier stock views can immediately rehydrate from server truth.
@@ -199,6 +200,7 @@ When a remote reviewer reports they cannot see merged changes, confirm the follo
 - Each waste record stores `product_id`, `location_id`, `quantity_wasted`, `cost_per_unit`, `total_loss`, `reason`, `wasted_at`, and related metadata for auditing.
 - Expired inventory processing runs before product, inventory, dashboard, and waste reads, and before sale creation, keeping operational screens accurate without needing a manual cleanup job.
 - Admins have a dedicated Waste page that surfaces grouped loss by item plus current-day, current-week, and current-month waste-loss cards.
+- The Waste page now includes period-scoped waste lists (daily/weekly/monthly), plus a sell-first expiring-batch queue that shows sold quantity, remaining quantity, expiry timestamp, and time-left countdown for each batch.
 - Inventory low-stock notifications are triggered after manual stock edits, sales, and expiry-driven waste movements.
 
 ## Notification Delivery Model

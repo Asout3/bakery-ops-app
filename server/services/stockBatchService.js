@@ -28,11 +28,7 @@ function computeExpiresAt(createdAt, shelfLifeDays) {
   const base = createdAt ? new Date(createdAt) : new Date();
   if (Number.isNaN(base.getTime())) return null;
 
-  const utcYear = base.getUTCFullYear();
-  const utcMonth = base.getUTCMonth();
-  const utcDate = base.getUTCDate();
-  const expiresAtMs = Date.UTC(utcYear, utcMonth, utcDate, 23, 59, 59, 999) + (Math.max(normalizedDays - 1, 0) * 24 * 60 * 60 * 1000);
-
+  const expiresAtMs = base.getTime() + (Math.max(normalizedDays, 0) * 24 * 60 * 60 * 1000);
   return new Date(expiresAtMs).toISOString();
 }
 
@@ -201,49 +197,16 @@ export async function addStockBatch(dbOrQuery, {
   const createdAtIso = Number.isNaN(effectiveCreatedAt.getTime()) ? new Date().toISOString() : effectiveCreatedAt.toISOString();
   const expiresAt = computeExpiresAt(createdAtIso, resolvedShelfLifeDays);
 
-  const existing = await db.query(
-    `SELECT id
-     FROM inventory_stock_batches
-     WHERE product_id = $1
-       AND location_id = $2
-       AND source = $3
-       AND quantity_remaining >= 0
-       AND (
-         (expires_at IS NULL AND $4::timestamptz IS NULL)
-         OR expires_at = $4::timestamptz
-       )
-     ORDER BY id DESC
-     LIMIT 1`,
-    [productId, locationId, source, expiresAt]
-  );
-
   const payload = JSON.stringify(metadata || {});
 
-  let batch;
-  if (existing.rows.length) {
-    const updated = await db.query(
-      `UPDATE inventory_stock_batches
-       SET initial_quantity = initial_quantity + $1,
-           quantity_remaining = quantity_remaining + $1,
-           reference_type = COALESCE($2, reference_type),
-           reference_id = COALESCE($3, reference_id),
-           created_by = COALESCE($4, created_by),
-           metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb
-       WHERE id = $6
-       RETURNING *`,
-      [normalizedQuantity, referenceType, referenceId, createdBy, payload, existing.rows[0].id]
-    );
-    batch = updated.rows[0];
-  } else {
-    const inserted = await db.query(
-      `INSERT INTO inventory_stock_batches
-       (product_id, location_id, initial_quantity, quantity_remaining, source, reference_type, reference_id, created_by, created_at, expires_at, metadata)
-       VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING *`,
-      [productId, locationId, normalizedQuantity, source, referenceType, referenceId, createdBy, createdAtIso, expiresAt, payload]
-    );
-    batch = inserted.rows[0];
-  }
+  const inserted = await db.query(
+    `INSERT INTO inventory_stock_batches
+     (product_id, location_id, initial_quantity, quantity_remaining, source, reference_type, reference_id, created_by, created_at, expires_at, metadata)
+     VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10)
+     RETURNING *`,
+    [productId, locationId, normalizedQuantity, source, referenceType, referenceId, createdBy, createdAtIso, expiresAt, payload]
+  );
+  const batch = inserted.rows[0];
 
   await syncInventoryFromStockBatches(db, locationId, productId, source);
   return batch;
