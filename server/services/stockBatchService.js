@@ -28,11 +28,7 @@ function computeExpiresAt(createdAt, shelfLifeDays) {
   const base = createdAt ? new Date(createdAt) : new Date();
   if (Number.isNaN(base.getTime())) return null;
 
-  const utcYear = base.getUTCFullYear();
-  const utcMonth = base.getUTCMonth();
-  const utcDate = base.getUTCDate();
-  const expiresAtMs = Date.UTC(utcYear, utcMonth, utcDate, 23, 59, 59, 999) + (Math.max(normalizedDays - 1, 0) * 24 * 60 * 60 * 1000);
-
+  const expiresAtMs = base.getTime() + (Math.max(normalizedDays, 0) * 24 * 60 * 60 * 1000);
   return new Date(expiresAtMs).toISOString();
 }
 

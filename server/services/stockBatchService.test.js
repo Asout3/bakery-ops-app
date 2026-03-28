@@ -91,6 +91,7 @@ test('consumeStockBatches uses typed bulk update values for bigint batch ids', a
 
 test('addStockBatch always inserts a new batch even for the same product and expiry', async () => {
   const insertedBatchIds = [];
+  const insertedExpiresAt = [];
   const db = {
     async query(text, params = []) {
       if (text.includes('SELECT shelf_life_days')) {
@@ -99,6 +100,7 @@ test('addStockBatch always inserts a new batch even for the same product and exp
       if (text.includes('INSERT INTO inventory_stock_batches')) {
         const nextId = insertedBatchIds.length + 1;
         insertedBatchIds.push(nextId);
+        insertedExpiresAt.push(params[8]);
         return { rows: [{ id: nextId, product_id: params[0], location_id: params[1], quantity_remaining: params[2] }] };
       }
       if (text.includes('SELECT COALESCE(SUM(quantity_remaining), 0) AS quantity')) {
@@ -119,6 +121,8 @@ test('addStockBatch always inserts a new batch even for the same product and exp
 
   assert.equal(insertedBatchIds.length, 2);
   assert.notEqual(first.id, second.id);
+  assert.notEqual(insertedExpiresAt[0], insertedExpiresAt[1]);
+  assert.equal(new Date(insertedExpiresAt[1]).getTime() - new Date(insertedExpiresAt[0]).getTime(), 30 * 60 * 1000);
 });
 
 test('consumeStockBatches keeps different batches separate and consumes oldest first', async () => {
