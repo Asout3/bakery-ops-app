@@ -6,3 +6,66 @@
 .waste-header {
   align-items: flex-start;
 }
+
+.waste-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.waste-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--r-sm);
+  background: var(--surface-bg);
+}
+
+.waste-item-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.2rem;
+}
+
+.waste-item-meta {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.waste-item-values {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.expiry-pill {
+  display: inline-flex;
+  padding: 0.25rem 0.55rem;
+  border-radius: var(--r-full);
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.expiry-pill.urgent {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+}
+
+@media (max-width: 768px) {
+  .waste-list-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .waste-item-values {
+    align-items: flex-start;
+  }
+}

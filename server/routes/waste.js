@@ -2,7 +2,7 @@ import express from 'express';
 import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
-import { processExpiredInventoryForAllLocations, processExpiredInventoryForLocation } from '../services/wasteService.js';
+import { getExpiringStockBatchesForLocation, processExpiredInventoryForAllLocations, processExpiredInventoryForLocation } from '../services/wasteService.js';
 
 const router = express.Router();
 
@@ -102,6 +102,19 @@ router.get('/summary', authenticateToken, authorizeRoles('admin', 'manager'), as
   } catch (err) {
     console.error('Get waste summary error:', err);
     res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'WASTE_SUMMARY_ERROR', requestId: req.requestId });
+  }
+});
+
+router.get('/expiring', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
+  try {
+    const locationId = await getTargetLocationId(req, query);
+    const period = String(req.query.period || 'daily').toLowerCase();
+    const limit = clampLimit(req.query.limit, 100, 500);
+    const rows = await getExpiringStockBatchesForLocation({ query }, locationId, { period, limit });
+    res.json(rows);
+  } catch (err) {
+    console.error('Get expiring stock error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'WASTE_EXPIRING_FETCH_ERROR', requestId: req.requestId });
   }
 });
 

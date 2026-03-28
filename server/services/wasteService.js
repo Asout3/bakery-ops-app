@@ -170,8 +170,55 @@ export async function processExpiredInventoryForAllLocations(dbOrQuery, actorUse
   return summaries;
 }
 
+export async function getExpiringStockBatchesForLocation(dbOrQuery, locationId, { period = 'daily', limit = 100 } = {}) {
+  if (!locationId) return [];
+  const db = getDbExecutor(dbOrQuery);
+  const allowedPeriods = new Set(['daily', 'weekly', 'monthly']);
+  const safePeriod = allowedPeriods.has(period) ? period : 'daily';
+  const safeLimit = Number.isFinite(Number(limit)) ? Math.min(Math.max(Math.trunc(Number(limit)), 1), 500) : 100;
+
+  const horizonMap = {
+    daily: "NOW() + INTERVAL '1 day'",
+    weekly: "NOW() + INTERVAL '7 days'",
+    monthly: "NOW() + INTERVAL '30 days'",
+  };
+
+  const result = await db.query(
+    `SELECT
+       sb.id AS stock_batch_id,
+       sb.product_id,
+       p.name AS product_name,
+       COALESCE(NULLIF(p.group_name, ''), p.name) AS group_name,
+       p.unit,
+       sb.initial_quantity,
+       sb.quantity_remaining,
+       GREATEST(sb.initial_quantity - sb.quantity_remaining, 0) AS quantity_sold,
+       sb.expires_at,
+       EXTRACT(EPOCH FROM (sb.expires_at - NOW()))::bigint AS seconds_until_expiry
+     FROM inventory_stock_batches sb
+     JOIN products p ON p.id = sb.product_id
+     WHERE sb.location_id = $1
+       AND sb.quantity_remaining > 0
+       AND sb.expires_at IS NOT NULL
+       AND sb.expires_at > NOW()
+       AND sb.expires_at <= ${horizonMap[safePeriod]}
+     ORDER BY sb.expires_at ASC, sb.id ASC
+     LIMIT $2`,
+    [locationId, safeLimit]
+  );
+
+  return result.rows.map((row) => ({
+    ...row,
+    initial_quantity: Number(row.initial_quantity || 0),
+    quantity_remaining: Number(row.quantity_remaining || 0),
+    quantity_sold: Number(row.quantity_sold || 0),
+    seconds_until_expiry: Number(row.seconds_until_expiry || 0),
+  }));
+}
+
 export default {
   ensureWasteSchema,
   processExpiredInventoryForLocation,
   processExpiredInventoryForAllLocations,
+  getExpiringStockBatchesForLocation,
 };

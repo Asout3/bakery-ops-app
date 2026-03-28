@@ -37,7 +37,6 @@ export default function Dashboard() {
 
   const [report, setReport] = useState(null);
   const [orders, setOrders] = useState([]);
-  const [wasteSummary, setWasteSummary] = useState({ daily_loss: 0, weekly_loss: 0, monthly_loss: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -57,9 +56,6 @@ export default function Dashboard() {
           reportRes = await api.get(`/reports/monthly?year=${year}&month=${Number(month)}`);
         }
         setReport(reportRes.data || null);
-
-        const wasteRes = await api.get('/waste/summary');
-        setWasteSummary(wasteRes.data || { daily_loss: 0, weekly_loss: 0, monthly_loss: 0 });
 
         if (user?.role === 'admin') {
           const ordersRes = await api.get('/orders', { params: { include_completed: true } });
@@ -169,30 +165,13 @@ export default function Dashboard() {
   const expenseRows = report?.details?.expenses || [];
   const staffPaymentRows = report?.details?.staff_payments || [];
   const cashierRows = report?.details?.cashier_performance || [];
-  const selectedWasteCard = useMemo(() => {
-    if (period === 'weekly') {
-      return {
-        label: 'Weekly Waste Loss',
-        value: wasteSummary.weekly_loss,
-        sub: 'Current week waste exposure',
-        tone: 'warning',
-      };
-    }
-    if (period === 'monthly') {
-      return {
-        label: 'Monthly Waste Loss',
-        value: wasteSummary.monthly_loss,
-        sub: 'Current month waste exposure',
-        tone: 'danger',
-      };
-    }
-    return {
-      label: 'Daily Waste Loss',
-      value: wasteSummary.daily_loss,
-      sub: 'Expired stock moved to waste today',
-      tone: 'danger',
-    };
-  }, [period, wasteSummary.daily_loss, wasteSummary.weekly_loss, wasteSummary.monthly_loss]);
+  const chartRows = topProducts.slice(0, 10).map((row) => ({
+    ...row,
+    shortName: String(row.name || '')
+      .split(' ')
+      .slice(0, 4)
+      .join(' '),
+  }));
 
   const periodLabel = period === 'daily'
     ? formatShortDate(dailyDate)
@@ -243,28 +222,21 @@ export default function Dashboard() {
         <StatCard icon={<Receipt size={18} />} label="Order Revenue" value={formatMoney(totals.orderRevenue)} sub={`${totals.orderCount} picked-up`} tone="info" />
       </div>
 
-      <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
-        <StatCard
-          icon={<Receipt size={18} />}
-          label={selectedWasteCard.label}
-          value={formatMoney(selectedWasteCard.value)}
-          sub={selectedWasteCard.sub}
-          tone={selectedWasteCard.tone}
-        />
-      </div>
-
       <div className="details-grid">
         <div className="card">
           <div className="card-header"><h3>Top Products</h3></div>
           <div className="card-body">
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={topProducts.slice(0, 8)}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip formatter={(value) => formatMoney(value)} />
-                <Bar dataKey="revenue" radius={[6, 6, 0, 0]}>
-                  {topProducts.slice(0, 8).map((_, idx) => <Cell key={idx} fill={idx === 0 ? '#2563eb' : '#93c5fd'} />)}
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={chartRows} layout="vertical" margin={{ top: 8, right: 24, left: 12, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" tickFormatter={(value) => `ETB ${Number(value || 0).toFixed(0)}`} />
+                <YAxis type="category" dataKey="shortName" width={170} tick={{ fontSize: 13 }} />
+                <Tooltip
+                  formatter={(value) => formatMoney(value)}
+                  labelFormatter={(_, payload) => payload?.[0]?.payload?.name || ''}
+                />
+                <Bar dataKey="revenue" radius={[0, 6, 6, 0]} barSize={18}>
+                  {chartRows.map((_, idx) => <Cell key={idx} fill={idx === 0 ? '#2563eb' : '#93c5fd'} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -330,6 +302,7 @@ export default function Dashboard() {
           <SummaryItem label="Total Revenue" value={formatMoney(totals.revenue)} />
           <SummaryItem label="Total Expenses" value={formatMoney(totals.expenses)} />
           <SummaryItem label="Total Staff Payments" value={formatMoney(totals.staffPayments)} />
+          <SummaryItem label="Waste Loss" value={formatMoney(totals.wasteLoss)} />
           <SummaryItem label="Total Costs" value={formatMoney(totals.totalCosts)} />
           <SummaryItem label="Pre-Order Revenue (Picked Up)" value={formatMoney(totals.orderRevenue)} />
           <SummaryItem label="Net Profit" value={formatMoney(totals.netProfit)} bold />

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { processExpiredInventoryForLocation } from './wasteService.js';
+import { getExpiringStockBatchesForLocation, processExpiredInventoryForAllLocations, processExpiredInventoryForLocation } from './wasteService.js';
 import { createLowStockNotificationIfNeeded } from './stockAlertService.js';
 
 test('processExpiredInventoryForLocation moves expired stock batches into waste ledger', async () => {
@@ -71,4 +71,57 @@ test('createLowStockNotificationIfNeeded skips when stock is above threshold', a
 
   assert.equal(result.triggered, false);
   assert.equal(result.reason, 'above_threshold');
+});
+
+test('processExpiredInventoryForLocation returns empty summary when location is missing', async () => {
+  const summary = await processExpiredInventoryForLocation({ query: async () => ({ rows: [] }) }, null, 11);
+  assert.deepEqual(summary, { processedCount: 0, totalLoss: 0, items: [] });
+});
+
+test('processExpiredInventoryForAllLocations processes each location with expired stock', async () => {
+  const db = {
+    async query(text) {
+      if (text.includes('SELECT DISTINCT location_id')) {
+        return { rows: [{ location_id: 2 }, { location_id: 5 }] };
+      }
+      if (text.includes('FROM inventory_stock_batches sb') && text.includes('WHERE sb.location_id = $1')) {
+        return { rows: [] };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+  };
+
+  const summaries = await processExpiredInventoryForAllLocations(db, 4);
+  assert.equal(summaries.length, 2);
+  assert.ok(summaries.every((row) => row.processedCount === 0));
+});
+
+test('getExpiringStockBatchesForLocation returns normalized expiring rows', async () => {
+  const db = {
+    async query(text, params) {
+      assert.ok(text.includes("NOW() + INTERVAL '7 days'"));
+      assert.equal(params[0], 3);
+      assert.equal(params[1], 20);
+      return {
+        rows: [{
+          stock_batch_id: 91,
+          product_id: 14,
+          product_name: 'Vanilla Slice',
+          group_name: 'Pastry',
+          unit: 'piece',
+          initial_quantity: '10',
+          quantity_remaining: '2',
+          quantity_sold: '8',
+          expires_at: '2026-04-02T12:00:00.000Z',
+          seconds_until_expiry: '3600',
+        }],
+      };
+    },
+  };
+
+  const rows = await getExpiringStockBatchesForLocation(db, 3, { period: 'weekly', limit: 20 });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].quantity_sold, 8);
+  assert.equal(rows[0].quantity_remaining, 2);
+  assert.equal(rows[0].seconds_until_expiry, 3600);
 });
