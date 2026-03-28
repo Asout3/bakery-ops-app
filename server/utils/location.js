@@ -1,7 +1,18 @@
 export async function getTargetLocationId(req, dbQuery) {
   const headerLocationId = req.headers['x-location-id'];
   const queryLocationId = req.query.location_id;
-  let requestedLocationId = Number(headerLocationId || queryLocationId || req.user?.location_id || 0) || null;
+  const rawRequestedLocationId = Number(headerLocationId || queryLocationId || req.user?.location_id || 0) || null;
+  if (req.user?.role !== 'admin') {
+    const ownLocationId = Number(req.user?.location_id || 0) || null;
+    if (ownLocationId) {
+      const resolvedOwnLocationId = await ensureExistingLocationId(ownLocationId, dbQuery);
+      if (resolvedOwnLocationId) {
+        return resolvedOwnLocationId;
+      }
+    }
+  }
+
+  let requestedLocationId = await ensureExistingLocationId(rawRequestedLocationId, dbQuery);
 
   if (!requestedLocationId) {
     requestedLocationId = await ensureDefaultLocationId(dbQuery);
@@ -12,7 +23,7 @@ export async function getTargetLocationId(req, dbQuery) {
   }
 
   if (req.user?.role !== 'admin') {
-    return req.user?.location_id || requestedLocationId;
+    return requestedLocationId;
   }
 
   const accessResult = await dbQuery(
@@ -69,4 +80,25 @@ async function ensureDefaultLocationId(dbQuery) {
     const retryResult = await dbQuery('SELECT id FROM locations ORDER BY id ASC LIMIT 1');
     return Number(retryResult.rows[0]?.id) || null;
   }
+}
+
+async function ensureExistingLocationId(locationId, dbQuery) {
+  const numericLocationId = Number(locationId || 0) || null;
+  if (!numericLocationId) {
+    return null;
+  }
+
+  const existingResult = await dbQuery(
+    `SELECT id
+     FROM locations
+     WHERE id = $1
+     LIMIT 1`,
+    [numericLocationId]
+  );
+
+  if (existingResult.rows.length > 0) {
+    return numericLocationId;
+  }
+
+  return null;
 }

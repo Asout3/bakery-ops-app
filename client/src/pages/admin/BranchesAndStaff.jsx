@@ -34,7 +34,7 @@ export default function BranchesAndStaff() {
   const [showPasswords, setShowPasswords] = useState({
     createAccount: false,
     editAccount: false,
-    currentCredential: false,
+    currentCredential: true,
     newCredential: false,
     confirmCredential: false,
   });
