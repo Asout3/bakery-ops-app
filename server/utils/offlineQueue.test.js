@@ -168,9 +168,37 @@ test.beforeEach(async () => {
     },
     configurable: true,
   });
+  globalThis.CustomEvent = class CustomEvent {
+    constructor(type, init = {}) {
+      this.type = type;
+      this.detail = init.detail;
+    }
+  };
+  globalThis.window = {
+    dispatchEvent() {
+      return true;
+    },
+  };
   await clearHistory();
   const queued = await listQueuedOperations();
   await Promise.all(queued.map((op) => cancelOperation(op.id)));
+});
+
+test('flushQueue dispatches offline-queue-synced event when visible operations sync', async () => {
+  await enqueueOperation({ id: 'sync-event-op', url: '/sales', method: 'post', data: { n: 1 } });
+
+  const dispatched = [];
+  globalThis.window.dispatchEvent = (event) => {
+    dispatched.push(event);
+    return true;
+  };
+
+  const { api } = createApiStub([{ type: 'success' }]);
+  await flushQueue(api);
+
+  assert.equal(dispatched.length, 1);
+  assert.equal(dispatched[0].type, 'offline-queue-synced');
+  assert.equal(dispatched[0].detail.synced, 1);
 });
 
 
@@ -217,6 +245,40 @@ test('flushQueue marks deterministic client errors as conflict', async () => {
 
   assert.equal(queued.length, 1);
   assert.equal(queued[0].status, 'conflict');
+});
+
+test('flushQueue auto-adjusts queued sale quantity on insufficient stock and retries as pending', async () => {
+  await enqueueOperation({
+    id: 'adjust-op',
+    url: '/sales',
+    method: 'post',
+    data: { items: [{ product_id: 5, quantity: 8 }], payment_method: 'cash' },
+  });
+
+  const api = {
+    call: 0,
+    async request() {
+      this.call += 1;
+      if (this.call === 1) {
+        const err = new Error('Insufficient stock');
+        err.response = {
+          status: 400,
+          data: {
+            code: 'INSUFFICIENT_STOCK',
+            details: { product_id: 5, available_quantity: 3, requested_quantity: 8 },
+          },
+        };
+        throw err;
+      }
+      return { data: { ok: true } };
+    },
+  };
+
+  const first = await flushQueue(api);
+  const queuedAfterFirst = await listQueuedOperations();
+  assert.equal(first.synced, 1);
+  assert.equal(api.call, 2);
+  assert.equal(queuedAfterFirst.length, 0);
 });
 
 test('flushQueue limits overlapping calls with skip response', async () => {
