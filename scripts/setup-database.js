@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import bcrypt from 'bcryptjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,18 +15,35 @@ const dbIpFamily = Number(process.env.DB_IP_FAMILY || 4);
 const isProduction = process.env.NODE_ENV === 'production';
 const shouldRejectUnauthorized = process.env.SSL_REJECT_UNAUTHORIZED !== 'false';
 
+function resolveSeedAdminCredentials() {
+  const username = process.env.SEED_ADMIN_USERNAME?.trim() || 'admin';
+  const password = process.env.SEED_ADMIN_PASSWORD?.trim() || 'Admin@123!';
+  const email = process.env.SEED_ADMIN_EMAIL?.trim() || 'admin@bakery.com';
+  return { username, password, email };
+}
+
 async function ensureDefaultAdminSeed(client) {
-  const allowDevSeed = process.env.ALLOW_DEV_SEED !== 'false';
-  if (isProduction || !allowDevSeed) {
-    return;
+  const allowSeed = process.env.ALLOW_DEV_SEED !== 'false';
+  if (!allowSeed) {
+    return { seeded: false, credentials: null };
   }
 
+  const existingAdmin = await client.query(
+    `SELECT id FROM users WHERE role = 'admin' AND is_active = true LIMIT 1`
+  );
+  if (existingAdmin.rows.length > 0) {
+    return { seeded: false, credentials: null };
+  }
+
+  const credentials = resolveSeedAdminCredentials();
+  const passwordHash = await bcrypt.hash(credentials.password, 10);
   await client.query(
     `INSERT INTO users (username, email, password_hash, role)
-     VALUES ('admin', 'admin@bakery.com', $1, 'admin')
+     VALUES ($1, $2, $3, 'admin')
      ON CONFLICT (username) DO NOTHING`,
-    ['$2a$10$dn8KZ/YdUSxWjAWlAnK2We/oAbn6LIhLGDsQYurAhjDWkzpLYvmL2']
+    [credentials.username, credentials.email, passwordHash]
   );
+  return { seeded: true, credentials };
 }
 
 async function getMigrationFiles() {
@@ -100,6 +118,7 @@ async function setupDatabase() {
 
     await acquireSetupLock(client);
     await ensureMigrationsTable(client);
+    let seededAdminInfo = null;
 
     const tablesExist = await checkTablesExist(client);
     
@@ -111,7 +130,8 @@ async function setupDatabase() {
       await client.query('BEGIN');
       await client.query(schema);
       await recordMigration(client, 'schema.sql');
-      await ensureDefaultAdminSeed(client);
+      const seededResult = await ensureDefaultAdminSeed(client);
+      seededAdminInfo = seededResult.seeded ? seededResult.credentials : null;
       await client.query('COMMIT');
       console.log('✅ Base schema applied!');
     } else {
@@ -154,14 +174,25 @@ async function setupDatabase() {
     } else {
       console.log(`✅ Applied ${migrationsRun} new migration(s)!`);
     }
+
+    const existingSeedResult = await ensureDefaultAdminSeed(client);
+    if (!seededAdminInfo && existingSeedResult.seeded) {
+      seededAdminInfo = existingSeedResult.credentials;
+    }
     
     console.log('');
     console.log('✅ Database setup complete!');
     console.log('');
-    if (!isProduction && process.env.ALLOW_DEV_SEED !== 'false') {
-      console.log('Default login credentials:');
-      console.log('  Username: admin');
-      console.log('  Password: admin123');
+    if (seededAdminInfo) {
+      console.log('Admin account created:');
+      console.log(`  Username: ${seededAdminInfo.username}`);
+      console.log(`  Password: ${seededAdminInfo.password}`);
+      console.log('');
+    } else if (!isProduction && process.env.ALLOW_DEV_SEED !== 'false') {
+      const fallbackCredentials = resolveSeedAdminCredentials();
+      console.log('Admin account already exists. Default seed credentials:');
+      console.log(`  Username: ${fallbackCredentials.username}`);
+      console.log(`  Password: ${fallbackCredentials.password}`);
       console.log('');
     }
     
