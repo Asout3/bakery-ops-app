@@ -144,7 +144,6 @@ export default function Dashboard() {
     return { revenue, transactions: transactions + orderPerformance.count, expenses, staffPayments, batchCosts, wasteLoss, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
   }, [report, period, orderPerformance]);
 
-  const topProducts = report?.top_products || [];
   const paymentMethods = report?.payment_methods || [];
   const expenseRows = report?.details?.expenses || [];
   const staffPaymentRows = report?.details?.staff_payments || [];
@@ -200,37 +199,6 @@ export default function Dashboard() {
 
       <div className="details-grid">
         <div className="card">
-          <div className="card-header"><h3>Top Products (Readable List)</h3></div>
-          <div className="card-body table-responsive">
-            <table className="table transparency-table">
-              <thead>
-                <tr>
-                  <th>Rank</th>
-                  <th>Product</th>
-                  <th>Units Sold</th>
-                  <th>Revenue</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topProducts.slice(0, 10).map((row, idx) => (
-                  <tr key={`${row.name}-${idx}`}>
-                    <td>#{idx + 1}</td>
-                    <td>{row.name}</td>
-                    <td>{Number(row.total_sold || 0)}</td>
-                    <td>{formatMoney(row.revenue)}</td>
-                  </tr>
-                ))}
-                {!topProducts.length && (
-                  <tr>
-                    <td colSpan={4} className="text-center text-muted">No products sold in this period.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="card">
           <div className="card-header"><h3>Payment Methods ({period === 'daily' ? 'Today' : 'Selected period'})</h3></div>
           <div className="card-body payment-methods">
             {paymentMethods.map((row, idx) => (
@@ -246,8 +214,6 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-
-      <DataTable title="Products Sold" headers={['Product', 'Units', 'Revenue']} rows={topProducts.map((r) => [r.name, Number(r.total_sold || 0), formatMoney(r.revenue)])} empty="No products sold in this period." />
 
       <DataTable
         title="Cashier & Ground Manager Performance"
