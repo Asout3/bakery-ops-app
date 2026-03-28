@@ -144,6 +144,7 @@ export default function Dashboard() {
     return { revenue, transactions: transactions + orderPerformance.count, expenses, staffPayments, batchCosts, wasteLoss, totalCosts, netProfit, orderRevenue: orderPerformance.revenue, orderCount: orderPerformance.count };
   }, [report, period, orderPerformance]);
 
+  const topProducts = report?.top_products || [];
   const paymentMethods = report?.payment_methods || [];
   const expenseRows = report?.details?.expenses || [];
   const staffPaymentRows = report?.details?.staff_payments || [];
@@ -214,6 +215,13 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      <DataTable
+        title="Top Products"
+        headers={['Product', 'Units Sold', 'Revenue']}
+        rows={topProducts.map((r) => [r.name, Number(r.total_sold || 0), formatMoney(r.revenue)])}
+        empty="No products sold in this period."
+      />
 
       <DataTable
         title="Cashier & Ground Manager Performance"

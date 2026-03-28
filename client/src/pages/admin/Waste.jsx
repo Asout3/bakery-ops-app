@@ -191,6 +191,9 @@ export default function WastePage() {
             {expiringStats.batches} batches about to expire • {expiringStats.itemsLeft} items left
           </span>
         </div>
+        <div className="card-body pt-2">
+          <p className="text-muted mb-3">Each row is a separate stock batch, even when product names are the same.</p>
+        </div>
         <div className="card-body">
           {!expiringRows.length ? (
             <div className="empty-state">
@@ -205,6 +208,7 @@ export default function WastePage() {
                   <tr>
                     <th>Product</th>
                     <th>Batch</th>
+                    <th>Added At</th>
                     <th>Sold</th>
                     <th>Left</th>
                     <th>Expiry</th>
@@ -216,6 +220,7 @@ export default function WastePage() {
                     <tr key={row.stock_batch_id}>
                       <td>{row.group_name} / {row.product_name}</td>
                       <td>#{row.stock_batch_id}</td>
+                      <td>{row.created_at ? new Date(row.created_at).toLocaleString() : '—'}</td>
                       <td>{Number(row.quantity_sold || 0)} {row.unit || 'unit'}</td>
                       <td>{Number(row.quantity_remaining || 0)} {row.unit || 'unit'}</td>
                       <td>{new Date(row.expires_at).toLocaleString()}</td>
