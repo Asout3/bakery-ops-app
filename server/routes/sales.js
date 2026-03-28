@@ -6,7 +6,7 @@ import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
 import { createLowStockNotificationIfNeeded } from '../services/stockAlertService.js';
 import { processExpiredInventoryForLocation } from '../services/wasteService.js';
-import { consumeStockBatches } from '../services/stockBatchService.js';
+import { addStockBatch, consumeStockBatches } from '../services/stockBatchService.js';
 import {
   buildReceiptPayload,
   createDefaultReceiptTemplatePayload,
@@ -154,6 +154,31 @@ function buildBulkSaleItemsInsert(saleId, saleItems = []) {
     placeholders.push(`($${cursor}, $${cursor + 1}, $${cursor + 2}, $${cursor + 3}, $${cursor + 4})`);
     values.push(saleId, item.product_id, item.quantity, item.unit_price, item.subtotal);
     cursor += 5;
+  }
+
+  return { values, placeholders: placeholders.join(', ') };
+}
+
+function buildBulkInventoryMovementsInsert(locationId, saleId, createdBy, movementItems = [], syncedByUserId = null) {
+  const values = [];
+  const placeholders = [];
+  let cursor = 1;
+
+  for (const item of movementItems) {
+    placeholders.push(`($${cursor}, $${cursor + 1}, 'sale_out', $${cursor + 2}, 'sale', 'sale', $${cursor + 3}, $${cursor + 4}, $${cursor + 5})`);
+    values.push(
+      locationId,
+      item.product_id,
+      -item.quantity,
+      saleId,
+      createdBy,
+      JSON.stringify({
+        remaining_quantity: Number(item.remainingQty || 0),
+        stock_batches: item.consumed || [],
+        synced_by_user_id: syncedByUserId,
+      })
+    );
+    cursor += 6;
   }
 
   return { values, placeholders: placeholders.join(', ') };
@@ -678,7 +703,23 @@ router.post(
           );
         }
 
-        for (const item of saleItems) {
+        const aggregatedSaleItems = Array.from(
+          saleItems.reduce((acc, item) => {
+            const key = Number(item.product_id);
+            if (!acc.has(key)) {
+              acc.set(key, {
+                product_id: key,
+                product_name: item.product_name,
+                quantity: 0,
+              });
+            }
+            acc.get(key).quantity += Number(item.quantity || 0);
+            return acc;
+          }, new Map()).values()
+        );
+        const movementItems = [];
+
+        for (const item of aggregatedSaleItems) {
           let batchConsumption;
           try {
             batchConsumption = await consumeStockBatches(tx, {
@@ -701,16 +742,30 @@ router.post(
             throw stockError;
           }
 
-          const remainingQty = Number(batchConsumption.remainingTotalQuantity || 0);
+          movementItems.push({
+            product_id: item.product_id,
+            quantity: item.quantity,
+            remainingQty: batchConsumption.remainingTotalQuantity,
+            consumed: batchConsumption.consumed,
+          });
 
+          lowStockProductIds.add(item.product_id);
+        }
+
+        if (movementItems.length > 0) {
+          const { values, placeholders } = buildBulkInventoryMovementsInsert(
+            locationId,
+            createdSale.id,
+            effectiveCashierId,
+            movementItems,
+            req.user.id
+          );
           await tx.query(
             `INSERT INTO inventory_movements
              (location_id, product_id, movement_type, quantity_change, source, reference_type, reference_id, created_by, metadata)
-             VALUES ($1, $2, 'sale_out', $3, 'sale', 'sale', $4, $5, $6)`,
-            [locationId, item.product_id, -item.quantity, createdSale.id, effectiveCashierId, JSON.stringify({ remaining_quantity: remainingQty, stock_batches: batchConsumption.consumed, synced_by_user_id: req.user.id })]
+             VALUES ${placeholders}`,
+            values
           );
-
-          lowStockProductIds.add(item.product_id);
         }
 
         const responseTemplate = normalizeReceiptTemplateSchema(receipt_template_snapshot || {});
@@ -994,33 +1049,32 @@ router.post('/:id/void', authenticateToken, authorizeRoles('admin', 'cashier', '
       );
       
       for (const item of itemsResult.rows) {
-        const inventoryResult = await tx.query(
-          `UPDATE inventory
-           SET quantity = quantity + $1, last_updated = CURRENT_TIMESTAMP
-           WHERE product_id = $2 AND location_id = $3
-           RETURNING quantity`,
-          [item.quantity, item.product_id, locationId]
-        );
-        
-        if (inventoryResult.rows.length === 0) {
-          await tx.query(
-            `INSERT INTO inventory (product_id, location_id, quantity, last_updated)
-             VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
-            [item.product_id, locationId, item.quantity]
-          );
-        }
-        
+        const restoredBatch = await addStockBatch(tx, {
+          productId: Number(item.product_id),
+          locationId,
+          quantity: Number(item.quantity || 0),
+          source: 'manual',
+          referenceType: 'sale_void',
+          referenceId: saleId,
+          createdBy: req.user.id,
+          metadata: { action: 'void_restore', void_reason: reason || 'No reason provided' },
+        });
+
         await tx.query(
           `INSERT INTO inventory_movements
            (location_id, product_id, movement_type, quantity_change, source, reference_type, reference_id, created_by, metadata)
-           VALUES ($1, $2, 'sale_out', $3, 'sale', 'void', $4, $5, $6)`,
+           VALUES ($1, $2, 'manual_adjustment', $3, 'sale', 'void', $4, $5, $6)`,
           [
             locationId, 
             item.product_id, 
             item.quantity, 
             saleId, 
             req.user.id, 
-            JSON.stringify({ action: 'void_restore', void_reason: reason || 'No reason provided' })
+            JSON.stringify({
+              action: 'void_restore',
+              void_reason: reason || 'No reason provided',
+              restored_batch_id: restoredBatch?.id || null,
+            })
           ]
         );
       }

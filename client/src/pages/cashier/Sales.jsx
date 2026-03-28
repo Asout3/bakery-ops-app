@@ -160,6 +160,17 @@ export default function Sales() {
     };
   }, [selectedLocationId]);
 
+  useEffect(() => {
+    const handleOfflineQueueSynced = () => {
+      fetchProducts();
+    };
+
+    window.addEventListener('offline-queue-synced', handleOfflineQueueSynced);
+    return () => {
+      window.removeEventListener('offline-queue-synced', handleOfflineQueueSynced);
+    };
+  }, [selectedLocationId]);
+
   const groupedProducts = useMemo(() => {
     const map = new Map();
     products
@@ -310,6 +321,7 @@ export default function Sales() {
       applySaleToLocalStock(payload.items);
       setCart([]);
       toast.success('Sale completed.');
+      void fetchProducts();
       void maybeStartPrintFlow(completedSale);
     } catch (err) {
       if (!err.response) {

@@ -380,6 +380,16 @@ export async function flushQueue(api) {
     }
   }
 
+    if (visibleSynced > 0 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('offline-queue-synced', {
+        detail: {
+          synced: visibleSynced,
+          failed: visibleFailed,
+          at: new Date().toISOString(),
+        },
+      }));
+    }
+
     const remainingQueue = await listQueuedOperations();
     const remaining = remainingQueue.length;
     return { synced, failed, pending: remaining, visibleSynced, visibleFailed, visiblePending: countUserVisibleOperations(remainingQueue), completed };

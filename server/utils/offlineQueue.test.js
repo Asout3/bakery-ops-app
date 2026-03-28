@@ -168,9 +168,37 @@ test.beforeEach(async () => {
     },
     configurable: true,
   });
+  globalThis.CustomEvent = class CustomEvent {
+    constructor(type, init = {}) {
+      this.type = type;
+      this.detail = init.detail;
+    }
+  };
+  globalThis.window = {
+    dispatchEvent() {
+      return true;
+    },
+  };
   await clearHistory();
   const queued = await listQueuedOperations();
   await Promise.all(queued.map((op) => cancelOperation(op.id)));
+});
+
+test('flushQueue dispatches offline-queue-synced event when visible operations sync', async () => {
+  await enqueueOperation({ id: 'sync-event-op', url: '/sales', method: 'post', data: { n: 1 } });
+
+  const dispatched = [];
+  globalThis.window.dispatchEvent = (event) => {
+    dispatched.push(event);
+    return true;
+  };
+
+  const { api } = createApiStub([{ type: 'success' }]);
+  await flushQueue(api);
+
+  assert.equal(dispatched.length, 1);
+  assert.equal(dispatched[0].type, 'offline-queue-synced');
+  assert.equal(dispatched[0].detail.synced, 1);
 });
 
 

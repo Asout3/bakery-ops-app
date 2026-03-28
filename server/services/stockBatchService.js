@@ -79,6 +79,7 @@ export async function ensureStockBatchSchema() {
     );
     await query('CREATE INDEX IF NOT EXISTS idx_inventory_stock_batches_lookup ON inventory_stock_batches(location_id, product_id, expires_at, created_at)');
     await query('CREATE INDEX IF NOT EXISTS idx_inventory_stock_batches_reference ON inventory_stock_batches(reference_type, reference_id)');
+    await query('CREATE INDEX IF NOT EXISTS idx_inventory_stock_batches_available ON inventory_stock_batches(location_id, product_id, expires_at, created_at) WHERE quantity_remaining > 0');
     await query('CREATE INDEX IF NOT EXISTS idx_products_shelf_life_days ON products(shelf_life_days)');
   })().catch((error) => {
     stockBatchSchemaPromise = null;

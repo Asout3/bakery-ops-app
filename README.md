@@ -162,6 +162,7 @@ sequenceDiagram
 
 - Cashier sales now block add/increase actions when stock is exhausted, hide expired variants, and reject expired product checkout server-side.
 - Expired inventory is automatically converted into waste records with quantity, unit cost, total loss, and timestamp preservation.
+- Sale-void stock restoration now writes compensating stock batches (`reference_type = sale_void`) and re-derives inventory from batch totals, preventing drift between `inventory` and `inventory_stock_batches`.
 - Idempotent write headers for retry-safe replay.
 - Replay status model (`synced`, `failed`, `conflict`, `needs_review`, `ignored`, `resolved`).
 - Offline replay preserves the original actor identity (`X-Offline-Actor-Id`) so synced records remain attributed to the initiating cashier/manager, not the user who triggers replay later.
@@ -172,6 +173,7 @@ sequenceDiagram
 - Admin dashboard cashier performance now includes Telebirr totals alongside Cash and Mobile splits for daily/weekly/monthly periods.
 - Cache fallback in key manager/cashier pages for continuity.
 - Single-flight offline queue flush locking to prevent overlapping replay runs.
+- Offline replay now emits an `offline-queue-synced` browser event after successful replay cycles so cashier stock views can immediately rehydrate from server truth.
 - Service-worker shell caching that discovers and caches current hashed build assets from `index.html`.
 
 ### Important Development Note
