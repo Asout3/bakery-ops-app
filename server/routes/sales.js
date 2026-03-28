@@ -198,6 +198,7 @@ async function runSalePostCommitEffects({
   fallbackCashierName,
   clientTransactionId,
   lowStockProductIds,
+  timings = {},
 }) {
   try {
     if (shouldRunExpiryProcessing(locationId)) {
@@ -248,7 +249,12 @@ async function runSalePostCommitEffects({
         totalAmount,
         'cashier_order_processing_time',
         Number(cashierTimingMs) || null,
-        JSON.stringify({ sale_id: createdSale.id, items_count: items.length, client_transaction_id: clientTransactionId || null })
+        JSON.stringify({
+          sale_id: createdSale.id,
+          items_count: items.length,
+          client_transaction_id: clientTransactionId || null,
+          server_timing_ms: timings,
+        })
       ]
     );
   } catch (err) {
@@ -593,7 +599,13 @@ router.post(
 
     try {
       const locationId = await getTargetLocationId(req, query);
+      const requestStartedAt = Date.now();
       const saleExecution = await withTransaction(async (tx) => {
+        const timings = {
+          productLookupMs: 0,
+          stockConsumeMs: 0,
+          movementInsertMs: 0,
+        };
         let effectiveCashierId = req.user.id;
 
         if (isFromOfflineQueue && queuedActorIdHeader) {
@@ -653,6 +665,7 @@ router.post(
            WHERE id = ANY($1::int[])`,
           [uniqueProductIds]
         );
+        timings.productLookupMs = Date.now() - requestStartedAt;
         const productsById = new Map(productsResult.rows.map((row) => [Number(row.id), row]));
 
         for (const item of items) {
@@ -719,6 +732,7 @@ router.post(
         );
         const movementItems = [];
 
+        const stockConsumeStartedAt = Date.now();
         for (const item of aggregatedSaleItems) {
           let batchConsumption;
           try {
@@ -751,8 +765,10 @@ router.post(
 
           lowStockProductIds.add(item.product_id);
         }
+        timings.stockConsumeMs = Date.now() - stockConsumeStartedAt;
 
         if (movementItems.length > 0) {
+          const movementInsertStartedAt = Date.now();
           const { values, placeholders } = buildBulkInventoryMovementsInsert(
             locationId,
             createdSale.id,
@@ -766,6 +782,7 @@ router.post(
              VALUES ${placeholders}`,
             values
           );
+          timings.movementInsertMs = Date.now() - movementInsertStartedAt;
         }
 
         const responseTemplate = normalizeReceiptTemplateSchema(receipt_template_snapshot || {});
@@ -812,11 +829,19 @@ router.post(
             fallbackCashierName: req.user.username,
             clientTransactionId: client_transaction_id,
             lowStockProductIds: [...lowStockProductIds],
+            timings,
           },
         };
       });
 
+      const totalDurationMs = Date.now() - requestStartedAt;
+      const saleTiming = {
+        totalMs: totalDurationMs,
+        ...(saleExecution.postCommitData?.timings || {}),
+      };
+      res.setHeader('X-Sale-Server-Timing', JSON.stringify(saleTiming));
       if (saleExecution.postCommitData) {
+        saleExecution.postCommitData.timings = saleTiming;
         runSalePostCommitEffects(saleExecution.postCommitData).catch((error) => {
           console.error('Sale post-commit effects failed:', error);
         });

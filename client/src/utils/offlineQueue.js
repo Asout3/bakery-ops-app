@@ -122,6 +122,35 @@ function resolveSyncErrorMessage(error) {
   }
   return error?.response?.data?.error || error?.userMessage || error?.message || 'Sync failed';
 }
+
+function tryBuildAdjustedSalePayload(op, error) {
+  if (String(op?.url || '') !== '/sales') return null;
+  const statusCode = Number(error?.response?.status || 0);
+  const errorCode = String(error?.response?.data?.code || '');
+  if (statusCode !== 400 || errorCode !== 'INSUFFICIENT_STOCK') return null;
+
+  const details = error?.response?.data?.details || {};
+  const productId = Number(details.product_id || 0);
+  const availableQty = Math.max(0, Number(details.available_quantity || 0));
+  if (!productId || !Array.isArray(op?.data?.items)) return null;
+
+  const nextItems = op.data.items
+    .map((item) => {
+      if (Number(item.product_id) !== productId) return item;
+      if (availableQty <= 0) return null;
+      return { ...item, quantity: Math.max(0, Math.min(Number(item.quantity || 0), availableQty)) };
+    })
+    .filter((item) => item && Number(item.quantity || 0) > 0);
+
+  if (!nextItems.length) return { adjusted: false, reason: 'No sellable quantity remains for this sale after stock reconciliation.' };
+  if (JSON.stringify(nextItems) === JSON.stringify(op.data.items)) return null;
+
+  return {
+    adjusted: true,
+    payload: { ...op.data, items: nextItems },
+    reason: `Adjusted queued sale to available stock (${availableQty}) for product ${productId}.`,
+  };
+}
 export async function enqueueOperation(operation) {
   const id = operation.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const sessionUser = getSessionSnapshot()?.user || null;
@@ -302,6 +331,42 @@ export async function flushQueue(api) {
 
         let terminalStatus = null;
         let reason = resolveSyncErrorMessage(error);
+
+        const adjustedSale = tryBuildAdjustedSalePayload(op, error);
+
+        if (adjustedSale?.adjusted) {
+          const updatedOp = {
+            ...op,
+            data: adjustedSale.payload,
+            retries,
+            status: 'pending',
+            nextRetry: Date.now(),
+            lastError: adjustedSale.reason,
+            lastAttempt: new Date().toISOString(),
+          };
+          tx.objectStore(OPS_STORE).put(updatedOp);
+          const payloadTx = db.transaction(PAYLOAD_STORE, 'readwrite');
+          payloadTx.objectStore(PAYLOAD_STORE).put({
+            operation_id: op.id,
+            payload: adjustedSale.payload,
+            created_at: new Date().toISOString(),
+          });
+          await txPromise(payloadTx);
+          await txPromise(tx);
+          db.close();
+          failed += 1;
+          if (!isAuxiliaryOperation(op)) visibleFailed += 1;
+          await appendHistory({
+            id: `${op.id}-adjusted-${Date.now()}`,
+            operation_id: op.id,
+            status: 'pending',
+            message: adjustedSale.reason,
+            created_at: new Date().toISOString(),
+            retryCount: retries,
+            statusCode,
+          });
+          continue;
+        }
 
         if (isAuthOrSessionIssue) {
           const updatedOp = {

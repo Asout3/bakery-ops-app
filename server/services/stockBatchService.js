@@ -293,6 +293,7 @@ export async function consumeStockBatches(dbOrQuery, {
 
   let remainingToConsume = requestedQuantity;
   const consumed = [];
+  const plannedDeductions = [];
 
   for (const row of availableResult.rows) {
     if (remainingToConsume <= 0) break;
@@ -300,23 +301,59 @@ export async function consumeStockBatches(dbOrQuery, {
     if (batchAvailable <= 0) continue;
 
     const quantityToConsume = Math.min(batchAvailable, remainingToConsume);
-    const updateResult = await db.query(
-      `UPDATE inventory_stock_batches
-       SET quantity_remaining = quantity_remaining - $1,
-           metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
-       WHERE id = $3
-       RETURNING id, quantity_remaining, expires_at, source`,
-      [quantityToConsume, JSON.stringify({ last_consumed_by: createdBy, reference_type: referenceType, reference_id: referenceId, ...metadata }), row.id]
-    );
-
-    consumed.push({
-      batchId: Number(row.id),
+    plannedDeductions.push({
+      id: Number(row.id),
       quantity: quantityToConsume,
       expiresAt: row.expires_at,
       source: row.source,
-      quantityRemaining: normalizeQuantity(updateResult.rows[0]?.quantity_remaining),
     });
     remainingToConsume -= quantityToConsume;
+  }
+
+  if (plannedDeductions.length > 0) {
+    const metadataPayload = JSON.stringify({
+      last_consumed_by: createdBy,
+      reference_type: referenceType,
+      reference_id: referenceId,
+      ...metadata,
+    });
+    const valuePlaceholders = [];
+    const params = [metadataPayload];
+    let cursor = 2;
+
+    for (const row of plannedDeductions) {
+      valuePlaceholders.push(`($${cursor}, $${cursor + 1})`);
+      params.push(row.id, row.quantity);
+      cursor += 2;
+    }
+
+    const updateResult = await db.query(
+      `UPDATE inventory_stock_batches AS b
+       SET quantity_remaining = b.quantity_remaining - delta.consume_qty,
+           metadata = COALESCE(b.metadata, '{}'::jsonb) || $1::jsonb
+       FROM (VALUES ${valuePlaceholders.join(', ')}) AS delta(batch_id, consume_qty)
+       WHERE b.id = delta.batch_id
+       RETURNING b.id, b.quantity_remaining`,
+      params
+    );
+    const remainingByBatchId = new Map(updateResult.rows.map((row) => [Number(row.id), normalizeQuantity(row.quantity_remaining)]));
+
+    for (const row of plannedDeductions) {
+      consumed.push({
+        batchId: row.id,
+        quantity: row.quantity,
+        expiresAt: row.expiresAt,
+        source: row.source,
+        quantityRemaining: remainingByBatchId.get(row.id) ?? 0,
+      });
+    }
+  }
+
+  if (plannedDeductions.length === 0) {
+    return {
+      consumed,
+      remainingTotalQuantity: await getAvailableBatchQuantity(db, locationId, productId),
+    };
   }
 
   const inventoryRow = await syncInventoryFromStockBatches(db, locationId, productId);

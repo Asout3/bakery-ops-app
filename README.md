@@ -174,7 +174,9 @@ sequenceDiagram
 - Cache fallback in key manager/cashier pages for continuity.
 - Single-flight offline queue flush locking to prevent overlapping replay runs.
 - Offline replay now emits an `offline-queue-synced` browser event after successful replay cycles so cashier stock views can immediately rehydrate from server truth.
+- Offline replay now auto-adjusts queued sale quantities for deterministic `INSUFFICIENT_STOCK` conflicts when partial quantity is available, then retries with the adjusted payload.
 - Service-worker shell caching that discovers and caches current hashed build assets from `index.html`.
+- Sale create responses now include `X-Sale-Server-Timing` response metadata to support production latency profiling (`totalMs`, `productLookupMs`, `stockConsumeMs`, `movementInsertMs`).
 
 ### Important Development Note
 
