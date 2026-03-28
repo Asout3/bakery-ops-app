@@ -178,7 +178,7 @@ export const verifyToken = (token) => {
       issuer: ISSUER,
       algorithms: ACCEPTED_ALGORITHMS,
     });
-  } catch (err) {
+  } catch {
     return null;
   }
 };
@@ -186,7 +186,7 @@ export const verifyToken = (token) => {
 export const decodeToken = (token) => {
   try {
     return jwt.decode(token, { complete: true });
-  } catch (err) {
+  } catch {
     return null;
   }
 };

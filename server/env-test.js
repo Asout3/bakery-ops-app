@@ -3,11 +3,11 @@ import dotenv from 'dotenv';
 import pg from 'pg';
 
 // Load environment first
-const result = dotenv.config();
-console.log('Environment loading result:', result.error ? 'FAILED' : 'SUCCESS');
+const envResult = dotenv.config();
+console.log('Environment loading result:', envResult.error ? 'FAILED' : 'SUCCESS');
 
-if (result.error) {
-  console.error('Environment loading failed:', result.error.message);
+if (envResult.error) {
+  console.error('Environment loading failed:', envResult.error.message);
   process.exit(1);
 }
 
@@ -36,11 +36,11 @@ client.connect()
     console.log('✓ Database connection successful!');
     return client.query('SELECT version(), current_database(), current_user');
   })
-  .then(result => {
+  .then(queryResult => {
     console.log('Database info:');
-    console.log('- Version:', result.rows[0].version);
-    console.log('- Database:', result.rows[0].current_database);
-    console.log('- User:', result.rows[0].current_user);
+    console.log('- Version:', queryResult.rows[0].version);
+    console.log('- Database:', queryResult.rows[0].current_database);
+    console.log('- User:', queryResult.rows[0].current_user);
     return client.end();
   })
   .then(() => {

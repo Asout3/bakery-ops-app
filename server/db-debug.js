@@ -32,15 +32,15 @@ pool.on('error', (err) => {
   // Don't exit process, just log the error
 });
 
-pool.on('connect', (client) => {
+pool.on('connect', (_client) => {
   console.log('=== NEW DATABASE CONNECTION ESTABLISHED ===');
 });
 
-pool.on('acquire', (client) => {
+pool.on('acquire', (_client) => {
   console.log('=== DATABASE CONNECTION ACQUIRED ===');
 });
 
-pool.on('remove', (client) => {
+pool.on('remove', (_client) => {
   console.log('=== DATABASE CONNECTION REMOVED ===');
 });
 

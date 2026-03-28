@@ -50,7 +50,7 @@ export const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
 
-export const errorHandler = (err, req, res, next) => {
+export const errorHandler = (err, req, res, _next) => {
   const requestId = req.requestId || req.headers['x-request-id'] || `req-${Date.now()}`;
   const isProduction = process.env.NODE_ENV === 'production';
 
