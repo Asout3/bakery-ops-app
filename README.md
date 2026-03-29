@@ -160,6 +160,11 @@ sequenceDiagram
 
 ### Reliability Mechanisms
 
+- Cashier sales history now prioritizes server data whenever `/api/sales` is reachable and only falls back to local cached receipts when the app is offline, preventing stale data from a previous database from appearing after `DATABASE_URL` changes.
+- Notification schema bootstrap now runs automatically at API startup, so migrated/empty databases still create and serve notifications without manual intervention.
+- Staff-payment staff lookup now handles partial schema migrations (including missing `payment_due_date`) and always returns active staff rows from the currently selected location.
+- Batch edit workflows now ignore already-voided stock rows from prior edits, allowing multiple valid edits within the full 20-minute window.
+- Receipt reprint enforcement now honors `0` manual reprints correctly (no fallback override), and reprint window values are applied from saved settings using nullish-safe defaults.
 - Cashier sales now block add/increase actions when stock is exhausted, hide expired variants, and reject expired product checkout server-side.
 - Expired inventory is automatically converted into waste records with quantity, unit cost, total loss, and timestamp preservation.
 - Sale-void stock restoration now writes compensating stock batches (`reference_type = sale_void`) and re-derives inventory from batch totals, preventing drift between `inventory` and `inventory_stock_batches`.

@@ -274,7 +274,7 @@ async function runSalePostCommitEffects({
       await query(
         `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
          SELECT id, $1, 'High Sale Alert', $2, 'sales_anomaly'
-         FROM users WHERE role IN ('admin', 'manager') AND location_id = $1`,
+         FROM users WHERE role IN ('admin', 'manager') AND (location_id = $1 OR location_id IS NULL)`,
         [locationId, `Sale ${createdSale.receipt_number} reached $${Number(totalAmount).toFixed(2)} (threshold $${highSaleThreshold.toFixed(2)}).`]
       );
     }
@@ -323,10 +323,13 @@ async function getScopedReceiptTemplate(executor, templateId, locationId) {
   return result.rows[0] || null;
 }
 
-function canManualReprint({ sale, settings, existingEvents, actorRole, initiatedAt }) {
+function canManualReprint({ sale, settings, existingEvents, actorRole, initiatedAt, attemptType = 'manual_reprint' }) {
+  if (attemptType === 'void_reprint') {
+    return { allowed: true };
+  }
   const normalizedSettings = normalizeReceiptSettings(settings || {});
-  const windowMinutes = Number(normalizedSettings.reprintPolicy.windowMinutes || 20);
-  const maxManualReprints = Number(normalizedSettings.reprintPolicy.maxManualReprints || 2);
+  const windowMinutes = Number(normalizedSettings.reprintPolicy.windowMinutes ?? 20);
+  const maxManualReprints = Number(normalizedSettings.reprintPolicy.maxManualReprints ?? 2);
   const allowedOverrideRoles = normalizedSettings.reprintPolicy.adminOverrideRoles || ['admin'];
   const manualReprints = existingEvents.filter((event) => event.attempt_type === 'manual_reprint' && event.status === 'success').length;
   const saleTs = new Date(sale.sale_date).getTime();
@@ -610,7 +613,11 @@ router.post(
 
         if (isFromOfflineQueue && queuedActorIdHeader) {
           const actorResult = await tx.query(
-            `SELECT id FROM users WHERE id = $1 AND location_id = $2 AND is_active = true`,
+            `SELECT id
+             FROM users
+             WHERE id = $1
+               AND (location_id = $2 OR location_id IS NULL)
+               AND is_active = true`,
             [queuedActorIdHeader, locationId]
           );
           if (actorResult.rows.length > 0) {
@@ -903,7 +910,7 @@ router.post('/print-events', authenticateToken, authorizeRoles('admin', 'cashier
       const existingEvents = existingEventsResult.rows;
 
       if (attempt_type === 'manual_reprint') {
-        const permission = canManualReprint({ sale, settings, existingEvents, actorRole: req.user.role, initiatedAt: initiated_at || Date.now() });
+        const permission = canManualReprint({ sale, settings, existingEvents, actorRole: req.user.role, initiatedAt: initiated_at || Date.now(), attemptType: attempt_type });
         if (!permission.allowed) {
           const error = new Error(permission.error);
           error.status = 403;
@@ -1023,6 +1030,143 @@ router.get('/:id', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Get sale error:', err);
     res.status(500).json({ error: 'Internal server error', code: 'SALES_FETCH_ERROR', requestId: req.requestId });
+  }
+});
+
+router.put('/:id/items', authenticateToken, authorizeRoles('admin', 'cashier', 'manager'), body('items').isArray({ min: 1 }), async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
+  }
+
+  const saleId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(saleId)) {
+    return res.status(400).json({ error: 'Invalid sale ID', code: 'INVALID_SALE_ID', requestId: req.requestId });
+  }
+
+  try {
+    const locationId = await getTargetLocationId(req, query);
+    const { items } = req.body;
+
+    const updatedSale = await withTransaction(async (tx) => {
+      const saleResult = await tx.query(
+        `SELECT * FROM sales WHERE id = $1 AND location_id = $2 FOR UPDATE`,
+        [saleId, locationId]
+      );
+      if (!saleResult.rows.length) {
+        const err = new Error('Sale not found');
+        err.status = 404;
+        err.code = 'SALE_NOT_FOUND';
+        throw err;
+      }
+
+      const sale = saleResult.rows[0];
+      if (sale.status === 'voided') {
+        const err = new Error('Voided sales cannot be edited');
+        err.status = 400;
+        err.code = 'SALE_ALREADY_VOIDED';
+        throw err;
+      }
+
+      const minutesSinceSale = (Date.now() - new Date(sale.sale_date).getTime()) / 60000;
+      if (req.user.role !== 'admin' && minutesSinceSale > 20) {
+        const err = new Error('Sale edit window has expired');
+        err.status = 403;
+        err.code = 'SALE_EDIT_WINDOW_EXPIRED';
+        throw err;
+      }
+
+      const normalizedItems = items.map((item) => ({
+        product_id: Number(item.product_id),
+        quantity: Number(item.quantity),
+      }));
+      if (normalizedItems.some((item) => !Number.isInteger(item.product_id) || !Number.isFinite(item.quantity) || item.quantity <= 0)) {
+        const err = new Error('Item quantities must be greater than zero');
+        err.status = 400;
+        err.code = 'INVALID_SALE_ITEMS';
+        throw err;
+      }
+
+      const existingItemsResult = await tx.query('SELECT product_id, quantity FROM sale_items WHERE sale_id = $1', [saleId]);
+      const existingByProductId = new Map(existingItemsResult.rows.map((row) => [Number(row.product_id), Number(row.quantity || 0)]));
+      const productIds = [...new Set(normalizedItems.map((item) => item.product_id))];
+      const productResult = await tx.query('SELECT id, price FROM products WHERE id = ANY($1::int[])', [productIds]);
+      const productById = new Map(productResult.rows.map((row) => [Number(row.id), row]));
+
+      for (const productId of productIds) {
+        if (!productById.has(productId)) {
+          const err = new Error(`Product ${productId} not found`);
+          err.status = 404;
+          err.code = 'PRODUCT_NOT_FOUND';
+          throw err;
+        }
+      }
+
+      for (const item of normalizedItems) {
+        const previousQuantity = existingByProductId.get(item.product_id) || 0;
+        const delta = item.quantity - previousQuantity;
+        if (delta === 0) continue;
+        if (delta > 0) {
+          await consumeStockBatches(tx, {
+            productId: item.product_id,
+            locationId,
+            quantity: delta,
+            createdBy: req.user.id,
+            referenceType: 'sale_edit',
+            referenceId: saleId,
+            metadata: { action: 'sale_edit_consume' },
+          });
+        }
+        if (delta < 0) {
+          await addStockBatch(tx, {
+            productId: item.product_id,
+            locationId,
+            quantity: Math.abs(delta),
+            source: 'manual',
+            referenceType: 'sale_adjustment',
+            referenceId: saleId,
+            createdBy: req.user.id,
+            metadata: { action: 'sale_edit_restore' },
+          });
+        }
+      }
+
+      await tx.query('DELETE FROM sale_items WHERE sale_id = $1', [saleId]);
+      const totalAmount = normalizedItems.reduce((sum, item) => sum + (Number(productById.get(item.product_id).price || 0) * item.quantity), 0);
+      const editedSaleItems = normalizedItems.map((item) => ({
+        product_id: item.product_id,
+        quantity: item.quantity,
+        unit_price: Number(productById.get(item.product_id).price || 0),
+        subtotal: Number(productById.get(item.product_id).price || 0) * item.quantity,
+      }));
+      const { values, placeholders } = buildBulkSaleItemsInsert(saleId, editedSaleItems);
+      await tx.query(
+        `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
+         VALUES ${placeholders}`,
+        values
+      );
+      await tx.query('UPDATE sales SET total_amount = $1 WHERE id = $2', [totalAmount, saleId]);
+
+      const config = await getReceiptConfig(locationId || null, tx);
+      return getSaleWithItems(saleId, tx, config.settings);
+    });
+
+    try {
+      await query(
+        `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+         SELECT id, $1, 'Sale Edited', $2, 'sale_edited'
+         FROM users
+         WHERE role IN ('admin', 'manager') AND is_active = true AND (location_id = $1 OR location_id IS NULL)`,
+        [locationId, `Sale ${updatedSale.receipt_number} was edited by ${req.user.username || `user ${req.user.id}`}.`]
+      );
+    } catch (notifyErr) {
+      console.error('Sale edit post-commit notification failed:', notifyErr);
+    }
+
+    return res.json(updatedSale);
+  } catch (err) {
+    console.error('Edit sale items error:', err);
+    return res.status(err.status || 500).json({ error: err.message || 'Failed to edit sale', code: err.code || 'SALE_EDIT_ERROR', requestId: req.requestId });
   }
 });
 

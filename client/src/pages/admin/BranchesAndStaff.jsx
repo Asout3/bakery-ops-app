@@ -295,7 +295,7 @@ toast.error(err.response?.data?.error || 'Failed to load branch/account data');
           <div className="row g-4 align-items-end">
             <div className="col-lg-6 col-md-6">
               <label className="form-label fw-semibold">Current Password *</label>
-              <div className="input-group"><input type={showPasswords.currentCredential ? "text" : "password"} className="form-control" value={credentialForm.current_password} onChange={(e)=>setCredentialForm((p)=>({...p,current_password:e.target.value}))} required /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("currentCredential")}>{showPasswords.currentCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
+              <div className="input-group"><input type={showPasswords.currentCredential ? "text" : "password"} className="form-control" value={credentialForm.current_password} onChange={(e)=>setCredentialForm((p)=>({...p,current_password:e.target.value}))} autoComplete="current-password" required /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("currentCredential")}>{showPasswords.currentCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
             </div>
             <div className="col-lg-6 col-md-6">
               <label className="form-label fw-semibold">New Username</label>
@@ -303,11 +303,11 @@ toast.error(err.response?.data?.error || 'Failed to load branch/account data');
             </div>
             <div className="col-lg-6 col-md-6">
               <label className="form-label fw-semibold">New Password</label>
-              <div className="input-group"><input type={showPasswords.newCredential ? "text" : "password"} className="form-control" minLength={8} value={credentialForm.new_password} onChange={(e)=>setCredentialForm((p)=>({...p,new_password:e.target.value}))} placeholder="Leave blank to keep password" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("newCredential")}>{showPasswords.newCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
+              <div className="input-group"><input type={showPasswords.newCredential ? "text" : "password"} className="form-control" minLength={8} value={credentialForm.new_password} onChange={(e)=>setCredentialForm((p)=>({...p,new_password:e.target.value}))} autoComplete="new-password" placeholder="Leave blank to keep password" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("newCredential")}>{showPasswords.newCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
             </div>
             <div className="col-lg-6 col-md-6">
               <label className="form-label fw-semibold">Confirm New Password</label>
-              <div className="input-group"><input type={showPasswords.confirmCredential ? "text" : "password"} className="form-control" minLength={8} value={credentialConfirmPassword} onChange={(e)=>setCredentialConfirmPassword(e.target.value)} placeholder="Retype new password" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("confirmCredential")}>{showPasswords.confirmCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
+              <div className="input-group"><input type={showPasswords.confirmCredential ? "text" : "password"} className="form-control" minLength={8} value={credentialConfirmPassword} onChange={(e)=>setCredentialConfirmPassword(e.target.value)} autoComplete="new-password" placeholder="Retype new password" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("confirmCredential")}>{showPasswords.confirmCredential ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
             </div>
           </div>
           <div className="mt-3 d-flex flex-wrap align-items-center gap-2">

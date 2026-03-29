@@ -177,7 +177,7 @@ export default function ExpensesPage() {
         <div className="modal-overlay" onClick={resetForm}><div className="modal-content" onClick={(e) => e.stopPropagation()}><div className="modal-header"><h3>{editingExpense ? 'Edit Expense' : 'Add New Expense'}</h3><button className="close-btn" onClick={resetForm}>×</button></div>
           <form onSubmit={handleSubmit} className="modal-body">
             <div className="mb-3"><label className="form-label">Category *</label>{categories.length > 0 ? (<select className="form-select" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} required><option value="">Select Category</option>{categories.map((category) => <option key={category.id || category.name} value={category.name}>{category.name}</option>)}</select>) : (<input className="form-control" value={formData.category} readOnly placeholder="No categories available. Ask admin to create one." required />)}</div>
-            {isAdmin && !editingExpense && hasManagedCategories && (
+            {isAdmin && !editingExpense && (
               <div className="mb-3">
                 <label className="form-label">Manage Categories</label>
                 <div className="d-flex gap-2 mb-2"><input className="form-control" value={newCategoryName} placeholder="New category name" onChange={(e) => setNewCategoryName(e.target.value)} /><button type="button" className="btn btn-outline-primary" onClick={handleCreateCategory}>Create</button></div>

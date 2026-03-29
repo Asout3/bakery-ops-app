@@ -12,7 +12,7 @@ router.get('/rules', authenticateToken, authorizeRoles('admin'), async (req, res
     res.json(result.rows);
   } catch (err) {
     console.error('Get alert rules error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', code: 'ALERT_RULE_FETCH_ERROR', requestId: req.requestId });
   }
 });
 
@@ -31,7 +31,7 @@ router.post('/rules', authenticateToken, authorizeRoles('admin'), async (req, re
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Create alert rule error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', code: 'ALERT_RULE_CREATE_ERROR', requestId: req.requestId });
   }
 });
 
@@ -49,13 +49,13 @@ router.put('/rules/:id', authenticateToken, authorizeRoles('admin'), async (req,
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Rule not found' });
+      return res.status(404).json({ error: 'Rule not found', code: 'ALERT_RULE_NOT_FOUND', requestId: req.requestId });
     }
 
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Update alert rule error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', code: 'ALERT_RULE_UPDATE_ERROR', requestId: req.requestId });
   }
 });
 
@@ -73,7 +73,7 @@ router.get('/', authenticateToken, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('Get notifications error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', code: 'NOTIFICATIONS_FETCH_ERROR', requestId: req.requestId });
   }
 });
 
@@ -83,7 +83,7 @@ router.put('/read-all', authenticateToken, async (req, res) => {
     res.json({ message: 'All notifications marked as read' });
   } catch (err) {
     console.error('Mark all read error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', code: 'NOTIFICATIONS_MARK_ALL_READ_ERROR', requestId: req.requestId });
   }
 });
 
@@ -93,7 +93,7 @@ router.put('/mark-all-read', authenticateToken, async (req, res) => {
     res.json({ message: 'All notifications marked as read' });
   } catch (err) {
     console.error('Mark all read error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', code: 'NOTIFICATIONS_MARK_ALL_READ_ERROR', requestId: req.requestId });
   }
 });
 
@@ -103,7 +103,7 @@ router.get('/unread/count', authenticateToken, async (req, res) => {
     res.json({ unread_count: parseInt(result.rows[0].unread_count, 10) });
   } catch (err) {
     console.error('Get unread count error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', code: 'NOTIFICATIONS_UNREAD_COUNT_ERROR', requestId: req.requestId });
   }
 });
 
@@ -115,13 +115,13 @@ router.put('/:id/read', authenticateToken, async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Notification not found' });
+      return res.status(404).json({ error: 'Notification not found', code: 'NOTIFICATION_NOT_FOUND', requestId: req.requestId });
     }
 
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Mark notification read error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', code: 'NOTIFICATION_MARK_READ_ERROR', requestId: req.requestId });
   }
 });
 
@@ -133,13 +133,13 @@ router.put('/:id', authenticateToken, async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Notification not found' });
+      return res.status(404).json({ error: 'Notification not found', code: 'NOTIFICATION_NOT_FOUND', requestId: req.requestId });
     }
 
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Mark notification read error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', code: 'NOTIFICATION_MARK_READ_ERROR', requestId: req.requestId });
   }
 });
 
@@ -148,13 +148,13 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     const result = await query('DELETE FROM notifications WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.id, req.user.id]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Notification not found' });
+      return res.status(404).json({ error: 'Notification not found', code: 'NOTIFICATION_NOT_FOUND', requestId: req.requestId });
     }
 
     res.json({ message: 'Notification deleted' });
   } catch (err) {
     console.error('Delete notification error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', code: 'NOTIFICATION_DELETE_ERROR', requestId: req.requestId });
   }
 });
 

@@ -103,7 +103,7 @@ router.get('/categories', authenticateToken, authorizeRoles('admin', 'manager'),
 
 router.post('/categories',
   authenticateToken,
-  authorizeRoles('admin', 'manager'),
+  authorizeRoles('admin'),
   body('name').trim().notEmpty(),
   async (req, res) => {
     const errors = validationResult(req);
@@ -294,6 +294,18 @@ router.post('/',
 
         return result.rows[0];
       });
+
+      try {
+        await query(
+          `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+           SELECT id, $1, 'Expense Added', $2, 'expense_created'
+           FROM users
+           WHERE role IN ('admin', 'manager') AND is_active = true AND (location_id = $1 OR location_id IS NULL)`,
+          [locationId, `Expense ${category} was added for ETB ${Number(amount).toFixed(2)}.`]
+        );
+      } catch (notifyErr) {
+        console.error('Expense post-commit notification failed:', notifyErr);
+      }
 
       res.status(201).json(expense);
     } catch (err) {

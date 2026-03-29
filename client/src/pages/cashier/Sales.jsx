@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { useAuth } from '../../context/AuthContext';
-import { Plus, Minus, ShoppingCart, Trash2, Search, Printer } from 'lucide-react';
+import { Plus, Minus, ShoppingCart, Trash2, Search } from 'lucide-react';
 import './Sales.css';
 import { enqueueOperation, listQueuedOperations } from '../../utils/offlineQueue';
 import { useLanguage } from '../../context/LanguageContext';
@@ -83,6 +83,7 @@ export default function Sales() {
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [groupFilter, setGroupFilter] = useState('all');
+  const [quantityDrafts, setQuantityDrafts] = useState({});
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [receiptData, setReceiptData] = useState(null);
   const [variantModal, setVariantModal] = useState(null);
@@ -229,11 +230,19 @@ export default function Sales() {
       }
       return { ...item, quantity: nextQty };
     }));
+    setQuantityDrafts((current) => {
+      const next = { ...current };
+      delete next[productId];
+      return next;
+    });
   };
 
   const setQuantity = (productId, nextQuantity) => {
     const quantity = Number(nextQuantity || 0);
-    if (!Number.isFinite(quantity) || quantity <= 0) return removeFromCart(productId);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      toast.error('Quantity must be greater than zero. Use Delete to remove an item.');
+      return;
+    }
 
     const product = products.find((p) => Number(p.id) === Number(productId));
     const maxQty = Number(product?.stock_quantity || 0);
@@ -243,9 +252,21 @@ export default function Sales() {
     }
 
     setCart((prev) => prev.map((item) => (item.product_id === productId ? { ...item, quantity } : item)));
+    setQuantityDrafts((current) => {
+      const next = { ...current };
+      delete next[productId];
+      return next;
+    });
   };
 
-  const removeFromCart = (productId) => setCart((prev) => prev.filter((item) => item.product_id !== productId));
+  const removeFromCart = (productId) => {
+    setCart((prev) => prev.filter((item) => item.product_id !== productId));
+    setQuantityDrafts((current) => {
+      const next = { ...current };
+      delete next[productId];
+      return next;
+    });
+  };
   const calculateTotal = () => cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
   const applySaleToLocalStock = (soldItems) => {
@@ -422,8 +443,8 @@ export default function Sales() {
 
         <div className="cart-section">
           <div className="card"><div className="card-header"><h3><ShoppingCart size={20} />Cart ({cart.length})</h3></div><div className="card-body cart-body">
-            {cart.length === 0 ? <div className="empty-cart"><ShoppingCart size={48} /><p>{t('cartEmpty')}</p></div> : <div className="cart-items">{cart.map((item) => <div key={item.product_id} className="cart-item"><div className="cart-item-details"><div className="cart-item-name">{item.name}</div><div className="cart-item-price">ETB {Number(item.price).toFixed(2)}</div></div><div className="cart-item-actions"><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, -1)}><Minus size={14} /></button><input type="number" min="1" className="form-control form-control-sm" style={{ width: '72px', textAlign: 'center' }} value={item.quantity} onChange={(e) => setQuantity(item.product_id, Number(e.target.value))} /><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, 1)}><Plus size={14} /></button><button className="btn btn-sm btn-danger" onClick={() => removeFromCart(item.product_id)}><Trash2 size={14} /></button></div><div className="cart-item-subtotal">ETB {(item.price * item.quantity).toFixed(2)}</div></div>)}</div>}
-          </div><div className="card-footer"><div className="payment-method-select"><label htmlFor="payment-method">Payment Method</label><select id="payment-method" className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div><div className="cart-total"><span className="cart-total-label">Total:</span><span className="cart-total-amount">ETB {calculateTotal().toFixed(2)}</span></div><div className="alert alert-light mt-3 mb-0"><Printer size={14} className="me-2" />Print mode: {receiptConfig.settings.enabled === false ? 'Disabled' : (receiptConfig.settings.printMode === 'ask' ? 'Ask every time' : `Auto via ${receiptConfig.settings.printerProfile.saleAdapter}`)}</div><button className="btn btn-success btn-lg" onClick={handleCheckout} disabled={loading || cart.length === 0} style={{ width: '100%', marginTop: '1rem' }}>{loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}</button></div></div>
+            {cart.length === 0 ? <div className="empty-cart"><ShoppingCart size={48} /><p>{t('cartEmpty')}</p></div> : <div className="cart-items">{cart.map((item) => <div key={item.product_id} className="cart-item"><div className="cart-item-details"><div className="cart-item-name">{item.name}</div><div className="cart-item-price">ETB {Number(item.price).toFixed(2)}</div></div><div className="cart-item-actions"><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, -1)}><Minus size={14} /></button><input type="number" min="1" className="form-control form-control-sm" style={{ width: '72px', textAlign: 'center' }} value={quantityDrafts[item.product_id] ?? String(item.quantity)} onChange={(e) => setQuantityDrafts((current) => ({ ...current, [item.product_id]: e.target.value }))} onBlur={(e) => setQuantity(item.product_id, e.target.value)} /><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, 1)}><Plus size={14} /></button><button className="btn btn-sm btn-danger" onClick={() => removeFromCart(item.product_id)}><Trash2 size={14} /></button></div><div className="cart-item-subtotal">ETB {(item.price * item.quantity).toFixed(2)}</div></div>)}</div>}
+          </div><div className="card-footer"><div className="payment-method-select"><label htmlFor="payment-method">Payment Method</label><select id="payment-method" className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div><div className="cart-total"><span className="cart-total-label">Total:</span><span className="cart-total-amount">ETB {calculateTotal().toFixed(2)}</span></div><button className="btn btn-success btn-lg" onClick={handleCheckout} disabled={loading || cart.length === 0} style={{ width: '100%', marginTop: '1rem' }}>{loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}</button></div></div>
         </div>
       </div>
 

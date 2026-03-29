@@ -39,7 +39,7 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (re
     res.json(result.rows);
   } catch (err) {
     console.error('Get activity log error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', code: 'ACTIVITY_FETCH_ERROR', requestId: req.requestId });
   }
 });
 

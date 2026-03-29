@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import './Inventory.css';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
-import { Plus, Edit, Trash2, Package, TrendingUp, TrendingDown, Search } from 'lucide-react';
+import { Edit, Package, TrendingUp, TrendingDown, Search } from 'lucide-react';
 import { enqueueOperation, listQueuedOperations } from '../../utils/offlineQueue';
 
 export default function AdminInventory() {
@@ -151,30 +151,6 @@ export default function AdminInventory() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this inventory item?')) return;
-
-    try {
-      await api.delete(`/inventory/${id}`);
-      await fetchData();
-      setMessage({ type: 'success', text: 'Inventory item deleted.' });
-    } catch (err) {
-      if (!err.response) {
-        const idempotencyKey = `inventory-delete-${id}-${Date.now()}`;
-        await enqueueOperation({ url: `/inventory/${id}`, method: 'delete', data: {}, idempotencyKey });
-        setInventory((current) => {
-          const nextInventory = current.filter((item) => String(item.id) !== String(id));
-          persistInventoryCache({ inventory: nextInventory, products });
-          return nextInventory;
-        });
-        setMessage({ type: 'warning', text: 'Offline: delete queued for sync.' });
-      } else {
-        setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to delete inventory item.') });
-      }
-    }
-  };
-
-
   const availableProductsForCreate = products.filter((product) => {
     if (editingItem) {
       return true;
@@ -252,16 +228,6 @@ export default function AdminInventory() {
     <div className="inventory-page">
       <div className="page-header">
         <h2>Inventory Management</h2>
-        <button
-          className="btn btn-primary"
-          onClick={() => {
-            setEditingItem(null);
-            setFormData({ product_id: '', quantity: '' });
-            setShowForm(true);
-          }}
-        >
-          <Plus size={18} /> Add Item
-        </button>
       </div>
 
       {message && <div className={`alert alert-${message.type} mb-3`}>{message.text}</div>}
@@ -294,7 +260,6 @@ export default function AdminInventory() {
               <td><span className={`badge ${item.source === 'baked' ? 'badge-info' : 'badge-secondary'}`}>{item.source}</span></td>
               <td><div className="btn-group" role="group">
                 <button className="btn btn-sm btn-outline-primary" onClick={() => { setEditingItem(item); setFormData({ product_id: item.product_id, quantity: item.quantity, source: item.source || 'baked' }); setShowForm(true); }}><Edit size={14} /></button>
-                <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(item.id)} disabled={String(item.id).startsWith('virtual-')}><Trash2 size={14} /></button>
               </div></td>
             </tr>
           ))}
@@ -304,11 +269,11 @@ export default function AdminInventory() {
       {showForm && (
         <div className="modal-overlay" onClick={resetForm}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><h3>{editingItem ? 'Edit Inventory Item' : 'Add New Inventory Item'}</h3><button className="close-btn" onClick={resetForm}>×</button></div>
+            <div className="modal-header"><h3>Edit Inventory Item</h3><button className="close-btn" onClick={resetForm}>×</button></div>
             <form onSubmit={handleSubmit} className="modal-body">
               <div className="mb-3"><label className="form-label">Product *</label><select className="form-select" value={formData.product_id} onChange={(e) => setFormData({ ...formData, product_id: e.target.value })} required disabled={!!editingItem}><option value="">Select Product Variant</option>{availableProductsForCreate.map((product) => (<option key={product.id} value={product.id}>{`${product.group_name || product.name} / ${product.name}`}</option>))}</select>{editingItem && <small className="text-muted">Product cannot be changed when editing inventory. Only quantity is editable.</small>}</div>
               <div className="mb-3"><label className="form-label">Quantity *</label><input type="number" className="form-control" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} required /></div>
-              <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForm}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : editingItem ? 'Update' : 'Add'} Item</button></div>
+              <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForm}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Update'} Item</button></div>
             </form>
           </div>
         </div>

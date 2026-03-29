@@ -101,14 +101,15 @@ async function getBatchStockRows(db, batchId) {
 
 async function assertBatchStockEditable(db, batchId) {
   const stockRows = await getBatchStockRows(db, batchId);
-  const consumedRow = stockRows.find((row) => Number(row.quantity_remaining || 0) < Number(row.initial_quantity || 0));
+  const activeRows = stockRows.filter((row) => Number(row.quantity_remaining || 0) > 0);
+  const consumedRow = activeRows.find((row) => Number(row.quantity_remaining || 0) < Number(row.initial_quantity || 0));
   if (consumedRow) {
     const err = new Error('This batch has already been partially sold or adjusted and can no longer be edited or voided.');
     err.status = 409;
     err.code = 'BATCH_ALREADY_CONSUMED';
     throw err;
   }
-  return stockRows;
+  return activeRows;
 }
 
 async function voidBatchStock(db, locationId, batchId) {
@@ -490,19 +491,21 @@ router.post(
         );
         const totalBatchValue = Number(batchValueResult.rows[0]?.total_value || 0);
 
-        await tx.query(
-          `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-           SELECT id, $1, $2, $3, 'batch'
-           FROM users 
-           WHERE role IN ('admin', 'manager') 
-           AND location_id = $1
-           AND is_active = true`,
-          [
-            locationId,
-            `📦 New Batch Sent #${createdBatch.id}`,
-            `${originalActorName} sent a batch with ${items.length} items (Total: ETB ${totalBatchValue.toFixed(2)})${isFromOfflineQueue ? ' [Synced from Offline]' : ''}`
-          ]
-        );
+        if (!isFromOfflineQueue) {
+          await tx.query(
+            `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+             SELECT id, $1, $2, $3, 'batch'
+             FROM users 
+             WHERE role IN ('admin', 'manager') 
+             AND (location_id = $1 OR location_id IS NULL)
+             AND is_active = true`,
+            [
+              locationId,
+              `📦 New Batch Sent #${createdBatch.id}`,
+              `${originalActorName} sent a batch with ${items.length} items (Total: ETB ${totalBatchValue.toFixed(2)})`
+            ]
+          );
+        }
 
         await createLowStockNotificationsForProducts(tx, locationId, items.map((item) => item.product_id));
 
@@ -688,7 +691,6 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
     const { items, notes } = req.body;
 
     const updatedBatch = await withTransaction(async (tx) => {
-      await ensureInventoryBatchStatusConstraint(tx);
       const batchRes = await tx.query(
         `SELECT *,
                 ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (created_at + make_interval(mins => $3::int))) as can_edit,
@@ -772,7 +774,6 @@ router.post('/batches/:id/void', authenticateToken, authorizeRoles('admin', 'man
     const locationId = await getTargetLocationId(req, query);
 
     const voided = await withTransaction(async (tx) => {
-      await ensureInventoryBatchStatusConstraint(tx);
       const batchRes = await tx.query(
         `SELECT *,
                 ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (created_at + make_interval(mins => $3::int))) as can_edit,

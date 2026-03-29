@@ -355,6 +355,13 @@ router.get('/staff-expense-summary', authenticateToken, authorizeRoles('admin'),
 router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     const locationId = req.query.location_id ? Number(req.query.location_id) : null;
+    const paymentDueDateColumn = await query(
+      `SELECT 1
+       FROM information_schema.columns
+       WHERE table_name = 'staff_profiles' AND column_name = 'payment_due_date'
+       LIMIT 1`
+    );
+    const hasPaymentDueDate = paymentDueDateColumn.rows.length > 0;
     
     let queryText = `
       SELECT 
@@ -365,13 +372,14 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
         sp.role_preference,
         sp.job_title,
         sp.location_id,
-        COALESCE(sp.payment_due_date, 25) as payment_due_date,
+        ${hasPaymentDueDate ? 'COALESCE(sp.payment_due_date, 25)' : '25'} as payment_due_date,
         sp.is_active,
         sp.hire_date,
         sp.termination_date,
         l.name as location_name,
         u.username as account_username,
-        u.role as account_role
+        u.role as account_role,
+        u.id as user_id
       FROM staff_profiles sp
       LEFT JOIN locations l ON l.id = sp.location_id
       LEFT JOIN users u ON u.id = sp.linked_user_id
@@ -381,7 +389,7 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
     const params = [];
     if (locationId) {
       params.push(locationId);
-      queryText += ` AND sp.location_id = $${params.length}`;
+      queryText += ` AND (sp.location_id = $${params.length} OR sp.location_id IS NULL)`;
     }
     
     queryText += ` ORDER BY sp.full_name ASC`;
@@ -391,9 +399,6 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
     res.json(result.rows);
   } catch (err) {
     console.error('Get staff for payments error:', err);
-    if (err.message && err.message.includes('payment_due_date')) {
-      return res.json([]);
-    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });
