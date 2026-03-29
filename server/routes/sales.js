@@ -1147,13 +1147,17 @@ router.put('/:id/items', authenticateToken, authorizeRoles('admin', 'cashier', '
       return getSaleWithItems(saleId, tx, config.settings);
     });
 
-    await query(
-      `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-       SELECT id, $1, 'Sale Edited', $2, 'sale_edited'
-       FROM users
-       WHERE role IN ('admin', 'manager') AND is_active = true AND (location_id = $1 OR location_id IS NULL)`,
-      [locationId, `Sale ${updatedSale.receipt_number} was edited by ${req.user.username || `user ${req.user.id}`}.`]
-    );
+    try {
+      await query(
+        `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+         SELECT id, $1, 'Sale Edited', $2, 'sale_edited'
+         FROM users
+         WHERE role IN ('admin', 'manager') AND is_active = true AND (location_id = $1 OR location_id IS NULL)`,
+        [locationId, `Sale ${updatedSale.receipt_number} was edited by ${req.user.username || `user ${req.user.id}`}.`]
+      );
+    } catch (notifyErr) {
+      console.error('Sale edit post-commit notification failed:', notifyErr);
+    }
 
     return res.json(updatedSale);
   } catch (err) {
