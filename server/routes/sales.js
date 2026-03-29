@@ -262,6 +262,18 @@ async function runSalePostCommitEffects({
   }
 
   try {
+    await query(
+      `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+       SELECT id, $1, 'Sale Recorded', $2, 'sale_created'
+       FROM users
+       WHERE role IN ('admin', 'manager') AND is_active = true AND location_id = $1`,
+      [locationId, `Sale ${createdSale.receipt_number} was completed for ETB ${Number(totalAmount).toFixed(2)}.`]
+    );
+  } catch (err) {
+    console.error('Sale post-commit baseline notification failed:', err);
+  }
+
+  try {
     const highSaleRule = await query(
       `SELECT threshold FROM alert_rules
        WHERE location_id = $1 AND event_type = 'high_sale' AND enabled = true
@@ -1126,12 +1138,18 @@ router.put('/:id/items', authenticateToken, authorizeRoles('admin', 'cashier', '
 
       await tx.query('DELETE FROM sale_items WHERE sale_id = $1', [saleId]);
       const totalAmount = normalizedItems.reduce((sum, item) => sum + (Number(productById.get(item.product_id).price || 0) * item.quantity), 0);
-      await bulkInsertSaleItems(tx, saleId, normalizedItems.map((item) => ({
+      const editedSaleItems = normalizedItems.map((item) => ({
         product_id: item.product_id,
         quantity: item.quantity,
         unit_price: Number(productById.get(item.product_id).price || 0),
         subtotal: Number(productById.get(item.product_id).price || 0) * item.quantity,
-      })));
+      }));
+      const { values, placeholders } = buildBulkSaleItemsInsert(saleId, editedSaleItems);
+      await tx.query(
+        `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
+         VALUES ${placeholders.join(', ')}`,
+        values
+      );
       await tx.query('UPDATE sales SET total_amount = $1 WHERE id = $2', [totalAmount, saleId]);
 
       const config = await getReceiptConfig(locationId || null, tx);

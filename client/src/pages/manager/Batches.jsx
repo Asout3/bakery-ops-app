@@ -228,7 +228,7 @@ export default function ManagerBatches() {
         notes: selectedBatch.notes,
       });
       toast.success(`Batch #${selectedBatch.id} updated.`);
-      await fetchBatchDetails(selectedBatch.id);
+      setSelectedBatch(null);
       await fetchBatches();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Failed to update batch.'));

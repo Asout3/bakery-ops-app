@@ -39,3 +39,5 @@ If you are developing a production application, we recommend using TypeScript wi
 - Cashier history now supports in-window sale item quantity edits again (alongside receipt reprint), and stale local sales are no longer mixed into online history after DB migrations.
 - Admin expense modal now allows category creation even when a new database starts with zero categories.
 - Admin inventory view removes Add Item and Delete actions, keeping the page focused on inventory edits only.
+- Manager inventory batch-cart quantity input now mirrors cashier behavior (Backspace-safe drafts + explicit Remove action for deletion).
+- Manager batch edit modal now auto-closes after a successful update for faster repeated workflows.

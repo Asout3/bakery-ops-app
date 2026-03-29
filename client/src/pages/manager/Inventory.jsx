@@ -16,6 +16,7 @@ export default function Inventory() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [stockFilter, setStockFilter] = useState('all');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [quantityDrafts, setQuantityDrafts] = useState({});
   const toast = useToast();
 
   useEffect(() => {
@@ -141,6 +142,11 @@ export default function Inventory() {
         })
         .filter((item) => item.quantity > 0)
     );
+    setQuantityDrafts((prev) => {
+      const next = { ...prev };
+      delete next[`${productId}:${source}`];
+      return next;
+    });
   };
 
   const removeFromCart = (productId, source) => {
@@ -149,13 +155,18 @@ export default function Inventory() {
         (item) => !(item.product_id === productId && item.source === source)
       )
     );
+    setQuantityDrafts((prev) => {
+      const next = { ...prev };
+      delete next[`${productId}:${source}`];
+      return next;
+    });
   };
 
 
   const setCartQuantity = (productId, source, nextQuantity) => {
     const quantity = Number(nextQuantity || 0);
     if (!Number.isFinite(quantity) || quantity <= 0) {
-      removeFromCart(productId, source);
+      toast.error('Quantity must be greater than zero. Use Remove to delete an item.');
       return;
     }
 
@@ -166,6 +177,11 @@ export default function Inventory() {
           : item
       ))
     );
+    setQuantityDrafts((prev) => {
+      const next = { ...prev };
+      delete next[`${productId}:${source}`];
+      return next;
+    });
   };
 
   const getLowStockThreshold = (product) => {
@@ -350,8 +366,9 @@ export default function Inventory() {
                           min="1"
                           className="form-control form-control-sm"
                           style={{ width: '72px', textAlign: 'center' }}
-                          value={item.quantity}
-                          onChange={(e) => setCartQuantity(item.product_id, item.source, Number(e.target.value))}
+                          value={quantityDrafts[`${item.product_id}:${item.source}`] ?? String(item.quantity)}
+                          onChange={(e) => setQuantityDrafts((prev) => ({ ...prev, [`${item.product_id}:${item.source}`]: e.target.value }))}
+                          onBlur={(e) => setCartQuantity(item.product_id, item.source, e.target.value)}
                         />
                         <button
                           className="btn btn-sm btn-secondary"
