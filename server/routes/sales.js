@@ -613,7 +613,11 @@ router.post(
 
         if (isFromOfflineQueue && queuedActorIdHeader) {
           const actorResult = await tx.query(
-            `SELECT id FROM users WHERE id = $1 AND location_id = $2 AND is_active = true`,
+            `SELECT id
+             FROM users
+             WHERE id = $1
+               AND (location_id = $2 OR location_id IS NULL)
+               AND is_active = true`,
             [queuedActorIdHeader, locationId]
           );
           if (actorResult.rows.length > 0) {
