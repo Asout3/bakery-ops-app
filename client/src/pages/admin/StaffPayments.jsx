@@ -4,6 +4,7 @@ import api, { getErrorMessage } from '../../api/axios';
 import { Plus, Edit, Trash2, DollarSign, Calendar, User, X, Clock, Eye } from 'lucide-react';
 import { enqueueOperation } from '../../utils/offlineQueue';
 import { useToast } from '../../context/ToastContext';
+import { useBranch } from '../../context/BranchContext';
 
 const PAYMENT_EDIT_WINDOW_MINUTES = 20;
 
@@ -21,6 +22,7 @@ const initialForm = {
 const FREQUENCY_OPTIONS = ['daily', 'weekly', 'monthly'];
 
 export default function StaffPaymentsPage() {
+  const { selectedLocationId } = useBranch();
   const [payments, setPayments] = useState([]);
   const [staffMembers, setStaffMembers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -33,11 +35,12 @@ export default function StaffPaymentsPage() {
   const [suggestedPayment, setSuggestedPayment] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [frequencyFilter, setFrequencyFilter] = useState('all');
+  const [staffLoadError, setStaffLoadError] = useState('');
   const toast = useToast();
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [selectedLocationId]);
 
   useEffect(() => {
     if (!feedback?.message) return;
@@ -50,12 +53,15 @@ export default function StaffPaymentsPage() {
     try {
       const [paymentsRes, staffRes] = await Promise.all([
         api.get('/payments'),
-        api.get('/admin/staff-for-payments'),
+        api.get('/admin/staff-for-payments', { params: selectedLocationId ? { location_id: selectedLocationId } : {} }),
       ]);
       setPayments(paymentsRes.data || []);
-      setStaffMembers((staffRes.data || []).filter((staff) => staff.is_active));
+      const nextStaff = (staffRes.data || []).filter((staff) => staff.is_active);
+      setStaffMembers(nextStaff);
+      setStaffLoadError(nextStaff.length ? '' : 'No active staff found for this branch. Add staff profiles or check branch selection.');
     } catch (err) {
       setFeedback({ type: 'danger', message: getErrorMessage(err, 'Failed to load payments data.') });
+      setStaffLoadError('Could not load staff list from the current database.');
     } finally {
       setLoading(false);
     }
@@ -90,7 +96,7 @@ export default function StaffPaymentsPage() {
       ...prev,
       staff_profile_id: staffId,
       user_id: selected.user_id ? String(selected.user_id) : prev.user_id,
-      amount: recommendedAmount > 0 ? recommendedAmount.toFixed(2) : (selected.monthly_salary ? String(selected.monthly_salary) : prev.amount),
+      amount: recommendedAmount > 0 ? String(recommendedAmount) : (selected.monthly_salary ? String(selected.monthly_salary) : prev.amount),
     }));
   };
 
@@ -246,6 +252,7 @@ export default function StaffPaymentsPage() {
         <h2>Staff Payments</h2>
         <button className="btn btn-primary" onClick={openCreateModal}><Plus size={18} /> Pay Staff</button>
       </div>
+      {staffLoadError ? <div className="alert alert-warning mb-3">{staffLoadError}</div> : null}
 
 
 
@@ -304,7 +311,7 @@ export default function StaffPaymentsPage() {
             <div className="modal-header"><h3>{editingPayment ? 'Edit Payment' : 'Create Payment'}</h3><button className="close-btn" onClick={() => setShowForm(false)}><X size={18} /></button></div>
             <form className="modal-body" onSubmit={handleSubmit}>
               <div className="row g-3">
-                {suggestedPayment && <div className="col-12"><div className="alert alert-info" style={{ display: 'grid', gap: '0.75rem' }}><div style={{ fontSize: '1rem', lineHeight: 1.6 }}>Worked days since last payment: <strong>{suggestedPayment.workedDays}</strong> • Daily rate: <strong>ETB {suggestedPayment.dailyRate.toFixed(2)}</strong> • Suggested payout: <strong>ETB {suggestedPayment.recommendedAmount.toFixed(2)}</strong></div><button type="button" className="btn btn-primary" style={{ width: '100%' }} onClick={() => setFormData((prev) => ({ ...prev, amount: suggestedPayment.recommendedAmount.toFixed(2) }))}>Use Suggested Amount</button></div></div>}
+                {suggestedPayment && <div className="col-12"><div className="alert alert-info" style={{ display: 'grid', gap: '0.75rem' }}><div style={{ fontSize: '1rem', lineHeight: 1.6 }}>Worked days since last payment: <strong>{suggestedPayment.workedDays}</strong> • Daily rate: <strong>ETB {suggestedPayment.dailyRate.toFixed(2)}</strong> • Suggested payout: <strong>ETB {suggestedPayment.recommendedAmount.toFixed(2)}</strong></div><button type="button" className="btn btn-primary" style={{ width: '100%' }} onClick={() => setFormData((prev) => ({ ...prev, amount: String(suggestedPayment.recommendedAmount) }))}>Use Suggested Amount</button></div></div>}
 
                 <div className="col-md-6"><label className="form-label">Staff *</label><select className="form-select" value={formData.staff_profile_id} onChange={(e) => handleStaffSelect(e.target.value)} required><option value="">Select staff</option>{staffMembers.map((staff) => <option key={staff.id} value={staff.id}>{staff.full_name}</option>)}</select></div>
                 <div className="col-md-6"><label className="form-label">Amount *</label><input type="number" min="0" step="0.01" className="form-control" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required /></div>

@@ -360,8 +360,8 @@ export function getReceiptDefaults() {
 
 export function summarizePrintEvents(events = [], sale, settings) {
   const normalizedSettings = normalizeReceiptSettings(settings || {});
-  const windowMinutes = Number(normalizedSettings.reprintPolicy.windowMinutes || 20);
-  const maxManualReprints = Number(normalizedSettings.reprintPolicy.maxManualReprints || 2);
+  const windowMinutes = Number(normalizedSettings.reprintPolicy.windowMinutes ?? 20);
+  const maxManualReprints = Number(normalizedSettings.reprintPolicy.maxManualReprints ?? 2);
   const saleTime = new Date(sale.sale_date || Date.now()).getTime();
   const now = Date.now();
   const windowEndsAt = saleTime + (windowMinutes * 60 * 1000);

@@ -50,7 +50,7 @@ export default function CashierHistory() {
     try {
       const params = filters.specificDay ? { start_date: filters.specificDay, end_date: filters.specificDay } : {};
       const response = await api.get('/sales', { params });
-      setSales(mergeServerAndLocalSales(response.data));
+      setSales(response.data || []);
     } catch (err) {
       setSales(mergeServerAndLocalSales([]));
       setMessage({ type: 'danger', text: t('processFailedLoadSalesHistory') });
@@ -65,6 +65,12 @@ export default function CashierHistory() {
     const now = new Date();
     const minutesSinceSale = (now - saleTime) / (1000 * 60);
     return minutesSinceSale <= VOID_WINDOW_MINUTES;
+  };
+
+  const canEditSale = (sale) => {
+    if (sale.local_only || sale.status === 'voided') return false;
+    const saleTime = new Date(sale.sale_date);
+    return ((new Date() - saleTime) / (1000 * 60)) <= VOID_WINDOW_MINUTES;
   };
 
   const getMinutesRemaining = (sale) => {
@@ -233,6 +239,7 @@ export default function CashierHistory() {
                       <td>
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                           <button className="btn btn-sm btn-outline-primary" onClick={() => openSaleDetails(sale, 'view')}><Receipt size={14} /> {t('view')}</button>
+                          {canEditSale(sale) ? <button className="btn btn-sm btn-outline-secondary" onClick={() => openSaleDetails(sale, 'edit')}>Edit</button> : null}
                           {canVoidSale(sale) ? <button className="btn btn-sm btn-outline-danger" onClick={() => openSaleDetails(sale, 'void')}><X size={14} /> {t('void')}</button> : null}
                         </div>
                       </td>
@@ -245,7 +252,7 @@ export default function CashierHistory() {
         </div>
       </div>
 
-      {selectedSale && detailMode === 'view' && (
+      {selectedSale && (detailMode === 'view' || detailMode === 'edit') && (
         <SaleReceiptDetail sale={selectedSale} settings={receiptSettings} currentRole={user?.role || 'cashier'} onClose={() => { setSelectedSale(null); setDetailMode('view'); }} onSaleUpdated={fetchSales} toast={toast} />
       )}
 

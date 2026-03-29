@@ -160,8 +160,8 @@ export function resolveInclusiveTaxTotals(grandTotal, taxPercent, taxEnabled = t
 
 export function getReprintPolicyState(printSummary = {}, settings = {}, role = 'cashier') {
   const normalized = normalizeReceiptSettings(settings);
-  const windowMinutes = Number(normalized.reprintPolicy.windowMinutes || 20);
-  const maxManualReprints = Number(normalized.reprintPolicy.maxManualReprints || 2);
+  const windowMinutes = Number(normalized.reprintPolicy.windowMinutes ?? 20);
+  const maxManualReprints = Number(normalized.reprintPolicy.maxManualReprints ?? 2);
   const inWindow = Boolean(printSummary.in_reprint_window);
   const reprintsRemaining = Number.isFinite(Number(printSummary.reprints_remaining)) ? Number(printSummary.reprints_remaining) : maxManualReprints;
   const overrideAllowed = normalized.reprintPolicy.adminOverrideAfterWindow && (normalized.reprintPolicy.adminOverrideRoles || ['admin']).includes(role);

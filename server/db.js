@@ -222,6 +222,7 @@ export const getPoolStats = () => ({
 });
 
 let authSecuritySchemaPromise = null;
+let notificationsSchemaPromise = null;
 
 export async function ensureAuthSecuritySchema() {
   if (authSecuritySchemaPromise) {
@@ -257,6 +258,34 @@ export async function ensureAuthSecuritySchema() {
   });
 
   return authSecuritySchemaPromise;
+}
+
+export async function ensureNotificationsSchema() {
+  if (notificationsSchemaPromise) {
+    return notificationsSchemaPromise;
+  }
+
+  notificationsSchemaPromise = (async () => {
+    await query(
+      `CREATE TABLE IF NOT EXISTS notifications (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        location_id INTEGER REFERENCES locations(id) ON DELETE CASCADE,
+        title VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        notification_type VARCHAR(50) NOT NULL DEFAULT 'info',
+        is_read BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`
+    );
+    await query('CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, created_at DESC)');
+    await query('CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, is_read)');
+  })().catch((error) => {
+    notificationsSchemaPromise = null;
+    throw error;
+  });
+
+  return notificationsSchemaPromise;
 }
 
 

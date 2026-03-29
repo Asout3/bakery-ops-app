@@ -101,14 +101,15 @@ async function getBatchStockRows(db, batchId) {
 
 async function assertBatchStockEditable(db, batchId) {
   const stockRows = await getBatchStockRows(db, batchId);
-  const consumedRow = stockRows.find((row) => Number(row.quantity_remaining || 0) < Number(row.initial_quantity || 0));
+  const activeRows = stockRows.filter((row) => Number(row.quantity_remaining || 0) > 0);
+  const consumedRow = activeRows.find((row) => Number(row.quantity_remaining || 0) < Number(row.initial_quantity || 0));
   if (consumedRow) {
     const err = new Error('This batch has already been partially sold or adjusted and can no longer be edited or voided.');
     err.status = 409;
     err.code = 'BATCH_ALREADY_CONSUMED';
     throw err;
   }
-  return stockRows;
+  return activeRows;
 }
 
 async function voidBatchStock(db, locationId, batchId) {

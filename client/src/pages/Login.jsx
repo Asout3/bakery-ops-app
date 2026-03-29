@@ -180,10 +180,14 @@ export default function Login() {
           </form>
 
           <div className="login-footer">
-            <button
+              <button
               type="button"
               className="btn btn-outline-secondary btn-sm"
-              onClick={() => setShowRecoveryModal(true)}
+              onClick={() => {
+                setRecoveryPassword('');
+                setRecoveryConfirm('');
+                setShowRecoveryModal(true);
+              }}
             >
               {t('forgotAdminPassword')}
             </button>
@@ -239,6 +243,7 @@ export default function Login() {
                     className={`form-control${recoveryPassword && !validatePassword(recoveryPassword) ? ' is-invalid' : ''}`}
                     value={recoveryPassword}
                     onChange={(e) => setRecoveryPassword(e.target.value)}
+                    autoComplete="new-password"
                     required
                   />
                   <button type="button" className="password-toggle" onClick={() => setShowRecoveryPass((p) => !p)}>
@@ -258,6 +263,7 @@ export default function Login() {
                     className={`form-control${recoveryConfirm && recoveryConfirm !== recoveryPassword ? ' is-invalid' : ''}`}
                     value={recoveryConfirm}
                     onChange={(e) => setRecoveryConfirm(e.target.value)}
+                    autoComplete="new-password"
                     required
                   />
                   <button type="button" className="password-toggle" onClick={() => setShowRecoveryConfirm((p) => !p)}>

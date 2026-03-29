@@ -103,7 +103,7 @@ router.get('/categories', authenticateToken, authorizeRoles('admin', 'manager'),
 
 router.post('/categories',
   authenticateToken,
-  authorizeRoles('admin', 'manager'),
+  authorizeRoles('admin'),
   body('name').trim().notEmpty(),
   async (req, res) => {
     const errors = validationResult(req);

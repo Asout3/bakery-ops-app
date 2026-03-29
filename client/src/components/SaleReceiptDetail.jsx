@@ -3,6 +3,7 @@ import { Printer, RefreshCw } from 'lucide-react';
 import ReceiptPreview from '../receipts/ReceiptPreview';
 import { getReprintPolicyState, normalizeReceiptSettings, normalizeReceiptTemplate } from '../receipts/helpers';
 import { performReceiptPrint } from '../receipts/printService';
+import api, { getErrorMessage } from '../api/axios';
 
 function buildPrintSummaryFallback(sale, settings) {
   const normalized = normalizeReceiptSettings(settings || {});
@@ -20,6 +21,8 @@ function buildPrintSummaryFallback(sale, settings) {
 
 export default function SaleReceiptDetail({ sale, settings, currentRole = 'cashier', onClose, onSaleUpdated, toast }) {
   const [printing, setPrinting] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [itemQuantities, setItemQuantities] = useState(() => (sale.items || []).reduce((acc, item) => ({ ...acc, [item.product_id]: String(item.quantity) }), {}));
   const activeSettings = normalizeReceiptSettings(settings || sale.settings || {});
   const template = normalizeReceiptTemplate(sale.receipt_template_snapshot || sale.receipt_payload?.settings?.template || {});
   const printSummary = buildPrintSummaryFallback(sale, activeSettings);
@@ -43,6 +46,29 @@ export default function SaleReceiptDetail({ sale, settings, currentRole = 'cashi
       toast?.error?.(error.response?.data?.error || error.message || 'Reprint failed.');
     } finally {
       setPrinting(false);
+    }
+  };
+
+  const handleSaveSaleEdit = async () => {
+    const items = (sale.items || []).map((item) => ({
+      product_id: item.product_id,
+      quantity: Number(itemQuantities[item.product_id]),
+    }));
+    if (items.some((item) => !Number.isFinite(item.quantity) || item.quantity <= 0)) {
+      toast?.error?.('Quantity must be greater than zero.');
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      await api.put(`/sales/${sale.id}/items`, { items });
+      toast?.success?.('Sale updated successfully.');
+      onSaleUpdated?.();
+      onClose?.();
+    } catch (error) {
+      toast?.error?.(getErrorMessage(error, 'Failed to update sale.'));
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -71,7 +97,24 @@ export default function SaleReceiptDetail({ sale, settings, currentRole = 'cashi
                 <button className="btn btn-outline-primary" onClick={handleReprint} disabled={!reprintState.allowed || printing}>
                   {printing ? <RefreshCw size={14} className="spin" /> : <Printer size={14} />} Reprint Receipt
                 </button>
+                {sale.status !== 'voided' ? <button className="btn btn-outline-secondary" onClick={handleSaveSaleEdit} disabled={savingEdit}>{savingEdit ? 'Saving...' : 'Save Item Changes'}</button> : null}
                 {!reprintState.allowed ? <span className="text-muted small align-self-center">Reprints are restricted by window or count policy.</span> : null}
+              </div>
+              <div className="mt-3">
+                <h6>Edit Item Quantities</h6>
+                {(sale.items || []).map((item) => (
+                  <div key={item.product_id} className="d-flex align-items-center justify-content-between mb-2 gap-2">
+                    <span>{item.product_name}</span>
+                    <input
+                      type="number"
+                      min="1"
+                      className="form-control"
+                      style={{ maxWidth: '110px' }}
+                      value={itemQuantities[item.product_id] ?? String(item.quantity)}
+                      onChange={(e) => setItemQuantities((prev) => ({ ...prev, [item.product_id]: e.target.value }))}
+                    />
+                  </div>
+                ))}
               </div>
               {(printSummary.print_events || []).length > 0 ? (
                 <div className="mt-4">
