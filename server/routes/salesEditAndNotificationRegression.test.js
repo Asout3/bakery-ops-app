@@ -9,9 +9,8 @@ test('sale edit route uses buildBulkSaleItemsInsert helper and not undefined bul
   assert.doesNotMatch(file, /VALUES \$\{placeholders\.join\(/);
 });
 
-test('sale create flow emits baseline sale notifications for admin\/manager users', async () => {
+test('sale route keeps high-sale alert recipient fallback for null location assignments', async () => {
   const file = await readFile(new URL('./sales.js', import.meta.url), 'utf8');
-  assert.match(file, /'Sale Recorded'/);
-  assert.match(file, /notification_type\)\s+SELECT id, \$1, 'Sale Recorded', \$2, 'sale_created'/);
+  assert.match(file, /'High Sale Alert'/);
   assert.match(file, /location_id = \$1 OR location_id IS NULL/);
 });

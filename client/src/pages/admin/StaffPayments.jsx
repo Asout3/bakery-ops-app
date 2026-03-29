@@ -103,7 +103,6 @@ export default function StaffPaymentsPage() {
     setFormData((prev) => ({
       ...prev,
       staff_profile_id: staffId,
-      user_id: selected.user_id ? String(selected.user_id) : prev.user_id,
       amount: recommendedAmount > 0 ? String(recommendedAmount) : (selected.monthly_salary ? String(selected.monthly_salary) : prev.amount),
     }));
   };
@@ -156,7 +155,6 @@ export default function StaffPaymentsPage() {
     setEditingPayment(payment);
     setFormData({
       staff_profile_id: payment.staff_profile_id ? String(payment.staff_profile_id) : '',
-      user_id: payment.user_id ? String(payment.user_id) : '',
       amount: String(payment.amount),
       payment_date: payment.payment_date,
       payment_type: payment.payment_type || 'salary',
@@ -172,7 +170,6 @@ export default function StaffPaymentsPage() {
     e.preventDefault();
     const payload = {
       staff_profile_id: formData.staff_profile_id ? Number(formData.staff_profile_id) : undefined,
-      user_id: formData.user_id ? Number(formData.user_id) : undefined,
       amount: Number(formData.amount),
       payment_date: formData.payment_date,
       payment_type: formData.payment_type,

@@ -143,6 +143,14 @@ router.post(
           ]
         );
 
+        await tx.query(
+          `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+           SELECT id, $1, 'Staff Payment Recorded', $2, 'staff_payment'
+           FROM users
+           WHERE role IN ('admin', 'manager') AND is_active = true AND (location_id = $1 OR location_id IS NULL)`,
+          [locationId, `${staffName} was paid ETB ${Number(amount).toFixed(2)}.`]
+        );
+
         if (idempotencyKey) {
           await tx.query(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)

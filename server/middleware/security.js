@@ -138,7 +138,7 @@ export function getCorsOptions() {
       origin: true,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Location-Id', 'X-Idempotency-Key', 'X-Retry-Count', 'X-Queued-Request', 'Accept', 'Accept-Language'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Location-Id', 'X-Idempotency-Key', 'X-Retry-Count', 'X-Queued-Request', 'X-Queued-Created-At', 'X-Offline-Actor-Id', 'Accept', 'Accept-Language'],
     };
   }
   

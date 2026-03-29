@@ -262,18 +262,6 @@ async function runSalePostCommitEffects({
   }
 
   try {
-    await query(
-      `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-       SELECT id, $1, 'Sale Recorded', $2, 'sale_created'
-       FROM users
-       WHERE role IN ('admin', 'manager') AND is_active = true AND (location_id = $1 OR location_id IS NULL)`,
-      [locationId, `Sale ${createdSale.receipt_number} was completed for ETB ${Number(totalAmount).toFixed(2)}.`]
-    );
-  } catch (err) {
-    console.error('Sale post-commit baseline notification failed:', err);
-  }
-
-  try {
     const highSaleRule = await query(
       `SELECT threshold FROM alert_rules
        WHERE location_id = $1 AND event_type = 'high_sale' AND enabled = true
@@ -335,7 +323,10 @@ async function getScopedReceiptTemplate(executor, templateId, locationId) {
   return result.rows[0] || null;
 }
 
-function canManualReprint({ sale, settings, existingEvents, actorRole, initiatedAt }) {
+function canManualReprint({ sale, settings, existingEvents, actorRole, initiatedAt, attemptType = 'manual_reprint' }) {
+  if (attemptType === 'void_reprint') {
+    return { allowed: true };
+  }
   const normalizedSettings = normalizeReceiptSettings(settings || {});
   const windowMinutes = Number(normalizedSettings.reprintPolicy.windowMinutes ?? 20);
   const maxManualReprints = Number(normalizedSettings.reprintPolicy.maxManualReprints ?? 2);
@@ -915,7 +906,7 @@ router.post('/print-events', authenticateToken, authorizeRoles('admin', 'cashier
       const existingEvents = existingEventsResult.rows;
 
       if (attempt_type === 'manual_reprint') {
-        const permission = canManualReprint({ sale, settings, existingEvents, actorRole: req.user.role, initiatedAt: initiated_at || Date.now() });
+        const permission = canManualReprint({ sale, settings, existingEvents, actorRole: req.user.role, initiatedAt: initiated_at || Date.now(), attemptType: attempt_type });
         if (!permission.allowed) {
           const error = new Error(permission.error);
           error.status = 403;
@@ -1155,6 +1146,14 @@ router.put('/:id/items', authenticateToken, authorizeRoles('admin', 'cashier', '
       const config = await getReceiptConfig(locationId || null, tx);
       return getSaleWithItems(saleId, tx, config.settings);
     });
+
+    await query(
+      `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+       SELECT id, $1, 'Sale Edited', $2, 'sale_edited'
+       FROM users
+       WHERE role IN ('admin', 'manager') AND is_active = true AND (location_id = $1 OR location_id IS NULL)`,
+      [locationId, `Sale ${updatedSale.receipt_number} was edited by ${req.user.username || `user ${req.user.id}`}.`]
+    );
 
     return res.json(updatedSale);
   } catch (err) {

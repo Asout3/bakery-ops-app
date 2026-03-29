@@ -689,7 +689,6 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
     const { items, notes } = req.body;
 
     const updatedBatch = await withTransaction(async (tx) => {
-      await ensureInventoryBatchStatusConstraint(tx);
       const batchRes = await tx.query(
         `SELECT *,
                 ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (created_at + make_interval(mins => $3::int))) as can_edit,
@@ -773,7 +772,6 @@ router.post('/batches/:id/void', authenticateToken, authorizeRoles('admin', 'man
     const locationId = await getTargetLocationId(req, query);
 
     const voided = await withTransaction(async (tx) => {
-      await ensureInventoryBatchStatusConstraint(tx);
       const batchRes = await tx.query(
         `SELECT *,
                 ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (created_at + make_interval(mins => $3::int))) as can_edit,
