@@ -96,13 +96,23 @@ router.post(
       let staffName = 'Unknown';
 
       if (resolvedStaffProfileId) {
-        const staffResult = await query('SELECT full_name FROM staff_profiles WHERE id = $1 AND location_id = $2', [resolvedStaffProfileId, locationId]);
+        const staffResult = await query(
+          `SELECT full_name
+           FROM staff_profiles
+           WHERE id = $1 AND (location_id = $2 OR location_id IS NULL)`,
+          [resolvedStaffProfileId, locationId]
+        );
         if (!staffResult.rows.length) {
           return res.status(400).json({ error: 'Invalid staff profile for this branch', code: 'INVALID_STAFF_PROFILE', requestId: req.requestId });
         }
         staffName = staffResult.rows[0].full_name;
       } else if (resolvedUserId) {
-        const userResult = await query('SELECT username FROM users WHERE id = $1 AND location_id = $2', [resolvedUserId, locationId]);
+        const userResult = await query(
+          `SELECT username
+           FROM users
+           WHERE id = $1 AND (location_id = $2 OR location_id IS NULL)`,
+          [resolvedUserId, locationId]
+        );
         if (!userResult.rows.length) {
           return res.status(400).json({ error: 'Invalid user for this branch', code: 'INVALID_USER', requestId: req.requestId });
         }
