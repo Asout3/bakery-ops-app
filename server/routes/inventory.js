@@ -491,19 +491,21 @@ router.post(
         );
         const totalBatchValue = Number(batchValueResult.rows[0]?.total_value || 0);
 
-        await tx.query(
-          `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-           SELECT id, $1, $2, $3, 'batch'
-           FROM users 
-           WHERE role IN ('admin', 'manager') 
-           AND (location_id = $1 OR location_id IS NULL)
-           AND is_active = true`,
-          [
-            locationId,
-            `📦 New Batch Sent #${createdBatch.id}`,
-            `${originalActorName} sent a batch with ${items.length} items (Total: ETB ${totalBatchValue.toFixed(2)})${isFromOfflineQueue ? ' [Synced from Offline]' : ''}`
-          ]
-        );
+        if (!isFromOfflineQueue) {
+          await tx.query(
+            `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+             SELECT id, $1, $2, $3, 'batch'
+             FROM users 
+             WHERE role IN ('admin', 'manager') 
+             AND (location_id = $1 OR location_id IS NULL)
+             AND is_active = true`,
+            [
+              locationId,
+              `📦 New Batch Sent #${createdBatch.id}`,
+              `${originalActorName} sent a batch with ${items.length} items (Total: ETB ${totalBatchValue.toFixed(2)})`
+            ]
+          );
+        }
 
         await createLowStockNotificationsForProducts(tx, locationId, items.map((item) => item.product_id));
 
