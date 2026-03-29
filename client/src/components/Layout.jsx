@@ -13,7 +13,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useToast } from '../context/ToastContext';
 import OfflineIndicator from './OfflineIndicator';
 import { useOfflineSync } from '../hooks/useOfflineSync';
-import { getPendingCount } from '../utils/offlineQueue';
+import { getSyncStats } from '../utils/offlineQueue';
 import { getReceiptConfigCache, normalizeReceiptSettings } from '../receipts/helpers';
 import './Layout.css';
 
@@ -34,9 +34,10 @@ export default function Layout() {
   const doLogout = () => { logout(); navigate('/login'); };
 
   const handleLogout = async () => {
-    const pendingCount = await getPendingCount();
-    if (pendingCount > 0) {
-      setPendingLogoutCount(pendingCount);
+    const syncStats = await getSyncStats();
+    const unsyncedCount = Number(syncStats?.total || 0);
+    if (unsyncedCount > 0) {
+      setPendingLogoutCount(unsyncedCount);
       setShowLogoutWarning(true);
       return;
     }
