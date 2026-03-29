@@ -389,7 +389,7 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
     const params = [];
     if (locationId) {
       params.push(locationId);
-      queryText += ` AND sp.location_id = $${params.length}`;
+      queryText += ` AND (sp.location_id = $${params.length} OR sp.location_id IS NULL)`;
     }
     
     queryText += ` ORDER BY sp.full_name ASC`;

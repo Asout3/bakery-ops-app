@@ -496,7 +496,7 @@ router.post(
            SELECT id, $1, $2, $3, 'batch'
            FROM users 
            WHERE role IN ('admin', 'manager') 
-           AND location_id = $1
+           AND (location_id = $1 OR location_id IS NULL)
            AND is_active = true`,
           [
             locationId,

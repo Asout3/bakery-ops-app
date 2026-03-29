@@ -51,12 +51,20 @@ export default function StaffPaymentsPage() {
 
   const fetchData = async () => {
     try {
+      const requestConfig = {
+        headers: { 'Cache-Control': 'no-cache' },
+        params: { ...(selectedLocationId ? { location_id: selectedLocationId } : {}), _ts: Date.now() },
+      };
       const [paymentsRes, staffRes] = await Promise.all([
-        api.get('/payments'),
-        api.get('/admin/staff-for-payments', { params: selectedLocationId ? { location_id: selectedLocationId } : {} }),
+        api.get('/payments', requestConfig),
+        api.get('/admin/staff-for-payments', requestConfig),
       ]);
       setPayments(paymentsRes.data || []);
-      const nextStaff = (staffRes.data || []).filter((staff) => staff.is_active);
+      let nextStaff = (staffRes.data || []).filter((staff) => staff.is_active);
+      if (!nextStaff.length) {
+        const fallbackStaffRes = await api.get('/admin/staff', requestConfig);
+        nextStaff = (fallbackStaffRes.data || []).filter((staff) => staff.is_active && ['manager', 'cashier'].includes(staff.role_preference));
+      }
       setStaffMembers(nextStaff);
       setStaffLoadError(nextStaff.length ? '' : 'No active staff found for this branch. Add staff profiles or check branch selection.');
     } catch (err) {

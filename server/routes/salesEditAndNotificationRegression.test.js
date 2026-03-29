@@ -6,10 +6,12 @@ test('sale edit route uses buildBulkSaleItemsInsert helper and not undefined bul
   const file = await readFile(new URL('./sales.js', import.meta.url), 'utf8');
   assert.match(file, /buildBulkSaleItemsInsert\(saleId, editedSaleItems\)/);
   assert.doesNotMatch(file, /bulkInsertSaleItems\(/);
+  assert.doesNotMatch(file, /VALUES \$\{placeholders\.join\(/);
 });
 
 test('sale create flow emits baseline sale notifications for admin\/manager users', async () => {
   const file = await readFile(new URL('./sales.js', import.meta.url), 'utf8');
   assert.match(file, /'Sale Recorded'/);
   assert.match(file, /notification_type\)\s+SELECT id, \$1, 'Sale Recorded', \$2, 'sale_created'/);
+  assert.match(file, /location_id = \$1 OR location_id IS NULL/);
 });

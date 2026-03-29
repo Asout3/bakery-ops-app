@@ -183,6 +183,12 @@ const loginValidation = [
     .withMessage('Password is required'),
 ];
 
+async function resolveActivityLocationId(preferredLocationId = null) {
+  if (preferredLocationId) return Number(preferredLocationId);
+  const fallback = await query('SELECT id FROM locations WHERE is_active = true ORDER BY id ASC LIMIT 1');
+  return fallback.rows[0]?.id ? Number(fallback.rows[0].id) : null;
+}
+
 router.post('/login',
   authLimiter,
   loginValidation,
@@ -230,11 +236,13 @@ router.post('/login',
       };
     });
 
+    const activityLocationId = await resolveActivityLocationId(user.location_id);
+
     await Promise.allSettled([
       query(
         `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
          VALUES ($1, $2, $3, $4, $5)`,
-        [user.id, user.location_id, 'user_login', `User logged in: ${username}`, JSON.stringify({ login_method: 'password' })]
+        [user.id, activityLocationId, 'user_login', `User logged in: ${username}`, JSON.stringify({ login_method: 'password' })]
       ),
       query(
         `UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
@@ -262,11 +270,12 @@ router.get('/me', authenticateToken, asyncHandler(async (req, res) => {
 
 router.post('/logout', authenticateToken, asyncHandler(async (req, res) => {
   const refreshToken = typeof req.body?.refresh_token === 'string' ? req.body.refresh_token : null;
+  const activityLocationId = await resolveActivityLocationId(req.user.location_id);
 
   await query(
     `INSERT INTO activity_log (user_id, location_id, activity_type, description)
      VALUES ($1, $2, 'user_logout', $3)`,
-    [req.user.id, req.user.location_id, `User logged out: ${req.user.username}`]
+    [req.user.id, activityLocationId, `User logged out: ${req.user.username}`]
   );
 
   if (refreshToken) {

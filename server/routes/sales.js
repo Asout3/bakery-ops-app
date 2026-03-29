@@ -266,7 +266,7 @@ async function runSalePostCommitEffects({
       `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
        SELECT id, $1, 'Sale Recorded', $2, 'sale_created'
        FROM users
-       WHERE role IN ('admin', 'manager') AND is_active = true AND location_id = $1`,
+       WHERE role IN ('admin', 'manager') AND is_active = true AND (location_id = $1 OR location_id IS NULL)`,
       [locationId, `Sale ${createdSale.receipt_number} was completed for ETB ${Number(totalAmount).toFixed(2)}.`]
     );
   } catch (err) {
@@ -286,7 +286,7 @@ async function runSalePostCommitEffects({
       await query(
         `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
          SELECT id, $1, 'High Sale Alert', $2, 'sales_anomaly'
-         FROM users WHERE role IN ('admin', 'manager') AND location_id = $1`,
+         FROM users WHERE role IN ('admin', 'manager') AND (location_id = $1 OR location_id IS NULL)`,
         [locationId, `Sale ${createdSale.receipt_number} reached $${Number(totalAmount).toFixed(2)} (threshold $${highSaleThreshold.toFixed(2)}).`]
       );
     }
@@ -1147,7 +1147,7 @@ router.put('/:id/items', authenticateToken, authorizeRoles('admin', 'cashier', '
       const { values, placeholders } = buildBulkSaleItemsInsert(saleId, editedSaleItems);
       await tx.query(
         `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
-         VALUES ${placeholders.join(', ')}`,
+         VALUES ${placeholders}`,
         values
       );
       await tx.query('UPDATE sales SET total_amount = $1 WHERE id = $2', [totalAmount, saleId]);
