@@ -368,6 +368,7 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
       let fallbackQueryText = `
         SELECT
           u.id,
+          NULL::integer AS staff_profile_id,
           COALESCE(NULLIF(u.full_name, ''), u.username) AS full_name,
           u.phone_number,
           COALESCE(u.monthly_salary, 0) AS monthly_salary,
@@ -412,6 +413,7 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
     let queryText = `
       SELECT 
         sp.id,
+        sp.id AS staff_profile_id,
         sp.full_name,
         sp.phone_number,
         sp.monthly_salary,

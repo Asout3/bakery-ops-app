@@ -21,6 +21,12 @@ const initialForm = {
 
 const FREQUENCY_OPTIONS = ['daily', 'weekly', 'monthly'];
 
+const normalizeStaffTarget = (staff) => {
+  const staffProfileId = Number(staff?.staff_profile_id || 0) || null;
+  const userId = Number(staff?.user_id || staff?.id || 0) || null;
+  return { staffProfileId, userId };
+};
+
 export default function StaffPaymentsPage() {
   const { selectedLocationId } = useBranch();
   const [payments, setPayments] = useState([]);
@@ -76,14 +82,14 @@ export default function StaffPaymentsPage() {
       if (!nextStaff.length) {
         try {
           const fallbackStaffRes = await api.get('/admin/staff', requestConfig);
-          nextStaff = (fallbackStaffRes.data || []).filter((staff) => staff.is_active && ['manager', 'cashier'].includes(staff.role_preference));
+          nextStaff = (fallbackStaffRes.data || []).filter((staff) => staff.is_active);
         } catch {
           nextStaff = [];
         }
       }
 
       setStaffMembers(nextStaff);
-      setStaffLoadError(nextStaff.length ? '' : 'No active staff found for this branch. Add staff profiles or check branch selection.');
+      setStaffLoadError(nextStaff.length ? '' : 'No active staff found. Add staff profiles or create staff user accounts.');
     } finally {
       setLoading(false);
     }
@@ -182,8 +188,11 @@ export default function StaffPaymentsPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const selectedStaff = staffMembers.find((staff) => Number(staff.id) === Number(formData.staff_profile_id));
+    const { staffProfileId, userId } = normalizeStaffTarget(selectedStaff);
     const payload = {
-      staff_profile_id: formData.staff_profile_id ? Number(formData.staff_profile_id) : undefined,
+      staff_profile_id: staffProfileId || undefined,
+      user_id: staffProfileId ? undefined : (userId || undefined),
       amount: Number(formData.amount),
       payment_date: formData.payment_date,
       payment_type: formData.payment_type,
