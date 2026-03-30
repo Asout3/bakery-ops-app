@@ -236,6 +236,7 @@ export function useOfflineSync() {
 
     const init = async () => {
       await updateQueueStats();
+      setAppInitialized(true);
       
       // On init, actively check backend connectivity
       if (navigator.onLine) {
@@ -247,8 +248,6 @@ export function useOfflineSync() {
         setIsOnlineState(false);
         setBackendReachableState(false);
       }
-      
-      setAppInitialized(true);
     };
     
     init();
