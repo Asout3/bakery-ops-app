@@ -163,6 +163,7 @@ sequenceDiagram
 - Cashier sales history now prioritizes server data whenever `/api/sales` is reachable and only falls back to local cached receipts when the app is offline, preventing stale data from a previous database from appearing after `DATABASE_URL` changes.
 - Notification schema bootstrap now runs automatically at API startup, so migrated/empty databases still create and serve notifications without manual intervention.
 - Staff-payment staff lookup now handles partial schema migrations (including missing `payment_due_date`) and always returns active staff rows from the currently selected location.
+- Staff-payment UI data loading is now fault-tolerant: payments and staff sources are fetched independently, and the page falls back to `/api/admin/staff` when `/api/admin/staff-for-payments` is unavailable.
 - Batch edit workflows now ignore already-voided stock rows from prior edits, allowing multiple valid edits within the full 20-minute window.
 - Receipt reprint enforcement now honors `0` manual reprints correctly (no fallback override), and reprint window values are applied from saved settings using nullish-safe defaults.
 - Cashier sales now block add/increase actions when stock is exhausted, hide expired variants, and reject expired product checkout server-side.
@@ -171,6 +172,8 @@ sequenceDiagram
 - Idempotent write headers for retry-safe replay.
 - Replay status model (`synced`, `failed`, `conflict`, `needs_review`, `ignored`, `resolved`).
 - Offline replay preserves the original actor identity (`X-Offline-Actor-Id`) so synced records remain attributed to the initiating cashier/manager, not the user who triggers replay later.
+- Offline actor resolution now accepts branch users whose `location_id` is temporarily `NULL` after migrations/backfills, preserving original transaction ownership during replay for inventory, orders, expenses, and staff-payment writes.
+- Offline replay no longer parks auth/session responses in mandatory admin-review state by default; queued actions retry with the active authenticated session and only fail after max retries.
 - Sync audit ingestion now stores actor identity from authenticated server context (client-sent actor hints are retained only as metadata for diagnostics), preventing audit actor spoofing.
 - Staff account roles are immutable after account creation; updates can change credentials/location but not role.
 - API error envelope consistency (`error`, `code`, `requestId`) for client classification.
@@ -180,6 +183,7 @@ sequenceDiagram
 - Cache fallback in key manager/cashier pages for continuity.
 - Single-flight offline queue flush locking to prevent overlapping replay runs.
 - Offline replay now emits an `offline-queue-synced` browser event after successful replay cycles so cashier stock views can immediately rehydrate from server truth.
+- Offline sync status indicator now initializes before first auto-replay after login, so admin/manager users can see the sync panel during startup reconciliation (not just toast notifications).
 - Offline replay now auto-adjusts queued sale quantities for deterministic `INSUFFICIENT_STOCK` conflicts when partial quantity is available, then retries with the adjusted payload.
 - Service-worker shell caching that discovers and caches current hashed build assets from `index.html`.
 - Sale create responses now include `X-Sale-Server-Timing` response metadata to support production latency profiling (`totalMs`, `productLookupMs`, `stockConsumeMs`, `movementInsertMs`).

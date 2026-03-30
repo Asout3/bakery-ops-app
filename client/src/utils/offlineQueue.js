@@ -369,16 +369,31 @@ export async function flushQueue(api) {
         }
 
         if (isAuthOrSessionIssue) {
-          const updatedOp = {
-            ...op,
-            retries,
-            status: 'needs_review',
-            lastError: 'Original user session expired - requires admin review',
-            lastAttempt: new Date().toISOString(),
-          };
-          tx.objectStore(OPS_STORE).put(updatedOp);
-          terminalStatus = 'needs_review';
-          reason = updatedOp.lastError;
+          if (retries >= MAX_RETRIES) {
+            const updatedOp = {
+              ...op,
+              retries,
+              status: 'failed',
+              lastError: 'Sync authorization failed after multiple retries. Please review user access for this action.',
+              lastAttempt: new Date().toISOString(),
+            };
+            tx.objectStore(OPS_STORE).put(updatedOp);
+            terminalStatus = 'failed';
+            reason = updatedOp.lastError;
+          } else {
+            const sessionUser = getSessionSnapshot()?.user || null;
+            const updatedOp = {
+              ...op,
+              retries,
+              status: 'pending',
+              actorId: op.actorId || sessionUser?.id || null,
+              actorName: op.actorName || sessionUser?.username || null,
+              nextRetry: calculateNextRetry(retries),
+              lastError: 'Queued action will retry with the active session.',
+              lastAttempt: new Date().toISOString(),
+            };
+            tx.objectStore(OPS_STORE).put(updatedOp);
+          }
         } else if (isConflict || statusCode === 422 || isDeterministicClientError) {
           const updatedOp = {
             ...op,

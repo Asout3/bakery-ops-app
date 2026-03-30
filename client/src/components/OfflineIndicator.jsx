@@ -52,10 +52,10 @@ export default function OfflineIndicator({ sync }) {
 
   useEffect(() => {
     if (!appInitialized || !isAuthenticated) return;
-    if (hasBacklog && !collapsed) {
+    if ((hasBacklog || syncInProgress || syncProgress.finished) && !collapsed) {
       setExpanded(true);
     }
-  }, [appInitialized, isAuthenticated, hasBacklog, collapsed]);
+  }, [appInitialized, isAuthenticated, hasBacklog, collapsed, syncInProgress, syncProgress.finished]);
 
   useEffect(() => {
     if (!appInitialized || !isAuthenticated) return;
