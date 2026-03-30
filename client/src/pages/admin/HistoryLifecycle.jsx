@@ -12,7 +12,7 @@ export default function HistoryLifecycle() {
 
   const fetchData = async () => {
     try {
-      const response = await api.get('/archive/settings');
+      const response = await api.get('/archive/settings', { timeout: 30000 });
       setData(response.data);
       setSettingsForm({
         enabled: Boolean(response.data?.settings?.enabled),
@@ -49,7 +49,7 @@ export default function HistoryLifecycle() {
   const saveSettings = async () => {
     setLoading(true);
     try {
-      await api.put('/archive/settings', settingsForm);
+      await api.put('/archive/settings', settingsForm, { timeout: 30000 });
       setMessage({ type: 'success', text: 'Archive settings updated.' });
       fetchData();
     } catch (err) {
@@ -66,7 +66,7 @@ export default function HistoryLifecycle() {
     }
     setLoading(true);
     try {
-      const response = await api.post('/archive/run', { confirmation_phrase: confirmationPhrase });
+      const response = await api.post('/archive/run', { confirmation_phrase: confirmationPhrase }, { timeout: 120000 });
       const details = response.data?.details || {};
       const movedTotal = Number(details.inventory_batches || 0)
         + Number(details.sales || 0)
@@ -101,7 +101,7 @@ export default function HistoryLifecycle() {
       return;
     }
     try {
-      const response = await api.get('/archive/export', { responseType: 'blob' });
+      const response = await api.get('/archive/export', { responseType: 'blob', timeout: 120000 });
       const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');

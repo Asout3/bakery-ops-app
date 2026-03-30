@@ -354,7 +354,8 @@ router.get('/staff-expense-summary', authenticateToken, authorizeRoles('admin'),
 
 router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const locationId = req.query.location_id ? Number(req.query.location_id) : null;
+    const parsedLocationId = req.query.location_id ? Number(req.query.location_id) : null;
+    const locationId = Number.isFinite(parsedLocationId) && parsedLocationId > 0 ? parsedLocationId : null;
     const staffProfilesTable = await query(
       `SELECT 1
        FROM information_schema.tables
@@ -440,7 +441,42 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
       queryText += ` AND (sp.location_id = $${params.length} OR sp.location_id IS NULL)`;
     }
     
-    queryText += ` ORDER BY sp.full_name ASC`;
+    queryText += `
+      UNION ALL
+      SELECT
+        u.id,
+        NULL::integer AS staff_profile_id,
+        COALESCE(NULLIF(u.full_name, ''), u.username) AS full_name,
+        u.phone_number,
+        COALESCE(u.monthly_salary, 0) AS monthly_salary,
+        u.role AS role_preference,
+        COALESCE(NULLIF(u.job_title, ''), u.role) AS job_title,
+        u.location_id,
+        25 as payment_due_date,
+        u.is_active,
+        u.hire_date,
+        u.termination_date,
+        l.name as location_name,
+        u.username as account_username,
+        u.role as account_role,
+        u.id as user_id
+      FROM users u
+      LEFT JOIN locations l ON l.id = u.location_id
+      WHERE u.is_active = true
+        AND u.role IN ('manager', 'cashier')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM staff_profiles sp
+          WHERE sp.linked_user_id = u.id
+        )
+    `;
+
+    if (locationId) {
+      params.push(locationId);
+      queryText += ` AND (u.location_id = $${params.length} OR u.location_id IS NULL)`;
+    }
+
+    queryText += ' ORDER BY full_name ASC';
     
     try {
       const result = await query(queryText, params);

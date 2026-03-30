@@ -163,6 +163,11 @@ sequenceDiagram
 - Cashier sales history now prioritizes server data whenever `/api/sales` is reachable and only falls back to local cached receipts when the app is offline, preventing stale data from a previous database from appearing after `DATABASE_URL` changes.
 - Notification schema bootstrap now runs automatically at API startup, so migrated/empty databases still create and serve notifications without manual intervention.
 - Staff-payment staff lookup now handles partial schema migrations (including missing `payment_due_date`) and always returns active staff rows from the currently selected location.
+- Staff-payment lookup now unions active `staff_profiles` with active manager/cashier user accounts that are not yet linked to a profile, preventing false "No active staff found" states after database URL swaps or partial migrations.
+- Expense category isolation is enforced per-role: managers only list/use/delete categories they created, while admins retain full branch visibility and control.
+- Expense notifications are now restricted to admins, preventing manager-side visibility of admin-only financial activity.
+- History Lifecycle API calls now use long-running request timeouts for archive run/export to avoid false client-side timeout failures on large datasets.
+- Batch performance was moved from Sales to Orders so order operations and batch execution history are reviewed together with richer audit context.
 - Staff-payment UI data loading is now fault-tolerant: payments and staff sources are fetched independently, and the page falls back to `/api/admin/staff` when `/api/admin/staff-for-payments` is unavailable.
 - Batch edit workflows now ignore already-voided stock rows from prior edits, allowing multiple valid edits within the full 20-minute window.
 - Receipt reprint enforcement now honors `0` manual reprints correctly (no fallback override), and reprint window values are applied from saved settings using nullish-safe defaults.

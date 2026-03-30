@@ -42,6 +42,7 @@ export default function StaffPaymentsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [frequencyFilter, setFrequencyFilter] = useState('all');
   const [staffLoadError, setStaffLoadError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -188,6 +189,7 @@ export default function StaffPaymentsPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
     const selectedStaff = staffMembers.find((staff) => Number(staff.id) === Number(formData.staff_profile_id));
     const { staffProfileId, userId } = normalizeStaffTarget(selectedStaff);
     const payload = {
@@ -206,12 +208,14 @@ export default function StaffPaymentsPage() {
       setFeedback({ type: 'warning', message: 'Amount cannot be negative.' });
       return;
     }
+    setIsSubmitting(true);
     try {
       if (editingPayment) {
         await api.put(`/payments/${editingPayment.id}`, payload);
         setFeedback({ type: 'success', message: 'Payment updated successfully.' });
       } else {
-        await api.post('/payments', payload);
+        const idempotencyKey = `payment-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        await api.post('/payments', payload, { headers: { 'X-Idempotency-Key': idempotencyKey } });
         setFeedback({ type: 'success', message: 'Payment created successfully.' });
       }
       await fetchData();
@@ -228,6 +232,9 @@ export default function StaffPaymentsPage() {
       } else {
         setFeedback({ type: 'danger', message: getErrorMessage(err, 'Failed to save payment.') });
       }
+    }
+    finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -346,7 +353,7 @@ export default function StaffPaymentsPage() {
                 <div className="col-md-4"><label className="form-label">Payment Date *</label><input type="date" className="form-control" value={formData.payment_date} onChange={(e) => { const nextDate = e.target.value; setFormData({ ...formData, payment_date: nextDate }); if (formData.staff_profile_id) { const selected = staffMembers.find((st) => Number(st.id) === Number(formData.staff_profile_id)); if (selected) { const staffPayments = payments.filter((payment) => Number(payment.staff_profile_id) === Number(formData.staff_profile_id)).sort((a, b) => new Date(b.payment_date || b.created_at || 0).getTime() - new Date(a.payment_date || a.created_at || 0).getTime()); const lastPaymentDate = staffPayments[0]?.payment_date ? new Date(staffPayments[0].payment_date) : null; const targetDate = nextDate ? new Date(nextDate) : new Date(); const workedDays = lastPaymentDate ? Math.max(1, Math.ceil((targetDate - lastPaymentDate) / (1000 * 60 * 60 * 24))) : 30; const monthlySalary = Number(selected.monthly_salary || 0); const dailyRate = monthlySalary > 0 ? (monthlySalary / 30) : 0; const recommendedAmount = Math.max(0, dailyRate * workedDays); setSuggestedPayment({ workedDays, dailyRate, recommendedAmount, lastPaymentDate }); } } }} required /></div>
                 <div className="col-12"><label className="form-label">Notes</label><textarea rows="5" className="form-control" style={{ minHeight: "160px", fontSize: "0.98rem" }} value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} /></div>
               </div>
-              <div className="modal-footer mt-3"><button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancel</button><button type="submit" className="btn btn-primary">{editingPayment ? 'Update Payment' : 'Pay Now'}</button></div>
+              <div className="modal-footer mt-3"><button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)} disabled={isSubmitting}>Cancel</button><button type="submit" className="btn btn-primary" disabled={isSubmitting}>{isSubmitting ? 'Saving…' : (editingPayment ? 'Update Payment' : 'Pay Now')}</button></div>
             </form>
           </div>
         </div>
