@@ -167,6 +167,8 @@ sequenceDiagram
 - Expense category isolation is enforced per-role: managers only list/use/delete categories they created, while admins retain full branch visibility and control.
 - Expense notifications are now restricted to admins, preventing manager-side visibility of admin-only financial activity.
 - History Lifecycle API calls now use long-running request timeouts for archive run/export to avoid false client-side timeout failures on large datasets.
+- Manual History Lifecycle runs now execute full transactional cleanup scope (sales, sale items, batches, batch items, orders, order items, expenses, staff payments, waste, inventory/activity logs) while keeping staff accounts and products intact.
+- Ground Manager notification visibility is confidentiality-scoped to stock/pre-order operations (`low_stock`, `out_of_stock`, and pre-order update events).
 - Pre-order performance is now emphasized on the Orders page (product details, pickup time, and audit context), while Sales keeps its Batch Performance history view for operational stock review.
 - Staff-payment UI data loading is now fault-tolerant: payments and staff sources are fetched independently, and the page falls back to `/api/admin/staff` when `/api/admin/staff-for-payments` is unavailable.
 - Batch edit workflows now ignore already-voided stock rows from prior edits, allowing multiple valid edits within the full 20-minute window.

@@ -66,13 +66,17 @@ export default function HistoryLifecycle() {
     }
     setLoading(true);
     try {
-      const response = await api.post('/archive/run', { confirmation_phrase: confirmationPhrase }, { timeout: 120000 });
+      const response = await api.post('/archive/run', { confirmation_phrase: confirmationPhrase, full_wipe: true }, { timeout: 120000 });
       const details = response.data?.details || {};
       const movedTotal = Number(details.inventory_batches || 0)
+        + Number(details.batch_items || 0)
         + Number(details.sales || 0)
+        + Number(details.customer_orders || 0)
+        + Number(details.order_items || 0)
         + Number(details.inventory_movements || 0)
         + Number(details.activity_log || 0)
         + Number(details.expenses || 0)
+        + Number(details.waste_records || 0)
         + Number(details.staff_payments || 0);
 
       if (movedTotal === 0) {
@@ -83,7 +87,7 @@ export default function HistoryLifecycle() {
       } else {
         setMessage({
           type: 'success',
-          text: `Archive completed. Moved ${movedTotal} records (Batches: ${Number(details.inventory_batches || 0)}, Sales: ${Number(details.sales || 0)}, Inventory Logs: ${Number(details.inventory_movements || 0)}, Activity Logs: ${Number(details.activity_log || 0)}).`,
+          text: `History cleanup completed. Moved ${movedTotal} records (Batches: ${Number(details.inventory_batches || 0)}, Batch Items: ${Number(details.batch_items || 0)}, Sales: ${Number(details.sales || 0)}, Pre-Orders: ${Number(details.customer_orders || 0)}, Order Items: ${Number(details.order_items || 0)}, Expenses: ${Number(details.expenses || 0)}, Staff Payments: ${Number(details.staff_payments || 0)}, Waste: ${Number(details.waste_records || 0)}, Inventory Logs: ${Number(details.inventory_movements || 0)}, Activity Logs: ${Number(details.activity_log || 0)}).`,
         });
       }
       setConfirmationPhrase('');
