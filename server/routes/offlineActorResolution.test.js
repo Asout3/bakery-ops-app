@@ -10,5 +10,6 @@ test('offline actor resolution helpers exist in write routes that consume queued
     assert.match(source, /async function resolveEffectiveActor\s*\(/, `${routeFile} must define resolveEffectiveActor`);
     assert.match(source, /x-offline-actor-id/, `${routeFile} must read x-offline-actor-id header`);
     assert.match(source, /x-queued-request/, `${routeFile} must read x-queued-request header`);
+    assert.match(source, /location_id = \$2 OR location_id IS NULL/, `${routeFile} must allow null-location actor rows during migration backfills`);
   }
 });

@@ -50,26 +50,40 @@ export default function StaffPaymentsPage() {
   }, [feedback, toast]);
 
   const fetchData = async () => {
+    setLoading(true);
     try {
       const requestConfig = {
         headers: { 'Cache-Control': 'no-cache' },
         params: { ...(selectedLocationId ? { location_id: selectedLocationId } : {}), _ts: Date.now() },
       };
-      const [paymentsRes, staffRes] = await Promise.all([
+      const [paymentsResult, staffResult] = await Promise.allSettled([
         api.get('/payments', requestConfig),
         api.get('/admin/staff-for-payments', requestConfig),
       ]);
-      setPayments(paymentsRes.data || []);
-      let nextStaff = (staffRes.data || []).filter((staff) => staff.is_active);
-      if (!nextStaff.length) {
-        const fallbackStaffRes = await api.get('/admin/staff', requestConfig);
-        nextStaff = (fallbackStaffRes.data || []).filter((staff) => staff.is_active && ['manager', 'cashier'].includes(staff.role_preference));
+
+      if (paymentsResult.status === 'fulfilled') {
+        setPayments(paymentsResult.value.data || []);
+      } else {
+        setPayments([]);
+        setFeedback({ type: 'danger', message: getErrorMessage(paymentsResult.reason, 'Failed to load payments data.') });
       }
+
+      let nextStaff = [];
+      if (staffResult.status === 'fulfilled') {
+        nextStaff = (staffResult.value.data || []).filter((staff) => staff.is_active);
+      }
+
+      if (!nextStaff.length) {
+        try {
+          const fallbackStaffRes = await api.get('/admin/staff', requestConfig);
+          nextStaff = (fallbackStaffRes.data || []).filter((staff) => staff.is_active && ['manager', 'cashier'].includes(staff.role_preference));
+        } catch {
+          nextStaff = [];
+        }
+      }
+
       setStaffMembers(nextStaff);
       setStaffLoadError(nextStaff.length ? '' : 'No active staff found for this branch. Add staff profiles or check branch selection.');
-    } catch (err) {
-      setFeedback({ type: 'danger', message: getErrorMessage(err, 'Failed to load payments data.') });
-      setStaffLoadError('Could not load staff list from the current database.');
     } finally {
       setLoading(false);
     }
