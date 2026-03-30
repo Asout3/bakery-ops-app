@@ -355,6 +355,52 @@ router.get('/staff-expense-summary', authenticateToken, authorizeRoles('admin'),
 router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     const locationId = req.query.location_id ? Number(req.query.location_id) : null;
+    const staffProfilesTable = await query(
+      `SELECT 1
+       FROM information_schema.tables
+       WHERE table_name = 'staff_profiles'
+       LIMIT 1`
+    );
+    const hasStaffProfilesTable = staffProfilesTable.rows.length > 0;
+
+    const buildFallbackUsersQuery = () => {
+      const fallbackParams = [];
+      let fallbackQueryText = `
+        SELECT
+          u.id,
+          COALESCE(NULLIF(u.full_name, ''), u.username) AS full_name,
+          u.phone_number,
+          COALESCE(u.monthly_salary, 0) AS monthly_salary,
+          u.role AS role_preference,
+          COALESCE(NULLIF(u.job_title, ''), u.role) AS job_title,
+          u.location_id,
+          25 AS payment_due_date,
+          u.is_active,
+          u.hire_date,
+          u.termination_date,
+          l.name AS location_name,
+          u.username AS account_username,
+          u.role AS account_role,
+          u.id AS user_id
+        FROM users u
+        LEFT JOIN locations l ON l.id = u.location_id
+        WHERE u.is_active = true
+          AND u.role <> 'admin'
+      `;
+      if (locationId) {
+        fallbackParams.push(locationId);
+        fallbackQueryText += ` AND (u.location_id = $${fallbackParams.length} OR u.location_id IS NULL)`;
+      }
+      fallbackQueryText += ' ORDER BY COALESCE(NULLIF(u.full_name, \'\'), u.username) ASC';
+      return { fallbackQueryText, fallbackParams };
+    };
+
+    if (!hasStaffProfilesTable) {
+      const { fallbackQueryText, fallbackParams } = buildFallbackUsersQuery();
+      const fallbackResult = await query(fallbackQueryText, fallbackParams);
+      return res.json(fallbackResult.rows);
+    }
+
     const paymentDueDateColumn = await query(
       `SELECT 1
        FROM information_schema.columns
@@ -394,9 +440,16 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
     
     queryText += ` ORDER BY sp.full_name ASC`;
     
-    const result = await query(queryText, params);
-    
-    res.json(result.rows);
+    try {
+      const result = await query(queryText, params);
+      res.json(result.rows);
+    } catch (staffProfilesErr) {
+      const isSchemaDriftError = ['42P01', '42703'].includes(staffProfilesErr?.code);
+      if (!isSchemaDriftError) throw staffProfilesErr;
+      const { fallbackQueryText, fallbackParams } = buildFallbackUsersQuery();
+      const fallbackResult = await query(fallbackQueryText, fallbackParams);
+      res.json(fallbackResult.rows);
+    }
   } catch (err) {
     console.error('Get staff for payments error:', err);
     res.status(500).json({ error: 'Internal server error' });

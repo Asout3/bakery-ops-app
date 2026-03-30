@@ -19,7 +19,7 @@ async function resolveEffectiveActor(tx, req, locationId) {
   if (!isFromOfflineQueue || !queuedActorIdHeader) return { actorId: req.user.id, actorName: req.user.username };
 
   const actorResult = await tx.query(
-    'SELECT id, username FROM users WHERE id = $1 AND location_id = $2',
+    'SELECT id, username FROM users WHERE id = $1 AND (location_id = $2 OR location_id IS NULL)',
     [Number(queuedActorIdHeader), locationId]
   );
   if (!actorResult.rows.length) return { actorId: req.user.id, actorName: req.user.username };
