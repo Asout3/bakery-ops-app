@@ -181,7 +181,7 @@ test('moveRowsToArchive builds explicit archive column lists instead of SELECT *
   assert.ok(calls.some((call) => call.text.includes('INSERT INTO "inventory_batches_archive" ("id", "location_id", "created_at")')));
   assert.ok(calls.some((call) => call.text.includes('INSERT INTO "waste_records_archive" ("id", "location_id", "wasted_at")')));
   assert.ok(calls.some((call) => call.text.includes('SELECT "id", "location_id", "created_at"')));
-  assert.ok(calls.some((call) => call.text.includes("status IN ('picked_up', 'delivered', 'cancelled')")));
+  assert.ok(calls.some((call) => call.text.includes('AND pickup_at < $2')));
   assert.ok(calls.every((call) => !call.text.includes('SELECT * FROM inventory_batches')));
   assert.ok(calls.every((call) => !call.text.includes('INSERT INTO inventory_batches_archive\n      SELECT *')));
 });

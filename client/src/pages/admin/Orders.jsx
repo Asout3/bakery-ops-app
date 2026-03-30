@@ -3,8 +3,6 @@ import api, { getErrorMessage } from '../../api/axios';
 
 export default function AdminOrders() {
   const [orders, setOrders] = useState([]);
-  const [batches, setBatches] = useState([]);
-  const [selectedBatch, setSelectedBatch] = useState(null);
   const [message, setMessage] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
   const [selectedNoteOrder, setSelectedNoteOrder] = useState(null);
@@ -14,8 +12,6 @@ export default function AdminOrders() {
     try {
       const response = await api.get('/orders', { params: { include_completed: true } });
       setOrders(response.data || []);
-      const batchResponse = await api.get('/inventory/batches', { params: { limit: 200 } });
-      setBatches(batchResponse.data?.batches || []);
     } catch (err) {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to load orders.') });
     }
@@ -77,14 +73,18 @@ export default function AdminOrders() {
     }
   };
 
-  const openBatchDetails = async (batch) => {
-    try {
-      const response = await api.get(`/inventory/batches/${batch.id}`);
-      setSelectedBatch(response.data);
-    } catch {
-      setSelectedBatch(batch);
-    }
-  };
+  const preOrderRows = orders.map((order) => ({
+    id: order.id,
+    order_code: order.order_code || `ORD-${String(order.id).padStart(6, '0')}`,
+    status: order.status,
+    prep_status: order.prep_status,
+    prep_progress: Number(order.prep_progress || 0),
+    product_details: (order.items || []).map((item) => `${item.product_name || item.custom_item_name || `#${item.product_id}`} ×${Number(item.quantity || 0)}`).join(', '),
+    pickup_at: order.pickup_at,
+    created_by: order.cashier_name || order.cashier_id || '-',
+    created_at: order.created_at,
+    updated_at: order.updated_at,
+  }));
 
   return (
     <div>
@@ -120,26 +120,25 @@ export default function AdminOrders() {
       </div>
 
       <div className="card mt-4">
-        <div className="card-header"><h4 className="mb-0">Batch Performance History</h4></div>
+        <div className="card-header"><h4 className="mb-0">Pre-Order Performance</h4></div>
         <div className="card-body table-responsive">
           <table className="table table-hover">
-            <thead><tr><th>Batch</th><th>Created By</th><th>Created At</th><th>Status</th><th>Product Details</th><th>Audit Trail</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Order</th><th>Status</th><th>Prep</th><th>Product Details</th><th>Pickup Time</th><th>Audit Trail</th></tr></thead>
             <tbody>
-              {batches.map((batch) => (
-                <tr key={batch.id}>
-                  <td>#{batch.id}</td>
-                  <td>{batch.display_creator_name || batch.created_by_name || '-'}</td>
-                  <td>{new Date(batch.created_at).toLocaleString()}</td>
-                  <td><span className="badge badge-primary">{batch.status || 'sent'}</span></td>
-                  <td>{Number(batch.items_count || 0)} items · ETB {Number(batch.total_cost || 0).toFixed(2)}</td>
+              {preOrderRows.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.order_code}</td>
+                  <td><span className="badge badge-primary">{row.status}</span></td>
+                  <td>{row.prep_status} ({row.prep_progress}%)</td>
+                  <td>{row.product_details || 'No items'}</td>
+                  <td>{row.pickup_at ? new Date(row.pickup_at).toLocaleString() : '-'}</td>
                   <td>
-                    <div className="small">Created: {new Date(batch.created_at).toLocaleString()}</div>
-                    <div className="small">Mode: {batch.was_synced ? 'Synced' : batch.is_offline ? 'Offline' : 'Online'}</div>
+                    <div className="small">Created by {row.created_by} at {row.created_at ? new Date(row.created_at).toLocaleString() : '-'}</div>
+                    <div className="small">Updated at {row.updated_at ? new Date(row.updated_at).toLocaleString() : '-'}</div>
                   </td>
-                  <td><button className="btn btn-sm btn-outline-primary" onClick={() => openBatchDetails(batch)}>View</button></td>
                 </tr>
               ))}
-              {!batches.length && <tr><td colSpan="7" className="text-center text-muted">No batches found</td></tr>}
+              {!preOrderRows.length && <tr><td colSpan="6" className="text-center text-muted">No orders found</td></tr>}
             </tbody>
           </table>
         </div>
@@ -163,31 +162,6 @@ export default function AdminOrders() {
             <div className="modal-header"><h3>Customer Note</h3><button className="close-btn" onClick={() => setSelectedNoteOrder(null)}>×</button></div>
             <div className="modal-body"><p className="note-viewer-text">{selectedNoteOrder.customer_note || 'No note added for this pre-order.'}</p></div>
             <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setSelectedNoteOrder(null)}>Close</button></div>
-          </div>
-        </div>
-      )}
-      {selectedBatch && (
-        <div className="modal-overlay" onClick={() => setSelectedBatch(null)}>
-          <div className="modal-content modal-lg" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header"><h3>Batch #{selectedBatch.id} Details</h3><button className="close-btn" onClick={() => setSelectedBatch(null)}>×</button></div>
-            <div className="modal-body">
-              <p><strong>Pickup Window:</strong> Not applicable for stock batches (order pickup times are shown in the order table).</p>
-              <table className="table table-sm table-bordered">
-                <thead><tr><th>Product</th><th>Quantity</th><th>Source</th><th>Unit Cost</th><th>Line Cost</th></tr></thead>
-                <tbody>
-                  {(selectedBatch.items || []).map((item, index) => (
-                    <tr key={item.id || index}>
-                      <td>{item.product_name || item.product_id}</td>
-                      <td>{Number(item.quantity || 0)}</td>
-                      <td>{item.source || '-'}</td>
-                      <td>ETB {Number(item.unit_cost || 0).toFixed(2)}</td>
-                      <td>ETB {(Number(item.unit_cost || 0) * Number(item.quantity || 0)).toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="small text-muted">Audit trail: Created by {selectedBatch.display_creator_name || selectedBatch.created_by_name || '-'} at {selectedBatch.created_at ? new Date(selectedBatch.created_at).toLocaleString() : '-'}; sync status {selectedBatch.was_synced ? 'synced' : selectedBatch.is_offline ? 'offline queued' : 'online'}.</div>
-            </div>
           </div>
         </div>
       )}

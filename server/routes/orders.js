@@ -3,6 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
+import { consumeStockBatches } from '../services/stockBatchService.js';
 
 const router = express.Router();
 
@@ -323,27 +324,28 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager', 'cash
 
       if (shouldApplyInventory) {
         const itemsResult = await tx.query('SELECT * FROM order_items WHERE order_id = $1 FOR UPDATE', [orderId]);
+        const movementItems = [];
         for (const item of itemsResult.rows) {
           if (!item.product_id) continue;
-          const invResult = await tx.query(
-            `UPDATE inventory
-             SET quantity = quantity - $1, last_updated = CURRENT_TIMESTAMP
-             WHERE product_id = $2 AND location_id = $3 AND quantity >= $1
-             RETURNING quantity`,
-            [Number(item.quantity), Number(item.product_id), locationId]
-          );
-          if (!invResult.rows.length) {
-            const e = new Error(`Insufficient inventory for product ${item.product_id} while preparing order.`);
-            e.status = 400;
-            throw e;
-          }
+          await consumeStockBatches(tx, {
+            productId: Number(item.product_id),
+            locationId,
+            quantity: Number(item.quantity),
+            createdBy: req.user.id,
+            referenceType: 'order',
+            referenceId: orderId,
+            metadata: { order_id: orderId },
+          });
+          movementItems.push({ productId: Number(item.product_id), quantity: Number(item.quantity) });
+          await tx.query("UPDATE order_items SET prep_status = 'ready' WHERE id = $1", [item.id]);
+        }
 
+        for (const movement of movementItems) {
           await tx.query(
             `INSERT INTO inventory_movements (location_id, product_id, movement_type, quantity_change, source, reference_type, reference_id, created_by, metadata)
              VALUES ($1, $2, 'sale_out', $3, 'sale', 'order', $4, $5, $6)`,
-            [locationId, Number(item.product_id), -Number(item.quantity), orderId, req.user.id, JSON.stringify({ order_id: orderId })]
+            [locationId, movement.productId, -movement.quantity, orderId, req.user.id, JSON.stringify({ order_id: orderId })]
           );
-          await tx.query("UPDATE order_items SET prep_status = 'ready' WHERE id = $1", [item.id]);
         }
       }
 

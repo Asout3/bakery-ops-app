@@ -167,7 +167,7 @@ sequenceDiagram
 - Expense category isolation is enforced per-role: managers only list/use/delete categories they created, while admins retain full branch visibility and control.
 - Expense notifications are now restricted to admins, preventing manager-side visibility of admin-only financial activity.
 - History Lifecycle API calls now use long-running request timeouts for archive run/export to avoid false client-side timeout failures on large datasets.
-- Batch performance was moved from Sales to Orders so order operations and batch execution history are reviewed together with richer audit context.
+- Pre-order performance is now emphasized on the Orders page (product details, pickup time, and audit context), while Sales keeps its Batch Performance history view for operational stock review.
 - Staff-payment UI data loading is now fault-tolerant: payments and staff sources are fetched independently, and the page falls back to `/api/admin/staff` when `/api/admin/staff-for-payments` is unavailable.
 - Batch edit workflows now ignore already-voided stock rows from prior edits, allowing multiple valid edits within the full 20-minute window.
 - Receipt reprint enforcement now honors `0` manual reprints correctly (no fallback override), and reprint window values are applied from saved settings using nullish-safe defaults.

@@ -303,8 +303,7 @@ async function moveRowsToArchive(tx, config) {
     sourceTable: 'customer_orders',
     archiveTable: 'customer_orders_archive',
     whereClause: `location_id = $1
-        AND pickup_at < $2
-        AND status IN ('picked_up', 'delivered', 'cancelled')`,
+        AND pickup_at < $2`,
     whereParams: [config.locationId, config.cutoffAt],
   });
   counts.customer_orders = archivedOrders.rows[0].count;
@@ -332,8 +331,7 @@ async function moveRowsToArchive(tx, config) {
     await tx.query(
       `DELETE FROM customer_orders
        WHERE location_id = $1
-         AND pickup_at < $2
-         AND status IN ('picked_up', 'delivered', 'cancelled')`,
+         AND pickup_at < $2`,
       [config.locationId, config.cutoffAt]
     );
   }
