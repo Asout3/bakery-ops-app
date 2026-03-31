@@ -410,7 +410,7 @@ router.delete('/:id', authenticateToken, authorizeRoles('admin', 'cashier'), asy
         throw e;
       }
       await tx.query('DELETE FROM customer_orders WHERE id = $1', [orderId]);
-      await notifyRoles(tx, locationId, ['admin', 'manager', 'cashier'], 'Pre-Order Deleted', `Order #${orderId} was deleted.`, 'order_deleted');
+      await notifyRoles(tx, locationId, ['admin', 'cashier'], 'Pre-Order Deleted', `Order #${orderId} was deleted.`, 'order_deleted');
     });
 
     res.json({ message: 'Order deleted successfully', code: 'ORDER_DELETED' });

@@ -168,7 +168,8 @@ sequenceDiagram
 - Expense notifications are now restricted to admins, preventing manager-side visibility of admin-only financial activity.
 - History Lifecycle API calls now use long-running request timeouts for archive run/export to avoid false client-side timeout failures on large datasets.
 - Manual History Lifecycle runs now execute full transactional cleanup scope (sales, sale items, batches, batch items, orders, order items, expenses, staff payments, waste, inventory/activity logs) while keeping staff accounts and products intact.
-- Ground Manager notification visibility is confidentiality-scoped to stock/pre-order operations (`low_stock`, `out_of_stock`, and pre-order update events).
+- Archive row-move accounting now safely supports both `SELECT COUNT(*)` and driver-level `rowCount` mutation responses, preventing lifecycle crashes when DB drivers return different mutation payload shapes.
+- Ground Manager notification visibility is strictly scoped to stock/pre-order operations (`low_stock`, `out_of_stock`, `order_created`, `order_updated`), and delete notifications are now excluded from manager delivery.
 - Pre-order performance is now emphasized on the Orders page (product details, pickup time, and audit context), while Sales keeps its Batch Performance history view for operational stock review.
 - Staff-payment UI data loading is now fault-tolerant: payments and staff sources are fetched independently, and the page falls back to `/api/admin/staff` when `/api/admin/staff-for-payments` is unavailable.
 - Batch edit workflows now ignore already-voided stock rows from prior edits, allowing multiple valid edits within the full 20-minute window.
@@ -187,6 +188,7 @@ sequenceDiagram
 - Sales stock failures now return structured `INSUFFICIENT_STOCK` details so offline sync can surface actionable retry guidance (`requested_quantity` vs `available_quantity`).
 - Admin dashboard cashier performance now includes Telebirr totals alongside Cash and Mobile splits for daily/weekly/monthly periods.
 - Admin dashboard top-products visualization now uses a larger readable horizontal revenue chart, and the period summary now includes an explicit waste-loss line item.
+- Admin dashboard revenue/profit now maps 1:1 to report endpoints (daily/weekly/monthly) without pre-order rollups; pre-order performance remains on the Orders page only.
 - Cache fallback in key manager/cashier pages for continuity.
 - Single-flight offline queue flush locking to prevent overlapping replay runs.
 - Offline replay now emits an `offline-queue-synced` browser event after successful replay cycles so cashier stock views can immediately rehydrate from server truth.
@@ -260,7 +262,7 @@ Technical behavior:
 - Cashier pre-order creation supports offline queue replay using idempotency keys.
 - Cashier pre-order item selection auto-fills product prices, shows live total/paid/balance values, and supports product dropdown fallback from offline cached products.
 - Admin and manager order oversight now include dedicated customer-note viewing actions with larger note editing/readability surfaces.
-- Order performance is surfaced on admin dashboard period views (daily/weekly/monthly) from picked-up orders for revenue transparency and is included in revenue/profit rollups.
+- Order performance is surfaced on the Orders page (Pre-Order Performance section), not duplicated in Admin Dashboard rollups.
 - Offline refresh session continuity preserves authenticated state when `/auth/me` cannot be reached due to offline network conditions.
 - Inventory lists now hide archived products and admin inventory identifiers are formatted for readability (e.g. `INV-000123`).
 - Expense visibility is role-aware: managers only see expenses they created, while admins retain full branch visibility.

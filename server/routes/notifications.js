@@ -4,7 +4,7 @@ import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
-const MANAGER_ALLOWED_NOTIFICATION_TYPES = ['low_stock', 'out_of_stock', 'order_created', 'order_updated', 'order_deleted'];
+const MANAGER_ALLOWED_NOTIFICATION_TYPES = ['low_stock', 'out_of_stock', 'order_created', 'order_updated'];
 
 router.get('/rules', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
