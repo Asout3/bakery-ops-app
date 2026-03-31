@@ -142,7 +142,7 @@ export async function processExpiredInventoryForLocation(dbOrQuery, locationId, 
      SELECT id, $1, $2, $3, 'waste'
      FROM users
      WHERE role = 'admin'
-       AND location_id = $1
+       AND (location_id = $1 OR location_id IS NULL)
        AND is_active = true`,
     [
       locationId,
@@ -205,7 +205,7 @@ async function createExpiringSoonNotificationsForLocation(db, locationId) {
        SELECT id, $1, $2, $3, $4
        FROM users
        WHERE role = 'admin'
-         AND location_id = $1
+         AND (location_id = $1 OR location_id IS NULL)
          AND is_active = true`,
       [locationId, title, message, EXPIRING_SOON_NOTIFICATION_TYPE]
     );
