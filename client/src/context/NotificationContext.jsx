@@ -55,6 +55,17 @@ async function showSystemNotification(notification) {
   if ('serviceWorker' in navigator) {
     try {
       const registration = await navigator.serviceWorker.ready;
+      if (typeof registration.showNotification === 'function') {
+        await registration.showNotification(payload.title, {
+          body: payload.body,
+          tag: payload.tag,
+          renotify: false,
+          data: payload.data,
+          icon: '/vite.svg',
+          badge: '/vite.svg',
+        });
+        return;
+      }
       registration.active?.postMessage({ type: 'SHOW_NOTIFICATION', payload });
       return;
     } catch {
