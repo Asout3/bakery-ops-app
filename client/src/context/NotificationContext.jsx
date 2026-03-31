@@ -7,11 +7,21 @@ const NotificationContext = createContext(null);
 
 const BASE_POLL_MS = 8000;
 const MAX_POLL_MS = 45000;
-const SHOWN_NOTIFICATION_CACHE_KEY = 'bakery_notification_seen_ids';
+const SHOWN_NOTIFICATION_CACHE_KEY_PREFIX = 'bakery_notification_seen_tokens';
 
-function readSeenNotificationIds() {
+function resolveSeenCacheKey(userId, role) {
+  const userPart = userId ? String(userId) : 'anonymous';
+  const rolePart = role ? String(role) : 'unknown';
+  return `${SHOWN_NOTIFICATION_CACHE_KEY_PREFIX}:${userPart}:${rolePart}`;
+}
+
+function toNotificationToken(notification) {
+  return `${notification?.id || 'na'}:${notification?.created_at || 'na'}`;
+}
+
+function readSeenNotificationTokens(cacheKey) {
   try {
-    const raw = localStorage.getItem(SHOWN_NOTIFICATION_CACHE_KEY);
+    const raw = localStorage.getItem(cacheKey);
     const parsed = JSON.parse(raw || '[]');
     return new Set(Array.isArray(parsed) ? parsed.map((value) => String(value)) : []);
   } catch {
@@ -19,9 +29,9 @@ function readSeenNotificationIds() {
   }
 }
 
-function persistSeenNotificationIds(ids) {
+function persistSeenNotificationTokens(cacheKey, ids) {
   try {
-    localStorage.setItem(SHOWN_NOTIFICATION_CACHE_KEY, JSON.stringify([...ids].slice(-250)));
+    localStorage.setItem(cacheKey, JSON.stringify([...ids].slice(-500)));
   } catch {
     return;
   }
@@ -65,7 +75,8 @@ export function NotificationProvider({ children }) {
   const pollTimeoutRef = useRef(null);
   const pollDelayRef = useRef(BASE_POLL_MS);
   const initializedRef = useRef(false);
-  const seenNotificationIdsRef = useRef(readSeenNotificationIds());
+  const seenNotificationTokensRef = useRef(new Set());
+  const seenCacheKeyRef = useRef(resolveSeenCacheKey(user?.id, user?.role));
 
   const clearPollTimeout = useCallback(() => {
     if (pollTimeoutRef.current) {
@@ -85,21 +96,22 @@ export function NotificationProvider({ children }) {
     setNotifications(sorted);
     setUnreadCount(unread);
 
-    const seenIds = seenNotificationIdsRef.current;
+    const seenTokens = seenNotificationTokensRef.current;
+    const cacheKey = seenCacheKeyRef.current;
     if (!initializedRef.current) {
-      sorted.forEach((item) => seenIds.add(String(item.id)));
-      persistSeenNotificationIds(seenIds);
+      sorted.forEach((item) => seenTokens.add(toNotificationToken(item)));
+      persistSeenNotificationTokens(cacheKey, seenTokens);
       initializedRef.current = true;
       return;
     }
 
-    const unseen = sorted.filter((item) => !seenIds.has(String(item.id)));
+    const unseen = sorted.filter((item) => !seenTokens.has(toNotificationToken(item)));
     if (!unseen.length) {
       return;
     }
 
-    unseen.forEach((item) => seenIds.add(String(item.id)));
-    persistSeenNotificationIds(seenIds);
+    unseen.forEach((item) => seenTokens.add(toNotificationToken(item)));
+    persistSeenNotificationTokens(cacheKey, seenTokens);
 
     for (const notification of unseen.reverse()) {
       toast.info(notification.message, {
@@ -215,9 +227,14 @@ export function NotificationProvider({ children }) {
       setNotifications([]);
       setUnreadCount(0);
       initializedRef.current = false;
+      seenNotificationTokensRef.current = new Set();
       clearPollTimeout();
       return;
     }
+
+    const cacheKey = resolveSeenCacheKey(user?.id, user?.role);
+    seenCacheKeyRef.current = cacheKey;
+    seenNotificationTokensRef.current = readSeenNotificationTokens(cacheKey);
 
     pollDelayRef.current = BASE_POLL_MS;
     fetchNotifications();
