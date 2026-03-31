@@ -152,7 +152,10 @@ export function NotificationProvider({ children }) {
     if (!silent) setLoading(true);
 
     try {
-      const response = await api.get('/notifications', { params: { limit: 100 }, headers: { 'X-Skip-Auth-Redirect': 'true' } });
+      const response = await api.get('/notifications', {
+        params: { limit: 100, _ts: Date.now() },
+        headers: { 'X-Skip-Auth-Redirect': 'true', 'Cache-Control': 'no-cache' },
+      });
       await handleIncomingNotifications(response.data || []);
       return true;
     } catch (err) {
