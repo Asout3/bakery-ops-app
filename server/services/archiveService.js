@@ -130,6 +130,18 @@ async function insertArchiveRows(tx, {
   );
 }
 
+function resolveMutationCount(result) {
+  if (result?.rows?.[0]?.count !== undefined && result?.rows?.[0]?.count !== null) {
+    const parsed = Number(result.rows[0].count);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  if (result?.rowCount !== undefined && result?.rowCount !== null) {
+    const parsed = Number(result.rowCount);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
 async function insertArchiveRowsFromJoin(tx, {
   sourceTable,
   archiveTable,
@@ -144,11 +156,15 @@ async function insertArchiveRowsFromJoin(tx, {
     .join(', ');
   const archiveColumns = sharedColumns.map((columnName) => quoteIdentifier(columnName)).join(', ');
   return tx.query(
-    `INSERT INTO ${quoteIdentifier(archiveTable)} (${archiveColumns})
-     SELECT ${sourceColumns}
-     FROM ${quoteIdentifier(sourceTable)} ${sourceAlias}
-     ${joinClause}
-     WHERE ${whereClause}`,
+    `WITH moved AS (
+       INSERT INTO ${quoteIdentifier(archiveTable)} (${archiveColumns})
+       SELECT ${sourceColumns}
+       FROM ${quoteIdentifier(sourceTable)} ${sourceAlias}
+       ${joinClause}
+       WHERE ${whereClause}
+       RETURNING 1
+     )
+     SELECT COUNT(*)::int AS count FROM moved`,
     whereParams
   );
 }
@@ -194,7 +210,7 @@ async function moveRowsToArchive(tx, config) {
     whereClause: 'location_id = $1 AND created_at < $2',
     whereParams: [config.locationId, config.cutoffAt],
   });
-  counts.inventory_batches = batches.rows[0].count;
+  counts.inventory_batches = resolveMutationCount(batches);
 
   if (counts.inventory_batches > 0) {
     const archivedBatchItems = await insertArchiveRowsFromJoin(tx, {
@@ -207,7 +223,7 @@ async function moveRowsToArchive(tx, config) {
       whereClause: 'iba.location_id = $1 AND bia.id IS NULL',
       whereParams: [config.locationId],
     });
-    counts.batch_items = archivedBatchItems.rows[0].count;
+    counts.batch_items = resolveMutationCount(archivedBatchItems);
 
     await tx.query(
       `DELETE FROM batch_items
@@ -231,7 +247,7 @@ async function moveRowsToArchive(tx, config) {
     whereParams: [config.locationId, config.cutoffAt],
     cteName: 'moved_sales',
   });
-  counts.sales = sales.rows[0].count;
+  counts.sales = resolveMutationCount(sales);
 
   if (counts.sales > 0) {
     await insertArchiveRowsFromJoin(tx, {
@@ -262,7 +278,7 @@ async function moveRowsToArchive(tx, config) {
     whereClause: 'location_id = $1 AND created_at < $2',
     whereParams: [config.locationId, config.cutoffAt],
   });
-  counts.inventory_movements = movements.rows[0].count;
+  counts.inventory_movements = resolveMutationCount(movements);
   if (counts.inventory_movements > 0) {
     await tx.query('DELETE FROM inventory_movements WHERE location_id = $1 AND created_at < $2', [config.locationId, config.cutoffAt]);
   }
@@ -273,7 +289,7 @@ async function moveRowsToArchive(tx, config) {
     whereClause: 'location_id = $1 AND created_at < $2',
     whereParams: [config.locationId, config.cutoffAt],
   });
-  counts.activity_log = activities.rows[0].count;
+  counts.activity_log = resolveMutationCount(activities);
   if (counts.activity_log > 0) {
     await tx.query('DELETE FROM activity_log WHERE location_id = $1 AND created_at < $2', [config.locationId, config.cutoffAt]);
   }
@@ -284,7 +300,7 @@ async function moveRowsToArchive(tx, config) {
     whereClause: 'location_id = $1 AND expense_date < $2::date',
     whereParams: [config.locationId, config.cutoffAt],
   });
-  counts.expenses = expenses.rows[0].count;
+  counts.expenses = resolveMutationCount(expenses);
   if (counts.expenses > 0) {
     await tx.query('DELETE FROM expenses WHERE location_id = $1 AND expense_date < $2::date', [config.locationId, config.cutoffAt]);
   }
@@ -295,7 +311,7 @@ async function moveRowsToArchive(tx, config) {
     whereClause: 'location_id = $1 AND wasted_at < $2',
     whereParams: [config.locationId, config.cutoffAt],
   });
-  counts.waste_records = wasteRecords.rows[0].count;
+  counts.waste_records = resolveMutationCount(wasteRecords);
   if (counts.waste_records > 0) {
     await tx.query('DELETE FROM waste_records WHERE location_id = $1 AND wasted_at < $2', [config.locationId, config.cutoffAt]);
   }
@@ -308,7 +324,7 @@ async function moveRowsToArchive(tx, config) {
         AND COALESCE(pickup_at, created_at) < $2`,
     whereParams: [config.locationId, config.cutoffAt],
   });
-  counts.customer_orders = archivedOrders.rows[0].count;
+  counts.customer_orders = resolveMutationCount(archivedOrders);
   if (counts.customer_orders > 0) {
     const archivedOrderItems = await insertArchiveRowsFromJoin(tx, {
       sourceTable: 'order_items',
@@ -320,7 +336,7 @@ async function moveRowsToArchive(tx, config) {
       whereClause: 'oa.location_id = $1 AND oia.id IS NULL',
       whereParams: [config.locationId],
     });
-    counts.order_items = archivedOrderItems.rows[0].count;
+    counts.order_items = resolveMutationCount(archivedOrderItems);
 
     await tx.query(
       `DELETE FROM order_items
@@ -346,7 +362,7 @@ async function moveRowsToArchive(tx, config) {
     whereClause: 'location_id = $1 AND payment_date < $2::date',
     whereParams: [config.locationId, config.cutoffAt],
   });
-  counts.staff_payments = staffPayments.rows[0].count;
+  counts.staff_payments = resolveMutationCount(staffPayments);
   if (counts.staff_payments > 0) {
     await tx.query('DELETE FROM staff_payments WHERE location_id = $1 AND payment_date < $2::date', [config.locationId, config.cutoffAt]);
   }
@@ -516,4 +532,5 @@ export const __private__ = {
   ensureArchiveTable,
   getSharedColumns,
   moveRowsToArchive,
+  resolveMutationCount,
 };

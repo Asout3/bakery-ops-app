@@ -40,6 +40,16 @@ async function createTerminationSecurityNotification(staff) {
   }
 }
 
+async function notifyAdmins(locationId, title, message, type = 'admin_event') {
+  await query(
+    `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+     SELECT id, COALESCE($1, location_id), $2, $3, $4
+     FROM users
+     WHERE role = 'admin' AND is_active = true`,
+    [locationId, title, message, type]
+  );
+}
+
 router.get('/staff', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     const result = await query(
@@ -117,6 +127,8 @@ router.post(
         ]
       );
 
+      await notifyAdmins(inserted.rows[0].location_id, 'Staff Profile Created', `${inserted.rows[0].full_name} was added as ${inserted.rows[0].job_title || inserted.rows[0].role_preference}.`, 'staff_profile_created');
+
       res.status(201).json(inserted.rows[0]);
     } catch (err) {
       console.error('Create staff profile error:', err);
@@ -171,68 +183,9 @@ router.patch('/staff/:id/status', authenticateToken, authorizeRoles('admin'), as
       }
     }
 
-    res.json(updated.rows[0]);
-  } catch (err) {
-    console.error('Update staff status error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-router.put('/staff/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid staff id' });
-
-    const {
-      full_name,
-      national_id,
-      phone_number,
-      age,
-      monthly_salary,
-      role_preference,
-      other_role_title,
-      location_id,
-      hire_date,
-      payment_due_date,
-    } = req.body;
-
-    if (phone_number && !isEthiopianMobilePhone(phone_number)) {
-      return res.status(400).json({ error: 'Phone number must be +2519XXXXXXXX or +2517XXXXXXXX', code: 'INVALID_PHONE_NUMBER', requestId: req.requestId });
+    if (updated.rows.length) {
+      await notifyAdmins(updated.rows[0].location_id || req.user.location_id || null, 'Staff Profile Updated', `${updated.rows[0].full_name} profile was updated.`, 'staff_profile_updated');
     }
-
-    if (age !== undefined && age !== null && Number(age) < 17) {
-      return res.status(400).json({ error: 'Age must be greater than 16', code: 'INVALID_AGE', requestId: req.requestId });
-    }
-
-    const updated = await query(
-      `UPDATE staff_profiles
-       SET full_name = COALESCE($1, full_name),
-           national_id = $2,
-           phone_number = COALESCE($3, phone_number),
-           age = $4,
-           monthly_salary = COALESCE($5, monthly_salary),
-           role_preference = COALESCE($6, role_preference),
-           job_title = COALESCE($7, job_title),
-           location_id = COALESCE($8, location_id),
-           hire_date = COALESCE($9, hire_date),
-           payment_due_date = COALESCE($10, payment_due_date),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $11
-       RETURNING *`,
-      [
-        full_name || null,
-        national_id || null,
-        phone_number || null,
-        age ?? null,
-        monthly_salary ?? null,
-        role_preference || null,
-        role_preference === 'other' ? (other_role_title || null) : role_preference || null,
-        location_id ?? null,
-        hire_date || null,
-        payment_due_date ?? null,
-        id,
-      ]
-    );
 
     if (!updated.rows.length) return res.status(404).json({ error: 'Staff member not found' });
     res.json(updated.rows[0]);
@@ -605,6 +558,7 @@ router.post(
 
     try {
       const result = await createStaffAccount({ username, password, role, location_id, staff_profile_id }, adminLifecycleRepository);
+      await notifyAdmins(result.user.location_id || location_id || req.user.location_id || null, 'Staff Account Created', `${result.user.username} account was ${result.reactivated ? 'reactivated' : 'created'} as ${result.user.role}.`, 'staff_account_created');
       res.status(201).json(result);
     } catch (err) {
       console.error('Create admin user error:', err);
@@ -664,6 +618,8 @@ router.patch('/users/:id/status', authenticateToken, authorizeRoles('admin'), as
       await createTerminationSecurityNotification({ ...staff, is_active });
     }
 
+    await notifyAdmins(staff.location_id || req.user.location_id || null, is_active ? 'Staff Account Re-enabled' : 'Staff Account Disabled', `${staff.full_name || staff.username} (${staff.role}) account was ${is_active ? 're-enabled' : 'disabled'}.`, 'staff_account_status_changed');
+
     res.json(updated.rows[0]);
   } catch (err) {
     console.error('Update user status error:', err);
@@ -679,6 +635,7 @@ router.put('/users/:id', authenticateToken, authorizeRoles('admin'), async (req,
 
     const updated = await updateStaffAccount({ id, username, password, role, location_id }, adminLifecycleRepository);
     if (!updated) return res.status(404).json({ error: 'Account not found' });
+    await notifyAdmins(updated.location_id || req.user.location_id || null, 'Staff Account Updated', `${updated.username} account details were updated.`, 'staff_account_updated');
     res.json(updated);
   } catch (err) {
     console.error('Update account error:', err);
@@ -695,6 +652,7 @@ router.delete('/users/:id', authenticateToken, authorizeRoles('admin'), async (r
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id', code: 'INVALID_USER_ID', requestId: req.requestId });
 
     const result = await archiveStaffAccount(id, adminLifecycleRepository);
+    await notifyAdmins(req.user.location_id || null, 'Staff Account Deleted', `Staff account ID ${id} was deleted.`, 'staff_account_deleted');
     res.json(result);
   } catch (err) {
     console.error('Delete account error:', err);

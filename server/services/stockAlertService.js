@@ -1,5 +1,26 @@
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
-const LOW_STOCK_COOLDOWN_HOURS = 6;
+let stockAlertStateSchemaPromise = null;
+
+async function ensureStockAlertStateSchema(db) {
+  if (stockAlertStateSchemaPromise) return stockAlertStateSchemaPromise;
+  stockAlertStateSchemaPromise = (async () => {
+    await db.query(
+      `CREATE TABLE IF NOT EXISTS stock_alert_states (
+         location_id INTEGER NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+         product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+         last_state VARCHAR(20) NOT NULL DEFAULT 'normal',
+         last_notification_type VARCHAR(30),
+         last_notified_at TIMESTAMPTZ,
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (location_id, product_id)
+       )`
+    );
+  })().catch((error) => {
+    stockAlertStateSchemaPromise = null;
+    throw error;
+  });
+  return stockAlertStateSchemaPromise;
+}
 
 function normalizeQuantity(value) {
   const parsed = Number(value);
@@ -52,40 +73,65 @@ export async function createLowStockNotificationIfNeeded(db, locationId, product
     return { triggered: false, reason: 'missing_inventory' };
   }
 
-  if (snapshot.quantity > snapshot.threshold) {
-    return { triggered: false, reason: 'above_threshold', snapshot };
-  }
+  await ensureStockAlertStateSchema(db);
 
-  const title = 'Low Stock Alert';
-  const message = `${snapshot.groupName} / ${snapshot.name} is running low (${snapshot.quantity} remaining, threshold ${snapshot.threshold}).`;
-
-  const recentResult = await db.query(
-    `SELECT id
-     FROM notifications
-     WHERE location_id = $1
-       AND notification_type = 'low_stock'
-       AND title = $2
-       AND message LIKE $3
-       AND created_at >= NOW() - ($4::text || ' hours')::interval
+  const nextState = snapshot.quantity <= 0 ? 'out_of_stock' : (snapshot.quantity <= snapshot.threshold ? 'low_stock' : 'normal');
+  const stateResult = await db.query(
+    `SELECT last_state
+     FROM stock_alert_states
+     WHERE location_id = $1 AND product_id = $2
      LIMIT 1`,
-    [locationId, title, `${snapshot.groupName} / ${snapshot.name}%`, String(LOW_STOCK_COOLDOWN_HOURS)]
+    [locationId, snapshot.productId]
   );
+  const previousState = String(stateResult.rows[0]?.last_state || 'normal');
 
-  if (recentResult.rows.length > 0) {
-    return { triggered: false, reason: 'recent_duplicate', snapshot };
+  if (nextState === 'normal') {
+    await db.query(
+      `INSERT INTO stock_alert_states (location_id, product_id, last_state, updated_at)
+       VALUES ($1, $2, 'normal', NOW())
+       ON CONFLICT (location_id, product_id)
+       DO UPDATE SET last_state = EXCLUDED.last_state, updated_at = NOW()`,
+      [locationId, snapshot.productId]
+    );
+    return { triggered: false, reason: 'above_threshold', snapshot, previousState, nextState };
   }
+
+  if (previousState === nextState) {
+    return { triggered: false, reason: 'unchanged_state', snapshot, previousState, nextState };
+  }
+
+  const outOfStock = nextState === 'out_of_stock';
+  const notificationType = nextState;
+  const title = outOfStock ? 'Out of Stock Alert' : 'Low Stock Alert';
+  const message = outOfStock
+    ? `${snapshot.groupName} / ${snapshot.name} is out of stock (0 remaining, threshold ${snapshot.threshold}).`
+    : `${snapshot.groupName} / ${snapshot.name} is running low (${snapshot.quantity} remaining, threshold ${snapshot.threshold}).`;
 
   await db.query(
     `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-     SELECT id, $1, $2, $3, 'low_stock'
+     SELECT id, $1, $2, $3, $4
      FROM users
-     WHERE role IN ('admin', 'manager')
-       AND location_id = $1
-       AND is_active = true`,
-    [locationId, title, message]
+     WHERE is_active = true
+       AND (
+         (role = 'admin' AND (location_id = $1 OR location_id IS NULL))
+         OR (role = 'manager' AND location_id = $1)
+       )`,
+    [locationId, title, message, notificationType]
   );
 
-  return { triggered: true, snapshot, title, message };
+  await db.query(
+    `INSERT INTO stock_alert_states (location_id, product_id, last_state, last_notification_type, last_notified_at, updated_at)
+     VALUES ($1, $2, $3, $4, NOW(), NOW())
+     ON CONFLICT (location_id, product_id)
+     DO UPDATE
+     SET last_state = EXCLUDED.last_state,
+         last_notification_type = EXCLUDED.last_notification_type,
+         last_notified_at = EXCLUDED.last_notified_at,
+         updated_at = NOW()`,
+    [locationId, snapshot.productId, nextState, notificationType]
+  );
+
+  return { triggered: true, snapshot, title, message, previousState, nextState };
 }
 
 export async function createLowStockNotificationsForProducts(db, locationId, productIds) {

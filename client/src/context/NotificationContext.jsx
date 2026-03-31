@@ -7,11 +7,21 @@ const NotificationContext = createContext(null);
 
 const BASE_POLL_MS = 8000;
 const MAX_POLL_MS = 45000;
-const SHOWN_NOTIFICATION_CACHE_KEY = 'bakery_notification_seen_ids';
+const SHOWN_NOTIFICATION_CACHE_KEY_PREFIX = 'bakery_notification_seen_tokens';
 
-function readSeenNotificationIds() {
+function resolveSeenCacheKey(userId, role) {
+  const userPart = userId ? String(userId) : 'anonymous';
+  const rolePart = role ? String(role) : 'unknown';
+  return `${SHOWN_NOTIFICATION_CACHE_KEY_PREFIX}:${userPart}:${rolePart}`;
+}
+
+function toNotificationToken(notification) {
+  return `${notification?.id || 'na'}:${notification?.created_at || 'na'}`;
+}
+
+function readSeenNotificationTokens(cacheKey) {
   try {
-    const raw = localStorage.getItem(SHOWN_NOTIFICATION_CACHE_KEY);
+    const raw = localStorage.getItem(cacheKey);
     const parsed = JSON.parse(raw || '[]');
     return new Set(Array.isArray(parsed) ? parsed.map((value) => String(value)) : []);
   } catch {
@@ -19,9 +29,9 @@ function readSeenNotificationIds() {
   }
 }
 
-function persistSeenNotificationIds(ids) {
+function persistSeenNotificationTokens(cacheKey, ids) {
   try {
-    localStorage.setItem(SHOWN_NOTIFICATION_CACHE_KEY, JSON.stringify([...ids].slice(-250)));
+    localStorage.setItem(cacheKey, JSON.stringify([...ids].slice(-500)));
   } catch {
     return;
   }
@@ -65,7 +75,9 @@ export function NotificationProvider({ children }) {
   const pollTimeoutRef = useRef(null);
   const pollDelayRef = useRef(BASE_POLL_MS);
   const initializedRef = useRef(false);
-  const seenNotificationIdsRef = useRef(readSeenNotificationIds());
+  const seenNotificationTokensRef = useRef(new Set());
+  const seenCacheKeyRef = useRef(resolveSeenCacheKey(user?.id, user?.role));
+  const lastHandledNotificationTsRef = useRef(0);
 
   const clearPollTimeout = useCallback(() => {
     if (pollTimeoutRef.current) {
@@ -85,23 +97,44 @@ export function NotificationProvider({ children }) {
     setNotifications(sorted);
     setUnreadCount(unread);
 
-    const seenIds = seenNotificationIdsRef.current;
+    const seenTokens = seenNotificationTokensRef.current;
+    const cacheKey = seenCacheKeyRef.current;
+    const latestTs = sorted.reduce((max, item) => {
+      const ts = new Date(item.created_at || 0).getTime();
+      return Number.isFinite(ts) ? Math.max(max, ts) : max;
+    }, 0);
     if (!initializedRef.current) {
-      sorted.forEach((item) => seenIds.add(String(item.id)));
-      persistSeenNotificationIds(seenIds);
+      sorted.forEach((item) => seenTokens.add(toNotificationToken(item)));
+      persistSeenNotificationTokens(cacheKey, seenTokens);
+      lastHandledNotificationTsRef.current = latestTs;
       initializedRef.current = true;
       return;
     }
 
-    const unseen = sorted.filter((item) => !seenIds.has(String(item.id)));
-    if (!unseen.length) {
+    const unseen = sorted.filter((item) => !seenTokens.has(toNotificationToken(item)));
+    const timeNew = sorted.filter((item) => {
+      const ts = new Date(item.created_at || 0).getTime();
+      return Number.isFinite(ts) && ts > (lastHandledNotificationTsRef.current || 0);
+    });
+    const announceMap = new Map();
+    for (const item of [...unseen, ...timeNew]) {
+      announceMap.set(String(item.id), item);
+    }
+    const announceList = [...announceMap.values()].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    if (!announceList.length) {
+      if (latestTs > (lastHandledNotificationTsRef.current || 0)) {
+        lastHandledNotificationTsRef.current = latestTs;
+      }
       return;
     }
 
-    unseen.forEach((item) => seenIds.add(String(item.id)));
-    persistSeenNotificationIds(seenIds);
+    announceList.forEach((item) => seenTokens.add(toNotificationToken(item)));
+    persistSeenNotificationTokens(cacheKey, seenTokens);
+    if (latestTs > (lastHandledNotificationTsRef.current || 0)) {
+      lastHandledNotificationTsRef.current = latestTs;
+    }
 
-    for (const notification of unseen.reverse()) {
+    for (const notification of announceList) {
       toast.info(notification.message, {
         title: notification.title,
         duration: 7000,
@@ -119,7 +152,10 @@ export function NotificationProvider({ children }) {
     if (!silent) setLoading(true);
 
     try {
-      const response = await api.get('/notifications', { params: { limit: 100 }, headers: { 'X-Skip-Auth-Redirect': 'true' } });
+      const response = await api.get('/notifications', {
+        params: { limit: 100, _ts: Date.now() },
+        headers: { 'X-Skip-Auth-Redirect': 'true', 'Cache-Control': 'no-cache' },
+      });
       await handleIncomingNotifications(response.data || []);
       return true;
     } catch (err) {
@@ -215,9 +251,15 @@ export function NotificationProvider({ children }) {
       setNotifications([]);
       setUnreadCount(0);
       initializedRef.current = false;
+      seenNotificationTokensRef.current = new Set();
+      lastHandledNotificationTsRef.current = 0;
       clearPollTimeout();
       return;
     }
+
+    const cacheKey = resolveSeenCacheKey(user?.id, user?.role);
+    seenCacheKeyRef.current = cacheKey;
+    seenNotificationTokensRef.current = readSeenNotificationTokens(cacheKey);
 
     pollDelayRef.current = BASE_POLL_MS;
     fetchNotifications();

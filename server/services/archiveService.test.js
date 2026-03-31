@@ -187,3 +187,10 @@ test('moveRowsToArchive builds explicit archive column lists instead of SELECT *
   assert.ok(calls.every((call) => !call.text.includes('SELECT * FROM inventory_batches')));
   assert.ok(calls.every((call) => !call.text.includes('INSERT INTO inventory_batches_archive\n      SELECT *')));
 });
+
+test('resolveMutationCount safely handles SELECT count and rowCount mutation results', () => {
+  assert.equal(__private__.resolveMutationCount({ rows: [{ count: '4' }], rowCount: 1 }), 4);
+  assert.equal(__private__.resolveMutationCount({ rows: [], rowCount: 3 }), 3);
+  assert.equal(__private__.resolveMutationCount({ rows: [{}], rowCount: null }), 0);
+  assert.equal(__private__.resolveMutationCount(null), 0);
+});
