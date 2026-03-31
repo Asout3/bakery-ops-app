@@ -228,6 +228,14 @@ router.post(
         [req.user.id, req.user.location_id, 'product_created', `Created product: ${effectiveGroup} / ${name}`]
       );
 
+      await query(
+        `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+         SELECT id, COALESCE($1, location_id), 'New Product Variant Created', $2, 'product_created'
+         FROM users
+         WHERE role = 'admin' AND is_active = true`,
+        [req.user.location_id || null, `${effectiveGroup} / ${name} was created.`]
+      );
+
       res.status(201).json({ ...createdProduct, group_name: effectiveGroup, is_expired: false });
     } catch (err) {
       console.error('Create product error:', err);
@@ -245,6 +253,10 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), body('
   const normalizedShelfLifeDays = normalizeShelfLifeDays(req.body.shelf_life_days);
 
   try {
+    const previous = await query('SELECT id, name, group_name, is_active FROM products WHERE id = $1 LIMIT 1', [id]);
+    if (!previous.rows.length) {
+      return res.status(404).json({ error: 'Product not found', code: 'NOT_FOUND', requestId: req.requestId });
+    }
     const { hasGroupName } = await getProductSchemaSupport();
     const effectiveGroup = group_name || name || '';
 
@@ -303,6 +315,25 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), body('
       [req.user.id, req.user.location_id, 'product_updated', `Updated product: ${name || id}`]
     );
 
+    const before = previous.rows[0];
+    const after = result.rows[0];
+    const beforeGroup = String(before.group_name || before.name || '').trim();
+    const afterGroup = String(after.group_name || after.name || '').trim();
+    const groupNote = beforeGroup !== afterGroup ? ` Group renamed from "${beforeGroup}" to "${afterGroup}".` : '';
+    const archiveNote = before.is_active !== false && after.is_active === false ? ' Variant archived.' : '';
+    await query(
+      `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+       SELECT id, COALESCE($1, location_id), $2, $3, $4
+       FROM users
+       WHERE role = 'admin' AND is_active = true`,
+      [
+        req.user.location_id || null,
+        archiveNote ? 'Product Variant Archived' : 'Product Variant Updated',
+        `${afterGroup} / ${after.name} was updated.${groupNote}${archiveNote}`,
+        archiveNote ? 'product_archived' : 'product_updated',
+      ]
+    );
+
     const updated = result.rows[0];
     res.json({
       ...updated,
@@ -329,6 +360,14 @@ router.delete('/:id', authenticateToken, authorizeRoles('admin', 'manager'), asy
       `INSERT INTO activity_log (user_id, location_id, activity_type, description)
        VALUES ($1, $2, $3, $4)`,
       [req.user.id, req.user.location_id, 'product_deleted', `Deleted product: ${deleted.rows[0]?.name || req.params.id}`]
+    );
+
+    await query(
+      `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+       SELECT id, COALESCE($1, location_id), 'Product Variant Deleted', $2, 'product_deleted'
+       FROM users
+       WHERE role = 'admin' AND is_active = true`,
+      [req.user.location_id || null, `${deleted.rows[0]?.name || `Product #${req.params.id}`} was deleted.`]
     );
 
     res.json({ message: 'Product deleted successfully' });

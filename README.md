@@ -172,6 +172,7 @@ sequenceDiagram
 - Ground Manager notification visibility is strictly scoped to stock/pre-order operations (`low_stock`, `out_of_stock`, `order_created`, `order_updated`), and delete notifications are now excluded from manager delivery.
 - Pre-order performance is now emphasized on the Orders page (product details, pickup time, and audit context), while Sales keeps its Batch Performance history view for operational stock review.
 - Staff-payment UI data loading is now fault-tolerant: payments and staff sources are fetched independently, and the page falls back to `/api/admin/staff` when `/api/admin/staff-for-payments` is unavailable.
+- Staff-for-payments now includes payroll-cycle disabled-day tracking (`disabled_days_in_cycle`, deduction amount, and `recommended_payment`) so salary suggestions automatically deduct disabled days.
 - Batch edit workflows now ignore already-voided stock rows from prior edits, allowing multiple valid edits within the full 20-minute window.
 - Receipt reprint enforcement now honors `0` manual reprints correctly (no fallback override), and reprint window values are applied from saved settings using nullish-safe defaults.
 - Cashier sales now block add/increase actions when stock is exhausted, hide expired variants, and reject expired product checkout server-side.

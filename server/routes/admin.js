@@ -7,6 +7,7 @@ import { adminLifecycleRepository } from '../repositories/adminLifecycleReposito
 import { createStaffAccount, updateStaffAccount, archiveStaffAccount, archiveStaffProfile } from '../services/adminLifecycleService.js';
 
 const router = express.Router();
+const PAYROLL_CYCLE_DAYS = 30;
 
 function isEthiopianMobilePhone(value) {
   return /^\+251(9|7)\d{8}$/.test(String(value || '').trim());
@@ -38,6 +39,100 @@ async function createTerminationSecurityNotification(staff) {
       ]
     );
   }
+}
+
+async function ensureStaffStatusHistoryTable() {
+  await query(
+    `CREATE TABLE IF NOT EXISTS staff_status_history (
+      id BIGSERIAL PRIMARY KEY,
+      staff_profile_id INTEGER,
+      user_id INTEGER,
+      location_id INTEGER,
+      is_active BOOLEAN NOT NULL,
+      changed_by INTEGER,
+      changed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`
+  );
+}
+
+async function recordStaffStatusHistory({ staffProfileId = null, userId = null, locationId = null, isActive, changedBy }) {
+  await ensureStaffStatusHistoryTable();
+  await query(
+    `INSERT INTO staff_status_history (staff_profile_id, user_id, location_id, is_active, changed_by)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [staffProfileId, userId, locationId, Boolean(isActive), changedBy]
+  );
+}
+
+async function computeDisabledDaysForCycle({ staffProfileId = null, userId = null, cycleStart, cycleEnd }) {
+  await ensureStaffStatusHistoryTable();
+  const history = await query(
+    `SELECT is_active, changed_at
+     FROM staff_status_history
+     WHERE ($1::int IS NOT NULL AND staff_profile_id = $1)
+        OR ($2::int IS NOT NULL AND user_id = $2)
+     ORDER BY changed_at ASC`,
+    [staffProfileId, userId]
+  );
+
+  let active = true;
+  const startTs = new Date(cycleStart).getTime();
+  const endTs = new Date(cycleEnd).getTime();
+  let cursor = startTs;
+  let disabledMs = 0;
+
+  for (const row of history.rows) {
+    const ts = new Date(row.changed_at).getTime();
+    if (ts < startTs) {
+      active = Boolean(row.is_active);
+      continue;
+    }
+    if (ts > endTs) break;
+    if (!active) disabledMs += Math.max(0, ts - cursor);
+    cursor = ts;
+    active = Boolean(row.is_active);
+  }
+  if (!active) disabledMs += Math.max(0, endTs - cursor);
+
+  const oneDayMs = 1000 * 60 * 60 * 24;
+  return Math.max(0, Math.ceil(disabledMs / oneDayMs));
+}
+
+async function notifyAdmins(locationId, title, message, type = 'admin_event') {
+  await query(
+    `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+     SELECT id, COALESCE($1, location_id), $2, $3, $4
+     FROM users
+     WHERE role = 'admin' AND is_active = true`,
+    [locationId, title, message, type]
+  );
+}
+
+async function enrichStaffPaymentRows(rows) {
+  const now = new Date();
+  const cycleStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+  const cycleEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+  return Promise.all((rows || []).map(async (row) => {
+    const monthlySalary = Number(row.monthly_salary || 0);
+    const disabledDaysInCycle = await computeDisabledDaysForCycle({
+      staffProfileId: row.staff_profile_id ? Number(row.staff_profile_id) : null,
+      userId: row.user_id ? Number(row.user_id) : null,
+      cycleStart,
+      cycleEnd,
+    });
+    const cappedDisabledDays = Math.min(PAYROLL_CYCLE_DAYS, Math.max(0, disabledDaysInCycle));
+    const dailyRate = monthlySalary > 0 ? (monthlySalary / PAYROLL_CYCLE_DAYS) : 0;
+    const deductionAmount = Number((dailyRate * cappedDisabledDays).toFixed(2));
+    const recommendedPayment = Number(Math.max(0, monthlySalary - deductionAmount).toFixed(2));
+    return {
+      ...row,
+      payroll_cycle_days: PAYROLL_CYCLE_DAYS,
+      disabled_days_in_cycle: cappedDisabledDays,
+      active_days_in_cycle: PAYROLL_CYCLE_DAYS - cappedDisabledDays,
+      disabled_day_deduction: deductionAmount,
+      recommended_payment: recommendedPayment,
+    };
+  }));
 }
 
 router.get('/staff', authenticateToken, authorizeRoles('admin'), async (req, res) => {
@@ -117,6 +212,8 @@ router.post(
         ]
       );
 
+      await notifyAdmins(inserted.rows[0].location_id, 'Staff Profile Created', `${inserted.rows[0].full_name} was added as ${inserted.rows[0].job_title || inserted.rows[0].role_preference}.`, 'staff_profile_created');
+
       res.status(201).json(inserted.rows[0]);
     } catch (err) {
       console.error('Create staff profile error:', err);
@@ -170,6 +267,14 @@ router.patch('/staff/:id/status', authenticateToken, authorizeRoles('admin'), as
         );
       }
     }
+    await recordStaffStatusHistory({
+      staffProfileId: Number(staff.id),
+      userId: staff.linked_user_id ? Number(staff.linked_user_id) : null,
+      locationId: staff.location_id || req.user.location_id || null,
+      isActive: is_active,
+      changedBy: req.user.id,
+    });
+    await notifyAdmins(staff.location_id || req.user.location_id || null, is_active ? 'Staff Re-enabled' : 'Staff Disabled', `${staff.full_name || staff.username} was ${is_active ? 're-enabled' : 'disabled'}.`, 'staff_status_changed');
 
     res.json(updated.rows[0]);
   } catch (err) {
@@ -233,6 +338,10 @@ router.put('/staff/:id', authenticateToken, authorizeRoles('admin'), async (req,
         id,
       ]
     );
+
+    if (updated.rows.length) {
+      await notifyAdmins(updated.rows[0].location_id || req.user.location_id || null, 'Staff Profile Updated', `${updated.rows[0].full_name} profile was updated.`, 'staff_profile_updated');
+    }
 
     if (!updated.rows.length) return res.status(404).json({ error: 'Staff member not found' });
     res.json(updated.rows[0]);
@@ -400,7 +509,7 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
     if (!hasStaffProfilesTable) {
       const { fallbackQueryText, fallbackParams } = buildFallbackUsersQuery();
       const fallbackResult = await query(fallbackQueryText, fallbackParams);
-      return res.json(fallbackResult.rows);
+      return res.json(await enrichStaffPaymentRows(fallbackResult.rows));
     }
 
     const paymentDueDateColumn = await query(
@@ -480,13 +589,13 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
     
     try {
       const result = await query(queryText, params);
-      res.json(result.rows);
+      res.json(await enrichStaffPaymentRows(result.rows));
     } catch (staffProfilesErr) {
       const isSchemaDriftError = ['42P01', '42703'].includes(staffProfilesErr?.code);
       if (!isSchemaDriftError) throw staffProfilesErr;
       const { fallbackQueryText, fallbackParams } = buildFallbackUsersQuery();
       const fallbackResult = await query(fallbackQueryText, fallbackParams);
-      res.json(fallbackResult.rows);
+      res.json(await enrichStaffPaymentRows(fallbackResult.rows));
     }
   } catch (err) {
     console.error('Get staff for payments error:', err);
@@ -605,6 +714,7 @@ router.post(
 
     try {
       const result = await createStaffAccount({ username, password, role, location_id, staff_profile_id }, adminLifecycleRepository);
+      await notifyAdmins(result.user.location_id || location_id || req.user.location_id || null, 'Staff Account Created', `${result.user.username} account was ${result.reactivated ? 'reactivated' : 'created'} as ${result.user.role}.`, 'staff_account_created');
       res.status(201).json(result);
     } catch (err) {
       console.error('Create admin user error:', err);
@@ -664,6 +774,15 @@ router.patch('/users/:id/status', authenticateToken, authorizeRoles('admin'), as
       await createTerminationSecurityNotification({ ...staff, is_active });
     }
 
+    await recordStaffStatusHistory({
+      staffProfileId: staff.staff_profile_id ? Number(staff.staff_profile_id) : null,
+      userId: Number(staff.id),
+      locationId: staff.location_id || req.user.location_id || null,
+      isActive: is_active,
+      changedBy: req.user.id,
+    });
+    await notifyAdmins(staff.location_id || req.user.location_id || null, is_active ? 'Staff Account Re-enabled' : 'Staff Account Disabled', `${staff.full_name || staff.username} (${staff.role}) account was ${is_active ? 're-enabled' : 'disabled'}.`, 'staff_account_status_changed');
+
     res.json(updated.rows[0]);
   } catch (err) {
     console.error('Update user status error:', err);
@@ -679,6 +798,7 @@ router.put('/users/:id', authenticateToken, authorizeRoles('admin'), async (req,
 
     const updated = await updateStaffAccount({ id, username, password, role, location_id }, adminLifecycleRepository);
     if (!updated) return res.status(404).json({ error: 'Account not found' });
+    await notifyAdmins(updated.location_id || req.user.location_id || null, 'Staff Account Updated', `${updated.username} account details were updated.`, 'staff_account_updated');
     res.json(updated);
   } catch (err) {
     console.error('Update account error:', err);
@@ -695,6 +815,7 @@ router.delete('/users/:id', authenticateToken, authorizeRoles('admin'), async (r
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id', code: 'INVALID_USER_ID', requestId: req.requestId });
 
     const result = await archiveStaffAccount(id, adminLifecycleRepository);
+    await notifyAdmins(req.user.location_id || null, 'Staff Account Deleted', `Staff account ID ${id} was deleted.`, 'staff_account_deleted');
     res.json(result);
   } catch (err) {
     console.error('Delete account error:', err);

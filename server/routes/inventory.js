@@ -496,13 +496,27 @@ router.post(
             `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
              SELECT id, $1, $2, $3, 'batch'
              FROM users 
-             WHERE role IN ('admin', 'manager') 
+             WHERE role = 'admin' 
              AND (location_id = $1 OR location_id IS NULL)
              AND is_active = true`,
             [
               locationId,
               `📦 New Batch Sent #${createdBatch.id}`,
               `${originalActorName} sent a batch with ${items.length} items (Total: ETB ${totalBatchValue.toFixed(2)})`
+            ]
+          );
+        } else {
+          await tx.query(
+            `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+             SELECT id, $1, $2, $3, 'offline_synced'
+             FROM users
+             WHERE role = 'admin'
+               AND (location_id = $1 OR location_id IS NULL)
+               AND is_active = true`,
+            [
+              locationId,
+              `Offline Batch Synced #${createdBatch.id}`,
+              `${originalActorName} synced an offline batch with ${items.length} item rows.`,
             ]
           );
         }

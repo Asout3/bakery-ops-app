@@ -56,19 +56,23 @@ export async function createLowStockNotificationIfNeeded(db, locationId, product
     return { triggered: false, reason: 'above_threshold', snapshot };
   }
 
-  const title = 'Low Stock Alert';
-  const message = `${snapshot.groupName} / ${snapshot.name} is running low (${snapshot.quantity} remaining, threshold ${snapshot.threshold}).`;
+  const outOfStock = snapshot.quantity <= 0;
+  const notificationType = outOfStock ? 'out_of_stock' : 'low_stock';
+  const title = outOfStock ? 'Out of Stock Alert' : 'Low Stock Alert';
+  const message = outOfStock
+    ? `${snapshot.groupName} / ${snapshot.name} is out of stock (0 remaining, threshold ${snapshot.threshold}).`
+    : `${snapshot.groupName} / ${snapshot.name} is running low (${snapshot.quantity} remaining, threshold ${snapshot.threshold}).`;
 
   const recentResult = await db.query(
     `SELECT id
      FROM notifications
      WHERE location_id = $1
-       AND notification_type = 'low_stock'
+       AND notification_type = $5
        AND title = $2
        AND message LIKE $3
        AND created_at >= NOW() - ($4::text || ' hours')::interval
      LIMIT 1`,
-    [locationId, title, `${snapshot.groupName} / ${snapshot.name}%`, String(LOW_STOCK_COOLDOWN_HOURS)]
+    [locationId, title, `${snapshot.groupName} / ${snapshot.name}%`, String(LOW_STOCK_COOLDOWN_HOURS), notificationType]
   );
 
   if (recentResult.rows.length > 0) {
@@ -77,12 +81,12 @@ export async function createLowStockNotificationIfNeeded(db, locationId, product
 
   await db.query(
     `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-     SELECT id, $1, $2, $3, 'low_stock'
+     SELECT id, $1, $2, $3, $4
      FROM users
      WHERE role IN ('admin', 'manager')
        AND location_id = $1
        AND is_active = true`,
-    [locationId, title, message]
+    [locationId, title, message, notificationType]
   );
 
   return { triggered: true, snapshot, title, message };

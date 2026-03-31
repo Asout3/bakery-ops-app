@@ -40,7 +40,7 @@ test('processExpiredInventoryForLocation moves expired stock batches into waste 
           rows: [{ product_id: 7, name: 'Chocolate Cake', group_name: 'Cake', quantity: 0, threshold: 5 }],
         };
       }
-      if (text.includes("notification_type = 'low_stock'")) {
+      if (text.includes('notification_type = $5')) {
         return { rows: [] };
       }
       return { rows: [], rowCount: 1 };
@@ -270,7 +270,7 @@ test('processExpiredInventoryForLocation aggregates multiple rows and rounds tot
       if (text.includes('SELECT COALESCE(')) return { rows: [{ source: 'baked' }] };
       if (text.includes('INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)')) return { rows: [] };
       if (text.includes('COALESCE(') && text.includes('low_stock_threshold')) return { rows: [] };
-      if (text.includes("notification_type = 'low_stock'")) return { rows: [] };
+      if (text.includes('notification_type = $5')) return { rows: [] };
       return { rows: [], rowCount: 1 };
     },
   };
