@@ -63,7 +63,8 @@ test('createLowStockNotificationIfNeeded skips when stock is above threshold', a
       if (text.includes('COALESCE(') && text.includes('low_stock_threshold')) {
         return { rows: [{ product_id: 4, name: 'Baguette', group_name: 'Bread', quantity: 12, threshold: 5 }] };
       }
-      throw new Error('Unexpected query');
+      if (text.includes('FROM notifications') && text.includes('notification_type = ANY')) return { rows: [] };
+      throw new Error(`Unexpected query: ${text}`);
     },
   };
 

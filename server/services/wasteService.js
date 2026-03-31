@@ -3,6 +3,9 @@ import { createLowStockNotificationIfNeeded } from './stockAlertService.js';
 import { ensureStockBatchSchema, syncInventoryFromStockBatches } from './stockBatchService.js';
 
 let wasteSchemaPromise = null;
+const EXPIRING_SOON_NOTIFICATION_TYPE = 'product_expiring_soon';
+const EXPIRING_SOON_THRESHOLD_HOURS = 6;
+const EXPIRING_SOON_COOLDOWN_HOURS = 6;
 
 function getDbExecutor(dbOrQuery) {
   if (typeof dbOrQuery === 'function') {
@@ -48,6 +51,7 @@ export async function processExpiredInventoryForLocation(dbOrQuery, locationId, 
   }
 
   const db = getDbExecutor(dbOrQuery);
+  await createExpiringSoonNotificationsForLocation(db, locationId);
   const expiredResult = await db.query(
     `SELECT sb.id AS stock_batch_id,
             sb.location_id,
@@ -137,8 +141,8 @@ export async function processExpiredInventoryForLocation(dbOrQuery, locationId, 
     `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
      SELECT id, $1, $2, $3, 'waste'
      FROM users
-     WHERE role IN ('admin', 'manager')
-       AND location_id = $1
+     WHERE role = 'admin'
+       AND (location_id = $1 OR location_id IS NULL)
        AND is_active = true`,
     [
       locationId,
@@ -152,6 +156,60 @@ export async function processExpiredInventoryForLocation(dbOrQuery, locationId, 
     totalLoss: Number(totalLoss.toFixed(2)),
     items: processedItems,
   };
+}
+
+async function createExpiringSoonNotificationsForLocation(db, locationId) {
+  const expiringResult = await db.query(
+    `SELECT
+       sb.product_id,
+       sb.quantity_remaining,
+       p.name AS product_name,
+       COALESCE(NULLIF(p.group_name, ''), p.name) AS group_name,
+       EXTRACT(EPOCH FROM (sb.expires_at - NOW()))::bigint AS seconds_until_expiry
+     FROM inventory_stock_batches sb
+     JOIN products p ON p.id = sb.product_id
+     WHERE sb.location_id = $1
+       AND p.is_active = true
+       AND sb.quantity_remaining > 0
+       AND sb.expires_at IS NOT NULL
+       AND sb.expires_at > NOW()
+       AND sb.expires_at <= NOW() + ($2::int * INTERVAL '1 hour')
+     ORDER BY sb.expires_at ASC, sb.id ASC`,
+    [locationId, EXPIRING_SOON_THRESHOLD_HOURS]
+  );
+
+  for (const row of expiringResult.rows) {
+    const quantityRemaining = Number(row.quantity_remaining || 0);
+    if (quantityRemaining <= 0) continue;
+    const hoursLeft = Math.max(1, Math.ceil(Number(row.seconds_until_expiry || 0) / 3600));
+    const title = 'Product nearing waste window';
+    const message = `${row.group_name} / ${row.product_name} has ${quantityRemaining} ${quantityRemaining === 1 ? 'unit' : 'units'} left and will expire in ~${hoursLeft} hour(s).`;
+    const dedupeKey = `${row.group_name} / ${row.product_name}%`;
+
+    const existingNotification = await db.query(
+      `SELECT id
+       FROM notifications
+       WHERE location_id = $1
+         AND title = $2
+         AND message LIKE $3
+         AND notification_type = $4
+         AND created_at >= NOW() - ($5::text || ' hours')::interval
+       LIMIT 1`,
+      [locationId, title, dedupeKey, EXPIRING_SOON_NOTIFICATION_TYPE, String(EXPIRING_SOON_COOLDOWN_HOURS)]
+    );
+
+    if (existingNotification.rows.length > 0) continue;
+
+    await db.query(
+      `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
+       SELECT id, $1, $2, $3, $4
+       FROM users
+       WHERE role = 'admin'
+         AND (location_id = $1 OR location_id IS NULL)
+         AND is_active = true`,
+      [locationId, title, message, EXPIRING_SOON_NOTIFICATION_TYPE]
+    );
+  }
 }
 
 export async function processExpiredInventoryForAllLocations(dbOrQuery, actorUserId = null) {
