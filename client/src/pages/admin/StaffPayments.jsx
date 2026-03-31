@@ -59,13 +59,17 @@ export default function StaffPaymentsPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const requestConfig = {
+      const baseConfig = {
         headers: { 'Cache-Control': 'no-cache' },
         params: { ...(selectedLocationId ? { location_id: selectedLocationId } : {}), _ts: Date.now() },
       };
+      const unscopedConfig = {
+        headers: { 'Cache-Control': 'no-cache' },
+        params: { _ts: Date.now() },
+      };
       const [paymentsResult, staffResult] = await Promise.allSettled([
-        api.get('/payments', requestConfig),
-        api.get('/admin/staff-for-payments', requestConfig),
+        api.get('/payments', baseConfig),
+        api.get('/admin/staff-for-payments', baseConfig),
       ]);
 
       if (paymentsResult.status === 'fulfilled') {
@@ -77,13 +81,25 @@ export default function StaffPaymentsPage() {
 
       let nextStaff = [];
       if (staffResult.status === 'fulfilled') {
-        nextStaff = (staffResult.value.data || []).filter((staff) => staff.is_active);
+        const payload = Array.isArray(staffResult.value.data) ? staffResult.value.data : [];
+        nextStaff = payload.filter((staff) => staff.is_active);
       }
 
       if (!nextStaff.length) {
         try {
-          const fallbackStaffRes = await api.get('/admin/staff', requestConfig);
-          nextStaff = (fallbackStaffRes.data || []).filter((staff) => staff.is_active);
+          const fallbackStaffRes = await api.get('/admin/staff', baseConfig);
+          const fallbackPayload = Array.isArray(fallbackStaffRes.data) ? fallbackStaffRes.data : [];
+          nextStaff = fallbackPayload.filter((staff) => staff.is_active);
+        } catch {
+          nextStaff = [];
+        }
+      }
+
+      if (!nextStaff.length && selectedLocationId) {
+        try {
+          const unscopedStaffRes = await api.get('/admin/staff-for-payments', unscopedConfig);
+          const unscopedPayload = Array.isArray(unscopedStaffRes.data) ? unscopedStaffRes.data : [];
+          nextStaff = unscopedPayload.filter((staff) => staff.is_active);
         } catch {
           nextStaff = [];
         }

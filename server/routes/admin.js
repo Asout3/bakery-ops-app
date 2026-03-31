@@ -5,6 +5,7 @@ import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { validatePassword } from '../middleware/security.js';
 import { adminLifecycleRepository } from '../repositories/adminLifecycleRepository.js';
 import { createStaffAccount, updateStaffAccount, archiveStaffAccount, archiveStaffProfile } from '../services/adminLifecycleService.js';
+import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
 
@@ -307,8 +308,7 @@ router.get('/staff-expense-summary', authenticateToken, authorizeRoles('admin'),
 
 router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const parsedLocationId = req.query.location_id ? Number(req.query.location_id) : null;
-    const locationId = Number.isFinite(parsedLocationId) && parsedLocationId > 0 ? parsedLocationId : null;
+    const locationId = await getTargetLocationId(req, query);
     const staffProfilesTable = await query(
       `SELECT 1
        FROM information_schema.tables
