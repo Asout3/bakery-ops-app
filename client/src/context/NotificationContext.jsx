@@ -77,6 +77,7 @@ export function NotificationProvider({ children }) {
   const initializedRef = useRef(false);
   const seenNotificationTokensRef = useRef(new Set());
   const seenCacheKeyRef = useRef(resolveSeenCacheKey(user?.id, user?.role));
+  const lastHandledNotificationTsRef = useRef(0);
 
   const clearPollTimeout = useCallback(() => {
     if (pollTimeoutRef.current) {
@@ -98,22 +99,42 @@ export function NotificationProvider({ children }) {
 
     const seenTokens = seenNotificationTokensRef.current;
     const cacheKey = seenCacheKeyRef.current;
+    const latestTs = sorted.reduce((max, item) => {
+      const ts = new Date(item.created_at || 0).getTime();
+      return Number.isFinite(ts) ? Math.max(max, ts) : max;
+    }, 0);
     if (!initializedRef.current) {
       sorted.forEach((item) => seenTokens.add(toNotificationToken(item)));
       persistSeenNotificationTokens(cacheKey, seenTokens);
+      lastHandledNotificationTsRef.current = latestTs;
       initializedRef.current = true;
       return;
     }
 
     const unseen = sorted.filter((item) => !seenTokens.has(toNotificationToken(item)));
-    if (!unseen.length) {
+    const timeNew = sorted.filter((item) => {
+      const ts = new Date(item.created_at || 0).getTime();
+      return Number.isFinite(ts) && ts > (lastHandledNotificationTsRef.current || 0);
+    });
+    const announceMap = new Map();
+    for (const item of [...unseen, ...timeNew]) {
+      announceMap.set(String(item.id), item);
+    }
+    const announceList = [...announceMap.values()].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    if (!announceList.length) {
+      if (latestTs > (lastHandledNotificationTsRef.current || 0)) {
+        lastHandledNotificationTsRef.current = latestTs;
+      }
       return;
     }
 
-    unseen.forEach((item) => seenTokens.add(toNotificationToken(item)));
+    announceList.forEach((item) => seenTokens.add(toNotificationToken(item)));
     persistSeenNotificationTokens(cacheKey, seenTokens);
+    if (latestTs > (lastHandledNotificationTsRef.current || 0)) {
+      lastHandledNotificationTsRef.current = latestTs;
+    }
 
-    for (const notification of unseen.reverse()) {
+    for (const notification of announceList) {
       toast.info(notification.message, {
         title: notification.title,
         duration: 7000,
@@ -228,6 +249,7 @@ export function NotificationProvider({ children }) {
       setUnreadCount(0);
       initializedRef.current = false;
       seenNotificationTokensRef.current = new Set();
+      lastHandledNotificationTsRef.current = 0;
       clearPollTimeout();
       return;
     }
