@@ -1,5 +1,5 @@
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
-const LOW_STOCK_COOLDOWN_HOURS = 6;
+const LOW_STOCK_COOLDOWN_HOURS = 2;
 
 function normalizeQuantity(value) {
   const parsed = Number(value);
@@ -69,10 +69,10 @@ export async function createLowStockNotificationIfNeeded(db, locationId, product
      WHERE location_id = $1
        AND notification_type = $5
        AND title = $2
-       AND message LIKE $3
+       AND message = $3
        AND created_at >= NOW() - ($4::text || ' hours')::interval
      LIMIT 1`,
-    [locationId, title, `${snapshot.groupName} / ${snapshot.name}%`, String(LOW_STOCK_COOLDOWN_HOURS), notificationType]
+    [locationId, title, message, String(LOW_STOCK_COOLDOWN_HOURS), notificationType]
   );
 
   if (recentResult.rows.length > 0) {

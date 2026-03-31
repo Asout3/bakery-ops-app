@@ -4,6 +4,7 @@ import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
 import { consumeStockBatches } from '../services/stockBatchService.js';
+import { createLowStockNotificationIfNeeded } from '../services/stockAlertService.js';
 
 const router = express.Router();
 
@@ -346,6 +347,7 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager', 'cash
              VALUES ($1, $2, 'sale_out', $3, 'sale', 'order', $4, $5, $6)`,
             [locationId, movement.productId, -movement.quantity, orderId, req.user.id, JSON.stringify({ order_id: orderId })]
           );
+          await createLowStockNotificationIfNeeded(tx, locationId, movement.productId);
         }
       }
 
