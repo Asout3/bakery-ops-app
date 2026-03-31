@@ -27,22 +27,6 @@ const normalizeStaffTarget = (staff) => {
   return { staffProfileId, userId };
 };
 
-const computeSuggestedPayment = (selected, targetDate, payments) => {
-  const monthlySalary = Number(selected?.monthly_salary || 0);
-  const dailyRate = monthlySalary > 0 ? (monthlySalary / 30) : 0;
-  const disabledDays = Number(selected?.disabled_days_in_cycle || 0);
-  const deduction = Number(selected?.disabled_day_deduction || (dailyRate * disabledDays) || 0);
-  const apiRecommended = Number(selected?.recommended_payment || 0);
-  const staffPayments = payments
-    .filter((payment) => Number(payment.staff_profile_id) === Number(selected?.id))
-    .sort((a, b) => new Date(b.payment_date || b.created_at || 0).getTime() - new Date(a.payment_date || a.created_at || 0).getTime());
-  const lastPaymentDate = staffPayments[0]?.payment_date ? new Date(staffPayments[0].payment_date) : null;
-  const workedDays = lastPaymentDate ? Math.max(1, Math.ceil((targetDate - lastPaymentDate) / (1000 * 60 * 60 * 24))) : 30;
-  const fallbackRecommended = Math.max(0, (dailyRate * workedDays) - deduction);
-  const recommendedAmount = apiRecommended > 0 ? apiRecommended : fallbackRecommended;
-  return { workedDays, dailyRate, recommendedAmount, lastPaymentDate, disabledDays, deduction };
-};
-
 export default function StaffPaymentsPage() {
   const { selectedLocationId } = useBranch();
   const [payments, setPayments] = useState([]);
@@ -115,8 +99,27 @@ export default function StaffPaymentsPage() {
   const handleStaffSelect = (staffId) => {
     const selected = staffMembers.find((s) => Number(s.id) === Number(staffId));
     if (!selected) return;
+
+    const staffPayments = payments
+      .filter((payment) => Number(payment.staff_profile_id) === Number(staffId))
+      .sort((a, b) => {
+        const aDate = new Date(a.payment_date || a.created_at || 0).getTime();
+        const bDate = new Date(b.payment_date || b.created_at || 0).getTime();
+        return bDate - aDate;
+      });
+    const lastPaymentDate = staffPayments[0]?.payment_date ? new Date(staffPayments[0].payment_date) : null;
     const targetDate = formData.payment_date ? new Date(formData.payment_date) : new Date();
-    setSuggestedPayment(computeSuggestedPayment(selected, targetDate, payments));
+    const workedDays = lastPaymentDate ? Math.max(1, Math.ceil((targetDate - lastPaymentDate) / (1000 * 60 * 60 * 24))) : 30;
+    const monthlySalary = Number(selected.monthly_salary || 0);
+    const dailyRate = monthlySalary > 0 ? (monthlySalary / 30) : 0;
+    const recommendedAmount = Math.max(0, dailyRate * workedDays);
+
+    setSuggestedPayment({
+      workedDays,
+      dailyRate,
+      recommendedAmount,
+      lastPaymentDate,
+    });
 
     setFormData((prev) => ({
       ...prev,
@@ -343,11 +346,11 @@ export default function StaffPaymentsPage() {
             <div className="modal-header"><h3>{editingPayment ? 'Edit Payment' : 'Create Payment'}</h3><button className="close-btn" onClick={() => setShowForm(false)}><X size={18} /></button></div>
             <form className="modal-body" onSubmit={handleSubmit}>
               <div className="row g-3">
-                {suggestedPayment && <div className="col-12"><div className="alert alert-info" style={{ display: 'grid', gap: '0.75rem' }}><div style={{ fontSize: '1rem', lineHeight: 1.6 }}>Worked days since last payment: <strong>{suggestedPayment.workedDays}</strong> • Disabled days this cycle: <strong>{suggestedPayment.disabledDays}</strong> • Daily rate: <strong>ETB {suggestedPayment.dailyRate.toFixed(2)}</strong> • Disabled-day deduction: <strong>ETB {suggestedPayment.deduction.toFixed(2)}</strong> • Suggested payout: <strong>ETB {suggestedPayment.recommendedAmount.toFixed(2)}</strong></div><button type="button" className="btn btn-primary" style={{ width: '100%' }} onClick={() => setFormData((prev) => ({ ...prev, amount: String(suggestedPayment.recommendedAmount) }))}>Use Suggested Amount</button></div></div>}
+                {suggestedPayment && <div className="col-12"><div className="alert alert-info" style={{ display: 'grid', gap: '0.75rem' }}><div style={{ fontSize: '1rem', lineHeight: 1.6 }}>Worked days since last payment: <strong>{suggestedPayment.workedDays}</strong> • Daily rate: <strong>ETB {suggestedPayment.dailyRate.toFixed(2)}</strong> • Suggested payout: <strong>ETB {suggestedPayment.recommendedAmount.toFixed(2)}</strong></div><button type="button" className="btn btn-primary" style={{ width: '100%' }} onClick={() => setFormData((prev) => ({ ...prev, amount: String(suggestedPayment.recommendedAmount) }))}>Use Suggested Amount</button></div></div>}
 
                 <div className="col-md-6"><label className="form-label">Staff *</label><select className="form-select" value={formData.staff_profile_id} onChange={(e) => handleStaffSelect(e.target.value)} required><option value="">Select staff</option>{staffMembers.map((staff) => <option key={staff.id} value={staff.id}>{staff.full_name}</option>)}</select></div>
                 <div className="col-md-6"><label className="form-label">Amount *</label><input type="number" min="0" step="0.01" className="form-control" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required /></div>
-                <div className="col-md-4"><label className="form-label">Payment Date *</label><input type="date" className="form-control" value={formData.payment_date} onChange={(e) => { const nextDate = e.target.value; setFormData({ ...formData, payment_date: nextDate }); if (formData.staff_profile_id) { const selected = staffMembers.find((st) => Number(st.id) === Number(formData.staff_profile_id)); if (selected) setSuggestedPayment(computeSuggestedPayment(selected, nextDate ? new Date(nextDate) : new Date(), payments)); } }} required /></div>
+                <div className="col-md-4"><label className="form-label">Payment Date *</label><input type="date" className="form-control" value={formData.payment_date} onChange={(e) => { const nextDate = e.target.value; setFormData({ ...formData, payment_date: nextDate }); if (formData.staff_profile_id) { const selected = staffMembers.find((st) => Number(st.id) === Number(formData.staff_profile_id)); if (selected) { const staffPayments = payments.filter((payment) => Number(payment.staff_profile_id) === Number(formData.staff_profile_id)).sort((a, b) => new Date(b.payment_date || b.created_at || 0).getTime() - new Date(a.payment_date || a.created_at || 0).getTime()); const lastPaymentDate = staffPayments[0]?.payment_date ? new Date(staffPayments[0].payment_date) : null; const targetDate = nextDate ? new Date(nextDate) : new Date(); const workedDays = lastPaymentDate ? Math.max(1, Math.ceil((targetDate - lastPaymentDate) / (1000 * 60 * 60 * 24))) : 30; const monthlySalary = Number(selected.monthly_salary || 0); const dailyRate = monthlySalary > 0 ? (monthlySalary / 30) : 0; const recommendedAmount = Math.max(0, dailyRate * workedDays); setSuggestedPayment({ workedDays, dailyRate, recommendedAmount, lastPaymentDate }); } } }} required /></div>
                 <div className="col-12"><label className="form-label">Notes</label><textarea rows="5" className="form-control" style={{ minHeight: "160px", fontSize: "0.98rem" }} value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} /></div>
               </div>
               <div className="modal-footer mt-3"><button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)} disabled={isSubmitting}>Cancel</button><button type="submit" className="btn btn-primary" disabled={isSubmitting}>{isSubmitting ? 'Saving…' : (editingPayment ? 'Update Payment' : 'Pay Now')}</button></div>

@@ -7,7 +7,6 @@ import { adminLifecycleRepository } from '../repositories/adminLifecycleReposito
 import { createStaffAccount, updateStaffAccount, archiveStaffAccount, archiveStaffProfile } from '../services/adminLifecycleService.js';
 
 const router = express.Router();
-const PAYROLL_CYCLE_DAYS = 30;
 
 function isEthiopianMobilePhone(value) {
   return /^\+251(9|7)\d{8}$/.test(String(value || '').trim());
@@ -41,63 +40,6 @@ async function createTerminationSecurityNotification(staff) {
   }
 }
 
-async function ensureStaffStatusHistoryTable() {
-  await query(
-    `CREATE TABLE IF NOT EXISTS staff_status_history (
-      id BIGSERIAL PRIMARY KEY,
-      staff_profile_id INTEGER,
-      user_id INTEGER,
-      location_id INTEGER,
-      is_active BOOLEAN NOT NULL,
-      changed_by INTEGER,
-      changed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`
-  );
-}
-
-async function recordStaffStatusHistory({ staffProfileId = null, userId = null, locationId = null, isActive, changedBy }) {
-  await ensureStaffStatusHistoryTable();
-  await query(
-    `INSERT INTO staff_status_history (staff_profile_id, user_id, location_id, is_active, changed_by)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [staffProfileId, userId, locationId, Boolean(isActive), changedBy]
-  );
-}
-
-async function computeDisabledDaysForCycle({ staffProfileId = null, userId = null, cycleStart, cycleEnd }) {
-  await ensureStaffStatusHistoryTable();
-  const history = await query(
-    `SELECT is_active, changed_at
-     FROM staff_status_history
-     WHERE ($1::int IS NOT NULL AND staff_profile_id = $1)
-        OR ($2::int IS NOT NULL AND user_id = $2)
-     ORDER BY changed_at ASC`,
-    [staffProfileId, userId]
-  );
-
-  let active = true;
-  const startTs = new Date(cycleStart).getTime();
-  const endTs = new Date(cycleEnd).getTime();
-  let cursor = startTs;
-  let disabledMs = 0;
-
-  for (const row of history.rows) {
-    const ts = new Date(row.changed_at).getTime();
-    if (ts < startTs) {
-      active = Boolean(row.is_active);
-      continue;
-    }
-    if (ts > endTs) break;
-    if (!active) disabledMs += Math.max(0, ts - cursor);
-    cursor = ts;
-    active = Boolean(row.is_active);
-  }
-  if (!active) disabledMs += Math.max(0, endTs - cursor);
-
-  const oneDayMs = 1000 * 60 * 60 * 24;
-  return Math.max(0, Math.ceil(disabledMs / oneDayMs));
-}
-
 async function notifyAdmins(locationId, title, message, type = 'admin_event') {
   await query(
     `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
@@ -106,33 +48,6 @@ async function notifyAdmins(locationId, title, message, type = 'admin_event') {
      WHERE role = 'admin' AND is_active = true`,
     [locationId, title, message, type]
   );
-}
-
-async function enrichStaffPaymentRows(rows) {
-  const now = new Date();
-  const cycleStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
-  const cycleEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
-  return Promise.all((rows || []).map(async (row) => {
-    const monthlySalary = Number(row.monthly_salary || 0);
-    const disabledDaysInCycle = await computeDisabledDaysForCycle({
-      staffProfileId: row.staff_profile_id ? Number(row.staff_profile_id) : null,
-      userId: row.user_id ? Number(row.user_id) : null,
-      cycleStart,
-      cycleEnd,
-    });
-    const cappedDisabledDays = Math.min(PAYROLL_CYCLE_DAYS, Math.max(0, disabledDaysInCycle));
-    const dailyRate = monthlySalary > 0 ? (monthlySalary / PAYROLL_CYCLE_DAYS) : 0;
-    const deductionAmount = Number((dailyRate * cappedDisabledDays).toFixed(2));
-    const recommendedPayment = Number(Math.max(0, monthlySalary - deductionAmount).toFixed(2));
-    return {
-      ...row,
-      payroll_cycle_days: PAYROLL_CYCLE_DAYS,
-      disabled_days_in_cycle: cappedDisabledDays,
-      active_days_in_cycle: PAYROLL_CYCLE_DAYS - cappedDisabledDays,
-      disabled_day_deduction: deductionAmount,
-      recommended_payment: recommendedPayment,
-    };
-  }));
 }
 
 router.get('/staff', authenticateToken, authorizeRoles('admin'), async (req, res) => {
@@ -267,77 +182,6 @@ router.patch('/staff/:id/status', authenticateToken, authorizeRoles('admin'), as
         );
       }
     }
-    await recordStaffStatusHistory({
-      staffProfileId: Number(staff.id),
-      userId: staff.linked_user_id ? Number(staff.linked_user_id) : null,
-      locationId: staff.location_id || req.user.location_id || null,
-      isActive: is_active,
-      changedBy: req.user.id,
-    });
-    await notifyAdmins(staff.location_id || req.user.location_id || null, is_active ? 'Staff Re-enabled' : 'Staff Disabled', `${staff.full_name || staff.username} was ${is_active ? 're-enabled' : 'disabled'}.`, 'staff_status_changed');
-
-    res.json(updated.rows[0]);
-  } catch (err) {
-    console.error('Update staff status error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-router.put('/staff/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid staff id' });
-
-    const {
-      full_name,
-      national_id,
-      phone_number,
-      age,
-      monthly_salary,
-      role_preference,
-      other_role_title,
-      location_id,
-      hire_date,
-      payment_due_date,
-    } = req.body;
-
-    if (phone_number && !isEthiopianMobilePhone(phone_number)) {
-      return res.status(400).json({ error: 'Phone number must be +2519XXXXXXXX or +2517XXXXXXXX', code: 'INVALID_PHONE_NUMBER', requestId: req.requestId });
-    }
-
-    if (age !== undefined && age !== null && Number(age) < 17) {
-      return res.status(400).json({ error: 'Age must be greater than 16', code: 'INVALID_AGE', requestId: req.requestId });
-    }
-
-    const updated = await query(
-      `UPDATE staff_profiles
-       SET full_name = COALESCE($1, full_name),
-           national_id = $2,
-           phone_number = COALESCE($3, phone_number),
-           age = $4,
-           monthly_salary = COALESCE($5, monthly_salary),
-           role_preference = COALESCE($6, role_preference),
-           job_title = COALESCE($7, job_title),
-           location_id = COALESCE($8, location_id),
-           hire_date = COALESCE($9, hire_date),
-           payment_due_date = COALESCE($10, payment_due_date),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $11
-       RETURNING *`,
-      [
-        full_name || null,
-        national_id || null,
-        phone_number || null,
-        age ?? null,
-        monthly_salary ?? null,
-        role_preference || null,
-        role_preference === 'other' ? (other_role_title || null) : role_preference || null,
-        location_id ?? null,
-        hire_date || null,
-        payment_due_date ?? null,
-        id,
-      ]
-    );
 
     if (updated.rows.length) {
       await notifyAdmins(updated.rows[0].location_id || req.user.location_id || null, 'Staff Profile Updated', `${updated.rows[0].full_name} profile was updated.`, 'staff_profile_updated');
@@ -509,7 +353,7 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
     if (!hasStaffProfilesTable) {
       const { fallbackQueryText, fallbackParams } = buildFallbackUsersQuery();
       const fallbackResult = await query(fallbackQueryText, fallbackParams);
-      return res.json(await enrichStaffPaymentRows(fallbackResult.rows));
+      return res.json(fallbackResult.rows);
     }
 
     const paymentDueDateColumn = await query(
@@ -589,13 +433,13 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
     
     try {
       const result = await query(queryText, params);
-      res.json(await enrichStaffPaymentRows(result.rows));
+      res.json(result.rows);
     } catch (staffProfilesErr) {
       const isSchemaDriftError = ['42P01', '42703'].includes(staffProfilesErr?.code);
       if (!isSchemaDriftError) throw staffProfilesErr;
       const { fallbackQueryText, fallbackParams } = buildFallbackUsersQuery();
       const fallbackResult = await query(fallbackQueryText, fallbackParams);
-      res.json(await enrichStaffPaymentRows(fallbackResult.rows));
+      res.json(fallbackResult.rows);
     }
   } catch (err) {
     console.error('Get staff for payments error:', err);
@@ -774,13 +618,6 @@ router.patch('/users/:id/status', authenticateToken, authorizeRoles('admin'), as
       await createTerminationSecurityNotification({ ...staff, is_active });
     }
 
-    await recordStaffStatusHistory({
-      staffProfileId: staff.staff_profile_id ? Number(staff.staff_profile_id) : null,
-      userId: Number(staff.id),
-      locationId: staff.location_id || req.user.location_id || null,
-      isActive: is_active,
-      changedBy: req.user.id,
-    });
     await notifyAdmins(staff.location_id || req.user.location_id || null, is_active ? 'Staff Account Re-enabled' : 'Staff Account Disabled', `${staff.full_name || staff.username} (${staff.role}) account was ${is_active ? 're-enabled' : 'disabled'}.`, 'staff_account_status_changed');
 
     res.json(updated.rows[0]);
