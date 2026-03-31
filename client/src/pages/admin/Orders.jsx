@@ -73,6 +73,19 @@ export default function AdminOrders() {
     }
   };
 
+  const preOrderRows = orders.map((order) => ({
+    id: order.id,
+    order_code: order.order_code || `ORD-${String(order.id).padStart(6, '0')}`,
+    status: order.status,
+    prep_status: order.prep_status,
+    prep_progress: Number(order.prep_progress || 0),
+    product_details: (order.items || []).map((item) => `${item.product_name || item.custom_item_name || `#${item.product_id}`} ×${Number(item.quantity || 0)}`).join(', '),
+    pickup_at: order.pickup_at,
+    created_by: order.cashier_name || order.cashier_id || '-',
+    created_at: order.created_at,
+    updated_at: order.updated_at,
+  }));
+
   return (
     <div>
       <div className="page-header"><h2>Orders Oversight</h2></div>
@@ -101,6 +114,31 @@ export default function AdminOrders() {
                 </tr>
               ))}
               {!orders.length && <tr><td colSpan="7" className="text-center text-muted">No orders found</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="card mt-4">
+        <div className="card-header"><h4 className="mb-0">Pre-Order Performance</h4></div>
+        <div className="card-body table-responsive">
+          <table className="table table-hover">
+            <thead><tr><th>Order</th><th>Status</th><th>Prep</th><th>Product Details</th><th>Pickup Time</th><th>Audit Trail</th></tr></thead>
+            <tbody>
+              {preOrderRows.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.order_code}</td>
+                  <td><span className="badge badge-primary">{row.status}</span></td>
+                  <td>{row.prep_status} ({row.prep_progress}%)</td>
+                  <td>{row.product_details || 'No items'}</td>
+                  <td>{row.pickup_at ? new Date(row.pickup_at).toLocaleString() : '-'}</td>
+                  <td>
+                    <div className="small">Created by {row.created_by} at {row.created_at ? new Date(row.created_at).toLocaleString() : '-'}</div>
+                    <div className="small">Updated at {row.updated_at ? new Date(row.updated_at).toLocaleString() : '-'}</div>
+                  </td>
+                </tr>
+              ))}
+              {!preOrderRows.length && <tr><td colSpan="6" className="text-center text-muted">No orders found</td></tr>}
             </tbody>
           </table>
         </div>

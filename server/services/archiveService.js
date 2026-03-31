@@ -197,7 +197,7 @@ async function moveRowsToArchive(tx, config) {
   counts.inventory_batches = batches.rows[0].count;
 
   if (counts.inventory_batches > 0) {
-    await insertArchiveRowsFromJoin(tx, {
+    const archivedBatchItems = await insertArchiveRowsFromJoin(tx, {
       sourceTable: 'batch_items',
       archiveTable: 'batch_items_archive',
       sourceAlias: 'bi',
@@ -207,6 +207,7 @@ async function moveRowsToArchive(tx, config) {
       whereClause: 'iba.location_id = $1 AND bia.id IS NULL',
       whereParams: [config.locationId],
     });
+    counts.batch_items = archivedBatchItems.rows[0].count;
 
     await tx.query(
       `DELETE FROM batch_items
@@ -221,6 +222,7 @@ async function moveRowsToArchive(tx, config) {
       [config.locationId, config.cutoffAt]
     );
   }
+  if (counts.batch_items === undefined) counts.batch_items = 0;
 
   const sales = await insertArchiveRows(tx, {
     sourceTable: 'sales',
@@ -303,13 +305,12 @@ async function moveRowsToArchive(tx, config) {
     sourceTable: 'customer_orders',
     archiveTable: 'customer_orders_archive',
     whereClause: `location_id = $1
-        AND pickup_at < $2
-        AND status IN ('picked_up', 'delivered', 'cancelled')`,
+        AND COALESCE(pickup_at, created_at) < $2`,
     whereParams: [config.locationId, config.cutoffAt],
   });
   counts.customer_orders = archivedOrders.rows[0].count;
   if (counts.customer_orders > 0) {
-    await insertArchiveRowsFromJoin(tx, {
+    const archivedOrderItems = await insertArchiveRowsFromJoin(tx, {
       sourceTable: 'order_items',
       archiveTable: 'order_items_archive',
       sourceAlias: 'oi',
@@ -319,12 +320,13 @@ async function moveRowsToArchive(tx, config) {
       whereClause: 'oa.location_id = $1 AND oia.id IS NULL',
       whereParams: [config.locationId],
     });
+    counts.order_items = archivedOrderItems.rows[0].count;
 
     await tx.query(
       `DELETE FROM order_items
        WHERE order_id IN (
          SELECT id FROM customer_orders_archive
-         WHERE location_id = $1 AND pickup_at < $2
+         WHERE location_id = $1 AND COALESCE(pickup_at, created_at) < $2
        )`,
       [config.locationId, config.cutoffAt]
     );
@@ -332,11 +334,11 @@ async function moveRowsToArchive(tx, config) {
     await tx.query(
       `DELETE FROM customer_orders
        WHERE location_id = $1
-         AND pickup_at < $2
-         AND status IN ('picked_up', 'delivered', 'cancelled')`,
+         AND COALESCE(pickup_at, created_at) < $2`,
       [config.locationId, config.cutoffAt]
     );
   }
+  if (counts.order_items === undefined) counts.order_items = 0;
 
   const staffPayments = await insertArchiveRows(tx, {
     sourceTable: 'staff_payments',
@@ -352,7 +354,7 @@ async function moveRowsToArchive(tx, config) {
   return counts;
 }
 
-export async function runArchiveForLocation({ locationId, userId = null, runType = 'scheduled', forceRun = false, forceCutoffNow = false }) {
+export async function runArchiveForLocation({ locationId, userId = null, runType = 'scheduled', forceRun = false, forceCutoffNow = false, fullWipe = false }) {
   const settings = await ensureArchiveSettings(locationId, userId);
   if (!settings.enabled && !forceRun) {
     await query(
@@ -364,9 +366,11 @@ export async function runArchiveForLocation({ locationId, userId = null, runType
   }
 
   const retentionMonths = Number(settings.retention_months || 6);
-  const cutoffResult = forceCutoffNow
-    ? await query('SELECT CURRENT_TIMESTAMP AS cutoff_at')
-    : await query(`SELECT (CURRENT_TIMESTAMP - ($1::text || ' months')::interval) AS cutoff_at`, [retentionMonths]);
+  const cutoffResult = fullWipe
+    ? await query("SELECT '9999-12-31T23:59:59.000Z'::timestamptz AS cutoff_at")
+    : forceCutoffNow
+      ? await query('SELECT CURRENT_TIMESTAMP AS cutoff_at')
+      : await query(`SELECT (CURRENT_TIMESTAMP - ($1::text || ' months')::interval) AS cutoff_at`, [retentionMonths]);
   const cutoffAt = cutoffResult.rows[0].cutoff_at;
 
   try {
@@ -391,14 +395,14 @@ export async function runArchiveForLocation({ locationId, userId = null, runType
         tx,
         locationId,
         'Archive run completed',
-        `History archiving finished. Batches: ${counts.inventory_batches}, Sales: ${counts.sales}, Inventory logs: ${counts.inventory_movements}, Activity logs: ${counts.activity_log}, Expenses: ${counts.expenses}, Waste records: ${counts.waste_records || 0}, Staff payments: ${counts.staff_payments}, Pre-orders: ${counts.customer_orders || 0}.`,
+        `History archiving finished. Batches: ${counts.inventory_batches}, Batch items: ${counts.batch_items || 0}, Sales: ${counts.sales}, Inventory logs: ${counts.inventory_movements}, Activity logs: ${counts.activity_log}, Expenses: ${counts.expenses}, Waste records: ${counts.waste_records || 0}, Staff payments: ${counts.staff_payments}, Pre-orders: ${counts.customer_orders || 0}, Order items: ${counts.order_items || 0}.`,
         'archive_completed'
       );
 
       return counts;
     });
 
-    return { skipped: false, cutoffAt, details, forceRun: Boolean(forceRun), forceCutoffNow: Boolean(forceCutoffNow) };
+    return { skipped: false, cutoffAt, details, forceRun: Boolean(forceRun), forceCutoffNow: Boolean(forceCutoffNow), fullWipe: Boolean(fullWipe) };
   } catch (err) {
     await query(
       `INSERT INTO archive_runs (location_id, triggered_by, run_type, status, cutoff_at, details, error_message)

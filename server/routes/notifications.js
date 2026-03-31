@@ -4,6 +4,7 @@ import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
 
 const router = express.Router();
+const MANAGER_ALLOWED_NOTIFICATION_TYPES = ['low_stock', 'out_of_stock', 'order_created', 'order_updated', 'order_deleted'];
 
 router.get('/rules', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
@@ -66,10 +67,16 @@ router.get('/', authenticateToken, async (req, res) => {
     const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 100) : 50;
 
     let queryText = `SELECT * FROM notifications WHERE user_id = $1`;
+    const params = [req.user.id];
+    if (req.user.role === 'manager') {
+      params.push(MANAGER_ALLOWED_NOTIFICATION_TYPES);
+      queryText += ` AND notification_type = ANY($${params.length}::text[])`;
+    }
     if (unreadOnly) queryText += ' AND is_read = false';
-    queryText += ' ORDER BY is_read ASC, created_at DESC, id DESC LIMIT $2';
+    params.push(limit);
+    queryText += ` ORDER BY is_read ASC, created_at DESC, id DESC LIMIT $${params.length}`;
 
-    const result = await query(queryText, [req.user.id, limit]);
+    const result = await query(queryText, params);
     res.json(result.rows);
   } catch (err) {
     console.error('Get notifications error:', err);
@@ -99,7 +106,13 @@ router.put('/mark-all-read', authenticateToken, async (req, res) => {
 
 router.get('/unread/count', authenticateToken, async (req, res) => {
   try {
-    const result = await query('SELECT COUNT(*) as unread_count FROM notifications WHERE user_id = $1 AND is_read = false', [req.user.id]);
+    const params = [req.user.id];
+    let queryText = 'SELECT COUNT(*) as unread_count FROM notifications WHERE user_id = $1 AND is_read = false';
+    if (req.user.role === 'manager') {
+      params.push(MANAGER_ALLOWED_NOTIFICATION_TYPES);
+      queryText += ` AND notification_type = ANY($${params.length}::text[])`;
+    }
+    const result = await query(queryText, params);
     res.json({ unread_count: parseInt(result.rows[0].unread_count, 10) });
   } catch (err) {
     console.error('Get unread count error:', err);

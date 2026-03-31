@@ -13,6 +13,9 @@ This project supports three operational roles.
 - Manages inventory and batches.
 - Can create, edit, and void batches only within the configured safety edit window.
 - Can view manager-scoped notifications.
+- Expense category scope is private per manager account (only self-created categories are visible/usable/deletable).
+- Expense records are manager-private (a manager only sees their own expenses).
+- Does not receive admin expense notifications.
 - Cannot access admin-only HR/account/security panels.
 
 ## Cashier (`cashier`)
@@ -26,3 +29,5 @@ This project supports three operational roles.
 - Authorization is route-level with role guards.
 - Location scope is enforced server-side where applicable.
 - Sensitive operations use strict validation and consistent error contracts.
+- Admin users can see all branch expenses and all expense categories.
+- Staff-payment selection is migration-safe: active standalone manager/cashier accounts are included even when staff profile linkage is incomplete.

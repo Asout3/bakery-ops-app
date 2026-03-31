@@ -48,6 +48,7 @@ router.put(
 router.post('/run', authenticateToken, authorizeRoles('admin'), asyncHandler(async (req, res) => {
   const locationId = await getTargetLocationId(req, query);
   const phrase = req.body?.confirmation_phrase;
+  const fullWipe = req.body?.full_wipe !== false;
   if (phrase !== DEFAULT_CONFIRMATION_PHRASE) {
     throw new AppError('Confirmation phrase mismatch', 400, 'ARCHIVE_CONFIRMATION_MISMATCH');
   }
@@ -58,6 +59,7 @@ router.post('/run', authenticateToken, authorizeRoles('admin'), asyncHandler(asy
     runType: 'manual',
     forceRun: true,
     forceCutoffNow: true,
+    fullWipe,
   });
   res.json(result);
 }));

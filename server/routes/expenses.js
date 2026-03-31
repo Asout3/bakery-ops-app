@@ -74,14 +74,16 @@ router.get('/categories', authenticateToken, authorizeRoles('admin', 'manager'),
   try {
     const locationId = await getTargetLocationId(req, query);
     const { hasExpenseCategoriesTable } = await getExpenseSchemaSupport();
+    const visibilityFilter = req.user.role === 'manager' ? ' AND created_by = $2' : '';
+    const visibilityParams = req.user.role === 'manager' ? [locationId, req.user.id] : [locationId];
 
     if (hasExpenseCategoriesTable) {
       const result = await query(
         `SELECT id, name, created_at
          FROM expense_categories
-         WHERE location_id = $1
+         WHERE location_id = $1${visibilityFilter}
          ORDER BY name ASC`,
-        [locationId]
+        visibilityParams
       );
       return res.json(result.rows);
     }
@@ -89,10 +91,10 @@ router.get('/categories', authenticateToken, authorizeRoles('admin', 'manager'),
     const fallback = await query(
       `SELECT NULL::int as id, category as name, MIN(created_at) as created_at
        FROM expenses
-       WHERE location_id = $1
+       WHERE location_id = $1 ${req.user.role === 'manager' ? 'AND created_by = $2' : ''}
        GROUP BY category
        ORDER BY category ASC`,
-      [locationId]
+      visibilityParams
     );
     return res.json(fallback.rows);
   } catch (err) {
@@ -103,7 +105,7 @@ router.get('/categories', authenticateToken, authorizeRoles('admin', 'manager'),
 
 router.post('/categories',
   authenticateToken,
-  authorizeRoles('admin'),
+  authorizeRoles('admin', 'manager'),
   body('name').trim().notEmpty(),
   async (req, res) => {
     const errors = validationResult(req);
@@ -144,7 +146,7 @@ router.post('/categories',
   }
 );
 
-router.delete('/categories/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+router.delete('/categories/:id', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
     const locationId = await getTargetLocationId(req, query);
     const { hasExpenseCategoriesTable } = await getExpenseSchemaSupport();
@@ -152,9 +154,12 @@ router.delete('/categories/:id', authenticateToken, authorizeRoles('admin'), asy
       return res.status(409).json({ error: 'Expense category table is not available', code: 'EXPENSE_CATEGORY_SCHEMA_MISSING', requestId: req.requestId });
     }
 
-    const category = await query('SELECT id, name FROM expense_categories WHERE id = $1 AND location_id = $2', [req.params.id, locationId]);
+    const category = await query('SELECT id, name, created_by FROM expense_categories WHERE id = $1 AND location_id = $2', [req.params.id, locationId]);
     if (!category.rows.length) {
       return res.status(404).json({ error: 'Category not found', code: 'NOT_FOUND', requestId: req.requestId });
+    }
+    if (req.user.role === 'manager' && Number(category.rows[0].created_by) !== Number(req.user.id)) {
+      return res.status(403).json({ error: 'You can only delete your own categories', code: 'EXPENSE_CATEGORY_FORBIDDEN', requestId: req.requestId });
     }
 
     const usage = await query(
@@ -241,8 +246,12 @@ router.post('/',
 
       if (hasExpenseCategoriesTable) {
         const categoryExists = await query(
-          `SELECT id FROM expense_categories WHERE location_id = $1 AND LOWER(name) = LOWER($2) LIMIT 1`,
-          [locationId, category]
+          `SELECT id
+           FROM expense_categories
+           WHERE location_id = $1 AND LOWER(name) = LOWER($2)
+             ${req.user.role === 'manager' ? 'AND created_by = $3' : ''}
+           LIMIT 1`,
+          req.user.role === 'manager' ? [locationId, category, req.user.id] : [locationId, category]
         );
         if (!categoryExists.rows.length) {
           return res.status(400).json({ error: 'Invalid expense category', code: 'INVALID_EXPENSE_CATEGORY', requestId: req.requestId });
@@ -300,7 +309,7 @@ router.post('/',
           `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
            SELECT id, $1, 'Expense Added', $2, 'expense_created'
            FROM users
-           WHERE role IN ('admin', 'manager') AND is_active = true AND (location_id = $1 OR location_id IS NULL)`,
+           WHERE role = 'admin' AND is_active = true AND (location_id = $1 OR location_id IS NULL)`,
           [locationId, `Expense ${category} was added for ETB ${Number(amount).toFixed(2)}.`]
         );
       } catch (notifyErr) {
@@ -421,11 +430,11 @@ router.get('/summary/categories', authenticateToken, authorizeRoles('admin', 'ma
     const endDate = req.query.end_date;
 
     let queryText = `
-      SELECT category,
+      SELECT e.category,
              SUM(amount) as total_amount,
              COUNT(*) as count
-      FROM expenses
-      WHERE location_id = $1
+      FROM expenses e
+      WHERE e.location_id = $1
     `;
 
     const params = [locationId];
@@ -437,12 +446,12 @@ router.get('/summary/categories', authenticateToken, authorizeRoles('admin', 'ma
 
     if (startDate) {
       params.push(startDate);
-      queryText += ` AND expense_date >= $${params.length}`;
+      queryText += ` AND e.expense_date >= $${params.length}`;
     }
 
     if (endDate) {
       params.push(endDate);
-      queryText += ` AND expense_date <= $${params.length}`;
+      queryText += ` AND e.expense_date <= $${params.length}`;
     }
 
     queryText += ' GROUP BY category ORDER BY total_amount DESC';

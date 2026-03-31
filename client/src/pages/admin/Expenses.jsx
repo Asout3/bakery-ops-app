@@ -22,6 +22,8 @@ export default function ExpensesPage() {
   const [editingExpense, setEditingExpense] = useState(null);
   const [selectedDay, setSelectedDay] = useState('');
   const [showDescription, setShowDescription] = useState(null);
+  const [isSubmittingExpense, setIsSubmittingExpense] = useState(false);
+  const [isSubmittingCategory, setIsSubmittingCategory] = useState(false);
   const hasManagedCategories = categories.some((category) => category.id);
   const toast = useToast();
   const [formData, setFormData] = useState({
@@ -77,10 +79,12 @@ export default function ExpensesPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmittingExpense) return;
     if (!isAdmin && !categories.some((category) => String(category.name) === String(formData.category))) {
       setMessage({ type: 'danger', text: 'Managers must select an existing expense category.' });
       return;
     }
+    setIsSubmittingExpense(true);
     try {
       if (editingExpense) {
         await api.put(`/expenses/${editingExpense.id}`, formData);
@@ -100,10 +104,15 @@ export default function ExpensesPage() {
         setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to save expense.') });
       }
     }
+    finally {
+      setIsSubmittingExpense(false);
+    }
   };
 
   const handleCreateCategory = async () => {
+    if (isSubmittingCategory) return;
     if (!newCategoryName.trim()) return;
+    setIsSubmittingCategory(true);
     try {
       const response = await api.post('/expenses/categories', { name: newCategoryName.trim() });
       setCategories((current) => [...current, response.data].sort((a, b) => a.name.localeCompare(b.name)));
@@ -112,6 +121,8 @@ export default function ExpensesPage() {
       setMessage({ type: 'success', text: 'Category created.' });
     } catch (err) {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to create category.') });
+    } finally {
+      setIsSubmittingCategory(false);
     }
   };
 
@@ -177,17 +188,17 @@ export default function ExpensesPage() {
         <div className="modal-overlay" onClick={resetForm}><div className="modal-content" onClick={(e) => e.stopPropagation()}><div className="modal-header"><h3>{editingExpense ? 'Edit Expense' : 'Add New Expense'}</h3><button className="close-btn" onClick={resetForm}>×</button></div>
           <form onSubmit={handleSubmit} className="modal-body">
             <div className="mb-3"><label className="form-label">Category *</label>{categories.length > 0 ? (<select className="form-select" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} required><option value="">Select Category</option>{categories.map((category) => <option key={category.id || category.name} value={category.name}>{category.name}</option>)}</select>) : (<input className="form-control" value={formData.category} readOnly placeholder="No categories available. Ask admin to create one." required />)}</div>
-            {isAdmin && !editingExpense && (
+            {!editingExpense && (
               <div className="mb-3">
                 <label className="form-label">Manage Categories</label>
-                <div className="d-flex gap-2 mb-2"><input className="form-control" value={newCategoryName} placeholder="New category name" onChange={(e) => setNewCategoryName(e.target.value)} /><button type="button" className="btn btn-outline-primary" onClick={handleCreateCategory}>Create</button></div>
+                <div className="d-flex gap-2 mb-2"><input className="form-control" value={newCategoryName} placeholder="New category name" onChange={(e) => setNewCategoryName(e.target.value)} /><button type="button" className="btn btn-outline-primary" onClick={handleCreateCategory} disabled={isSubmittingCategory}>{isSubmittingCategory ? 'Creating…' : 'Create'}</button></div>
                 <div className="d-flex flex-wrap gap-2">{categories.map((category) => (isAdmin ? <button key={category.id} type="button" className="btn btn-sm btn-outline-danger" onClick={() => handleDeleteCategory(category.id)}>{category.name} ×</button> : <span key={category.id || category.name} className="badge badge-secondary">{category.name}</span>))}</div>
               </div>
             )}
             <div className="mb-3"><label className="form-label">Description</label><textarea className="form-control" rows="3" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} /></div>
             <div className="mb-3"><label className="form-label">Amount *</label><input type="number" className="form-control" min="0" step="0.01" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required /></div>
             <div className="mb-3"><label className="form-label">Date *</label><input type="date" className="form-control" value={formData.expense_date} onChange={(e) => setFormData({ ...formData, expense_date: e.target.value })} required /></div>
-            <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForm}>Cancel</button><button type="submit" className="btn btn-primary">{editingExpense ? 'Update Expense' : 'Add Expense'}</button></div>
+            <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForm} disabled={isSubmittingExpense}>Cancel</button><button type="submit" className="btn btn-primary" disabled={isSubmittingExpense}>{isSubmittingExpense ? 'Saving…' : (editingExpense ? 'Update Expense' : 'Add Expense')}</button></div>
           </form>
         </div></div>
       )}

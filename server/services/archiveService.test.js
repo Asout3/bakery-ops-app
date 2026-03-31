@@ -170,18 +170,20 @@ test('moveRowsToArchive builds explicit archive column lists instead of SELECT *
 
   assert.deepEqual(counts, {
     inventory_batches: 0,
+    batch_items: 0,
     sales: 0,
     inventory_movements: 0,
     activity_log: 0,
     expenses: 0,
     waste_records: 0,
     customer_orders: 0,
+    order_items: 0,
     staff_payments: 0,
   });
   assert.ok(calls.some((call) => call.text.includes('INSERT INTO "inventory_batches_archive" ("id", "location_id", "created_at")')));
   assert.ok(calls.some((call) => call.text.includes('INSERT INTO "waste_records_archive" ("id", "location_id", "wasted_at")')));
   assert.ok(calls.some((call) => call.text.includes('SELECT "id", "location_id", "created_at"')));
-  assert.ok(calls.some((call) => call.text.includes("status IN ('picked_up', 'delivered', 'cancelled')")));
+  assert.ok(calls.some((call) => call.text.includes('AND COALESCE(pickup_at, created_at) < $2')));
   assert.ok(calls.every((call) => !call.text.includes('SELECT * FROM inventory_batches')));
   assert.ok(calls.every((call) => !call.text.includes('INSERT INTO inventory_batches_archive\n      SELECT *')));
 });
