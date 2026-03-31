@@ -3,32 +3,25 @@ import assert from 'node:assert/strict';
 import { createLowStockNotificationIfNeeded } from './stockAlertService.js';
 
 test('createLowStockNotificationIfNeeded emits only on state transitions (normal->low, low->out)', async () => {
-  const stateByKey = new Map();
   const notifications = [];
-  const snapshotByProduct = new Map([
-    [21, { product_id: 21, name: 'Croissant', group_name: 'Pastry', quantity: 3, threshold: 5 }],
-    [22, { product_id: 22, name: 'Croissant', group_name: 'Pastry', quantity: 0, threshold: 5 }],
-    [23, { product_id: 23, name: 'Croissant', group_name: 'Pastry', quantity: 8, threshold: 5 }],
-  ]);
+  const snapshotByProduct = new Map([[21, { product_id: 21, name: 'Croissant', group_name: 'Pastry', quantity: 3, threshold: 5 }]]);
+  const lastTypeByProduct = new Map();
 
   const db = {
     async query(text, params = []) {
       if (text.includes('COALESCE(') && text.includes('low_stock_threshold')) {
         return { rows: [snapshotByProduct.get(Number(params[1]))] };
       }
-      if (text.includes('CREATE TABLE IF NOT EXISTS stock_alert_states')) return { rows: [], rowCount: 0 };
-      if (text.includes('FROM stock_alert_states')) {
-        const key = `${params[0]}:${params[1]}`;
-        const row = stateByKey.get(key);
-        return { rows: row ? [{ last_state: row.last_state }] : [] };
+      if (text.includes('FROM notifications') && text.includes('notification_type = ANY')) {
+        const messageLike = String(params[2] || '');
+        const key = `${params[0]}:${messageLike}`;
+        const type = lastTypeByProduct.get(key);
+        return { rows: type ? [{ notification_type: type }] : [] };
       }
       if (text.includes('INSERT INTO notifications')) {
+        const key = `${params[0]}:${String(params[2]).split(' is ')[0]}%`;
+        lastTypeByProduct.set(key, params[3]);
         notifications.push({ type: params[3], message: params[2] });
-        return { rows: [], rowCount: 1 };
-      }
-      if (text.includes('INSERT INTO stock_alert_states')) {
-        const key = `${params[0]}:${params[1]}`;
-        stateByKey.set(key, { last_state: params[2] || 'normal' });
         return { rows: [], rowCount: 1 };
       }
       return { rows: [], rowCount: 0 };
@@ -37,8 +30,10 @@ test('createLowStockNotificationIfNeeded emits only on state transitions (normal
 
   const low = await createLowStockNotificationIfNeeded(db, 1, 21);
   const sameLow = await createLowStockNotificationIfNeeded(db, 1, 21);
-  const out = await createLowStockNotificationIfNeeded(db, 1, 22);
-  const recovered = await createLowStockNotificationIfNeeded(db, 1, 23);
+  snapshotByProduct.set(21, { product_id: 21, name: 'Croissant', group_name: 'Pastry', quantity: 0, threshold: 5 });
+  const out = await createLowStockNotificationIfNeeded(db, 1, 21);
+  snapshotByProduct.set(21, { product_id: 21, name: 'Croissant', group_name: 'Pastry', quantity: 8, threshold: 5 });
+  const recovered = await createLowStockNotificationIfNeeded(db, 1, 21);
 
   assert.equal(low.triggered, true);
   assert.equal(low.nextState, 'low_stock');
