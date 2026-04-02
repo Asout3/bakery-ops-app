@@ -2,22 +2,19 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, us
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import api from '../api/axios';
+import {
+  MAX_POLL_MS,
+  getBasePollDelay,
+  getInitialNotificationsToAnnounce,
+  getLatestNotificationTimestamp,
+  getNewNotificationsToAnnounce,
+  resolveNotificationTargetPath,
+  resolveSeenCacheKey,
+  sortNotificationsDesc,
+  toNotificationToken,
+} from './notificationClientUtils';
 
 const NotificationContext = createContext(null);
-
-const BASE_POLL_MS = 8000;
-const MAX_POLL_MS = 45000;
-const SHOWN_NOTIFICATION_CACHE_KEY_PREFIX = 'bakery_notification_seen_tokens';
-
-function resolveSeenCacheKey(userId, role) {
-  const userPart = userId ? String(userId) : 'anonymous';
-  const rolePart = role ? String(role) : 'unknown';
-  return `${SHOWN_NOTIFICATION_CACHE_KEY_PREFIX}:${userPart}:${rolePart}`;
-}
-
-function toNotificationToken(notification) {
-  return `${notification?.id || 'na'}:${notification?.created_at || 'na'}`;
-}
 
 function readSeenNotificationTokens(cacheKey) {
   try {
@@ -65,16 +62,6 @@ async function showSystemNotification(notification, targetUrl) {
   new Notification(payload.title, { body: payload.body, tag: payload.tag, data: payload.data });
 }
 
-function resolveNotificationTargetPath(role, notification) {
-  if (role === 'manager') return '/manager/notifications';
-  if (role === 'cashier') {
-    const type = String(notification?.notification_type || '');
-    if (type.startsWith('order_')) return '/cashier/orders';
-    return '/cashier/sales';
-  }
-  return '/admin/notifications';
-}
-
 export function NotificationProvider({ children }) {
   const { isAuthenticated, loading: authLoading, user } = useAuth();
   const toast = useToast();
@@ -83,11 +70,12 @@ export function NotificationProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [permission, setPermission] = useState(typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported');
   const pollTimeoutRef = useRef(null);
-  const pollDelayRef = useRef(BASE_POLL_MS);
+  const pollDelayRef = useRef(getBasePollDelay(typeof document !== 'undefined' ? document.visibilityState : 'visible'));
   const initializedRef = useRef(false);
   const seenNotificationTokensRef = useRef(new Set());
   const seenCacheKeyRef = useRef(resolveSeenCacheKey(user?.id, user?.role));
   const lastHandledNotificationTsRef = useRef(0);
+  const fetchPromiseRef = useRef(null);
 
   const clearPollTimeout = useCallback(() => {
     if (pollTimeoutRef.current) {
@@ -102,21 +90,16 @@ export function NotificationProvider({ children }) {
   }, [user?.role]);
 
   const handleIncomingNotifications = useCallback(async (list) => {
-    const sorted = [...(list || [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const sorted = sortNotificationsDesc(list);
     const unread = sorted.filter((item) => !item.is_read).length;
     setNotifications(sorted);
     setUnreadCount(unread);
 
     const seenTokens = seenNotificationTokensRef.current;
     const cacheKey = seenCacheKeyRef.current;
-    const latestTs = sorted.reduce((max, item) => {
-      const ts = new Date(item.created_at || 0).getTime();
-      return Number.isFinite(ts) ? Math.max(max, ts) : max;
-    }, 0);
+    const latestTs = getLatestNotificationTimestamp(sorted);
     if (!initializedRef.current) {
-      const initialUnread = sorted
-        .filter((item) => !item.is_read)
-        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      const initialUnread = getInitialNotificationsToAnnounce(sorted, seenTokens);
       sorted.forEach((item) => seenTokens.add(toNotificationToken(item)));
       persistSeenNotificationTokens(cacheKey, seenTokens);
       lastHandledNotificationTsRef.current = latestTs;
@@ -126,7 +109,8 @@ export function NotificationProvider({ children }) {
         const targetPath = resolveNotificationTargetPath(user?.role, notification);
         toast.info(notification.message, {
           title: notification.title,
-          duration: 7000,
+          duration: 5000,
+          dedupeKey: `notification:${toNotificationToken(notification)}`,
           actionLabel: user?.role === 'cashier' ? '' : 'Open',
           onAction: user?.role === 'cashier' ? undefined : openNotificationsCenter,
         });
@@ -137,16 +121,7 @@ export function NotificationProvider({ children }) {
       return;
     }
 
-    const unseen = sorted.filter((item) => !seenTokens.has(toNotificationToken(item)));
-    const timeNew = sorted.filter((item) => {
-      const ts = new Date(item.created_at || 0).getTime();
-      return Number.isFinite(ts) && ts > (lastHandledNotificationTsRef.current || 0);
-    });
-    const announceMap = new Map();
-    for (const item of [...unseen, ...timeNew]) {
-      announceMap.set(String(item.id), item);
-    }
-    const announceList = [...announceMap.values()].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    const announceList = getNewNotificationsToAnnounce(sorted, seenTokens, lastHandledNotificationTsRef.current);
     if (!announceList.length) {
       if (latestTs > (lastHandledNotificationTsRef.current || 0)) {
         lastHandledNotificationTsRef.current = latestTs;
@@ -164,7 +139,8 @@ export function NotificationProvider({ children }) {
       const targetPath = resolveNotificationTargetPath(user?.role, notification);
       toast.info(notification.message, {
         title: notification.title,
-        duration: 7000,
+        duration: 5000,
+        dedupeKey: `notification:${toNotificationToken(notification)}`,
         actionLabel: user?.role === 'cashier' ? '' : 'Open',
         onAction: user?.role === 'cashier' ? undefined : openNotificationsCenter,
       });
@@ -176,44 +152,62 @@ export function NotificationProvider({ children }) {
 
   const fetchNotifications = useCallback(async ({ silent = false } = {}) => {
     if (!isAuthenticated || authLoading) return false;
+    if (fetchPromiseRef.current) {
+      return fetchPromiseRef.current;
+    }
     if (!silent) setLoading(true);
 
-    try {
-      const response = await api.get('/notifications', {
-        params: { limit: 100, _ts: Date.now() },
-        headers: { 'X-Skip-Auth-Redirect': 'true', 'Cache-Control': 'no-cache' },
-      });
-      await handleIncomingNotifications(response.data || []);
-      return true;
-    } catch (err) {
-      if (err.response?.status === 401) {
-        setNotifications([]);
-        setUnreadCount(0);
+    fetchPromiseRef.current = (async () => {
+      try {
+        const response = await api.get('/notifications', {
+          params: { limit: 100, _ts: Date.now() },
+          headers: { 'X-Skip-Auth-Redirect': 'true', 'Cache-Control': 'no-cache' },
+        });
+        await handleIncomingNotifications(response.data || []);
+        return true;
+      } catch (err) {
+        if (err.response?.status === 401) {
+          setNotifications([]);
+          setUnreadCount(0);
+          return false;
+        }
+        console.error('Failed to fetch notifications:', err);
         return false;
+      } finally {
+        fetchPromiseRef.current = null;
+        if (!silent) setLoading(false);
       }
-      console.error('Failed to fetch notifications:', err);
-      return false;
-    } finally {
-      if (!silent) setLoading(false);
-    }
+    })();
+
+    return fetchPromiseRef.current;
   }, [authLoading, handleIncomingNotifications, isAuthenticated]);
 
-  const schedulePolling = useCallback(async () => {
+  const schedulePolling = useCallback(async ({ immediate = false } = {}) => {
     clearPollTimeout();
 
     if (!isAuthenticated || authLoading) {
       return;
     }
 
+    const visibilityState = typeof document !== 'undefined' ? document.visibilityState : 'visible';
+    const baseDelay = getBasePollDelay(visibilityState);
+
+    if (!immediate) {
+      pollTimeoutRef.current = window.setTimeout(() => {
+        void schedulePolling({ immediate: true });
+      }, pollDelayRef.current || baseDelay);
+      return;
+    }
+
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      pollDelayRef.current = Math.min(MAX_POLL_MS, pollDelayRef.current * 2);
+      pollDelayRef.current = Math.min(MAX_POLL_MS, Math.max(baseDelay * 2, (pollDelayRef.current || baseDelay) * 2));
     } else {
       const success = await fetchNotifications({ silent: true });
-      pollDelayRef.current = success ? BASE_POLL_MS : Math.min(MAX_POLL_MS, pollDelayRef.current * 2);
+      pollDelayRef.current = success ? baseDelay : Math.min(MAX_POLL_MS, Math.max(baseDelay * 2, (pollDelayRef.current || baseDelay) * 2));
     }
 
     pollTimeoutRef.current = window.setTimeout(() => {
-      schedulePolling();
+      void schedulePolling({ immediate: true });
     }, pollDelayRef.current);
   }, [authLoading, clearPollTimeout, fetchNotifications, isAuthenticated]);
 
@@ -280,6 +274,7 @@ export function NotificationProvider({ children }) {
       initializedRef.current = false;
       seenNotificationTokensRef.current = new Set();
       lastHandledNotificationTsRef.current = 0;
+      fetchPromiseRef.current = null;
       clearPollTimeout();
       return;
     }
@@ -288,18 +283,16 @@ export function NotificationProvider({ children }) {
     seenCacheKeyRef.current = cacheKey;
     seenNotificationTokensRef.current = readSeenNotificationTokens(cacheKey);
 
-    pollDelayRef.current = BASE_POLL_MS;
-    fetchNotifications();
-    schedulePolling();
+    pollDelayRef.current = getBasePollDelay(typeof document !== 'undefined' ? document.visibilityState : 'visible');
+    void schedulePolling({ immediate: true });
 
     const handleVisibilityChange = () => {
       if (typeof window !== 'undefined' && 'Notification' in window) {
         setPermission(Notification.permission);
       }
       if (document.visibilityState === 'visible') {
-        pollDelayRef.current = BASE_POLL_MS;
-        fetchNotifications({ silent: true });
-        schedulePolling();
+        pollDelayRef.current = getBasePollDelay('visible');
+        void schedulePolling({ immediate: true });
       }
     };
 
@@ -311,13 +304,13 @@ export function NotificationProvider({ children }) {
       window.removeEventListener('online', handleVisibilityChange);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [authLoading, clearPollTimeout, fetchNotifications, isAuthenticated, schedulePolling, user?.id]);
+  }, [authLoading, clearPollTimeout, isAuthenticated, schedulePolling, user?.id, user?.role]);
 
   const refresh = useCallback(async (options = {}) => {
     const success = await fetchNotifications(options);
     if (success) {
-      pollDelayRef.current = BASE_POLL_MS;
-      schedulePolling();
+      pollDelayRef.current = getBasePollDelay(typeof document !== 'undefined' ? document.visibilityState : 'visible');
+      void schedulePolling();
     }
     return success;
   }, [fetchNotifications, schedulePolling]);
