@@ -80,7 +80,6 @@ export default function StaffPaymentsPage() {
     setStaffLoadError('');
     try {
       const requestConfig = {
-        headers: { 'Cache-Control': 'no-cache' },
         params: { ...(selectedLocationId ? { location_id: selectedLocationId } : {}), _ts: Date.now() },
       };
       const [paymentsResult, staffResult] = await Promise.allSettled([

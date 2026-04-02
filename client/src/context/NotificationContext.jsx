@@ -161,7 +161,7 @@ export function NotificationProvider({ children }) {
       try {
         const response = await api.get('/notifications', {
           params: { limit: 100, _ts: Date.now() },
-          headers: { 'X-Skip-Auth-Redirect': 'true', 'Cache-Control': 'no-cache' },
+          headers: { 'X-Skip-Auth-Redirect': 'true' },
         });
         await handleIncomingNotifications(response.data || []);
         return true;
