@@ -7,5 +7,5 @@ test('offline-synced batches do not emit batch notifications', async () => {
   assert.match(source, /if \(!isFromOfflineQueue\)\s*\{\s*await insertNotificationsForRecipients\(tx, \{/s);
   assert.match(source, /notificationType: 'batch'/);
   assert.match(source, /includeManagers: true/);
-  assert.match(source, /includeCashiers: true/);
+  assert.doesNotMatch(source, /includeCashiers: true/);
 });

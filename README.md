@@ -169,7 +169,7 @@ sequenceDiagram
 - History Lifecycle API calls now use long-running request timeouts for archive run/export to avoid false client-side timeout failures on large datasets.
 - Manual History Lifecycle runs now execute full transactional cleanup scope (sales, sale items, batches, batch items, orders, order items, expenses, staff payments, waste, inventory/activity logs) while keeping staff accounts and products intact.
 - Archive row-move accounting now safely supports both `SELECT COUNT(*)` and driver-level `rowCount` mutation responses, preventing lifecycle crashes when DB drivers return different mutation payload shapes.
-- Ground Manager notification visibility is branch-scoped and now covers the operational events they act on: `batch`, `low_stock`, `out_of_stock`, `order_created`, `order_updated`, `product_created`, and `product_updated`.
+- Notification delivery is now role-scoped for the single-site operating model: admins receive every persisted notification, managers receive stock/batch/pre-order notifications, and cashiers receive toast alerts for stock and pre-order events without a notification center workflow.
 - Pre-order performance is now emphasized on the Orders page (product details, pickup time, and audit context), while Sales keeps its Batch Performance history view for operational stock review.
 - Staff-payment UI data loading is now fault-tolerant: payments and staff sources are fetched independently, stale branch selections are healed against active locations after database switches, and the page falls back to `/api/admin/staff` when `/api/admin/staff-for-payments` is unavailable.
 - Batch edit workflows now ignore already-voided stock rows from prior edits, allowing multiple valid edits within the full 20-minute window.
@@ -226,7 +226,8 @@ When a remote reviewer reports they cannot see merged changes, confirm the follo
 
 - Notifications are fetched as full content records instead of only an unread count.
 - Admin accounts receive all notification types.
-- Ground Manager accounts receive same-branch operational notifications for batches, stock alerts, pre-orders, and product/variant create-update events.
+- Ground Manager accounts receive operational notifications for `batch`, `batch_updated`, `low_stock`, `out_of_stock`, `order_created`, `order_updated`, and `order_deleted`.
+- Cashier accounts do not use a notifications page, but they do receive live toast/system alerts for stock and pre-order events (`low_stock`, `out_of_stock`, `order_created`, `order_updated`, `order_deleted`).
 - New server notifications trigger in-app toast banners while the app is open.
 - When the tab is in the background and browser permission is granted, the service worker displays OS-level browser notifications using the Notifications API and routes the click target to the correct role-specific notifications page.
 - Duplicate alerts are suppressed client-side by tracking seen notification IDs and service-worker notification tags.

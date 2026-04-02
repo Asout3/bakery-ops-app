@@ -500,7 +500,6 @@ router.post(
             notificationType: 'batch',
             includeAdmins: true,
             includeManagers: true,
-            includeCashiers: true,
           });
         } else {
           await insertNotificationsForRecipients(tx, {
@@ -762,6 +761,15 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
           metadata: { edited_batch_id: Number(req.params.id) },
         });
       }
+
+      await insertNotificationsForRecipients(tx, {
+        locationId,
+        title: `Batch Updated #${req.params.id}`,
+        message: `${req.user.username} edited batch #${req.params.id} with ${items.length} item rows.`,
+        notificationType: 'batch_updated',
+        includeAdmins: true,
+        includeManagers: true,
+      });
 
       const updated = await tx.query(`UPDATE inventory_batches SET status = 'edited', notes = COALESCE($1, notes) WHERE id = $2 RETURNING *`, [notes || null, req.params.id]);
       return updated.rows[0];

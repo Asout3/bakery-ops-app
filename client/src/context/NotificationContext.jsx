@@ -65,6 +65,16 @@ async function showSystemNotification(notification, targetUrl) {
   new Notification(payload.title, { body: payload.body, tag: payload.tag, data: payload.data });
 }
 
+function resolveNotificationTargetPath(role, notification) {
+  if (role === 'manager') return '/manager/notifications';
+  if (role === 'cashier') {
+    const type = String(notification?.notification_type || '');
+    if (type.startsWith('order_')) return '/cashier/orders';
+    return '/cashier/sales';
+  }
+  return '/admin/notifications';
+}
+
 export function NotificationProvider({ children }) {
   const { isAuthenticated, loading: authLoading, user } = useAuth();
   const toast = useToast();
@@ -87,7 +97,7 @@ export function NotificationProvider({ children }) {
   }, []);
 
   const openNotificationsCenter = useCallback(() => {
-    const targetPath = user?.role === 'manager' ? '/manager/notifications' : '/admin/notifications';
+    const targetPath = resolveNotificationTargetPath(user?.role, null);
     window.location.assign(targetPath);
   }, [user?.role]);
 
@@ -113,14 +123,15 @@ export function NotificationProvider({ children }) {
       initializedRef.current = true;
 
       for (const notification of initialUnread) {
+        const targetPath = resolveNotificationTargetPath(user?.role, notification);
         toast.info(notification.message, {
           title: notification.title,
           duration: 7000,
-          actionLabel: 'Open',
-          onAction: openNotificationsCenter,
+          actionLabel: user?.role === 'cashier' ? '' : 'Open',
+          onAction: user?.role === 'cashier' ? undefined : openNotificationsCenter,
         });
         if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-          await showSystemNotification(notification, user?.role === 'manager' ? '/manager/notifications' : '/admin/notifications');
+          await showSystemNotification(notification, targetPath);
         }
       }
       return;
@@ -150,14 +161,15 @@ export function NotificationProvider({ children }) {
     }
 
     for (const notification of announceList) {
+      const targetPath = resolveNotificationTargetPath(user?.role, notification);
       toast.info(notification.message, {
         title: notification.title,
         duration: 7000,
-        actionLabel: 'Open',
-        onAction: openNotificationsCenter,
+        actionLabel: user?.role === 'cashier' ? '' : 'Open',
+        onAction: user?.role === 'cashier' ? undefined : openNotificationsCenter,
       });
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-        await showSystemNotification(notification, user?.role === 'manager' ? '/manager/notifications' : '/admin/notifications');
+        await showSystemNotification(notification, targetPath);
       }
     }
   }, [openNotificationsCenter, toast, user?.role]);

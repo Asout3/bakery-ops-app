@@ -2,10 +2,11 @@ import express from 'express';
 import { query } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
-import { MANAGER_VISIBLE_NOTIFICATION_TYPES } from '../services/notificationDispatchService.js';
+import { CASHIER_NOTIFICATION_TYPES, MANAGER_NOTIFICATION_TYPES } from '../services/notificationDispatchService.js';
 
 const router = express.Router();
-const MANAGER_ALLOWED_NOTIFICATION_TYPES = MANAGER_VISIBLE_NOTIFICATION_TYPES;
+const MANAGER_ALLOWED_NOTIFICATION_TYPES = MANAGER_NOTIFICATION_TYPES;
+const CASHIER_ALLOWED_NOTIFICATION_TYPES = CASHIER_NOTIFICATION_TYPES;
 
 router.get('/rules', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
@@ -72,6 +73,9 @@ router.get('/', authenticateToken, async (req, res) => {
     if (req.user.role === 'manager') {
       params.push(MANAGER_ALLOWED_NOTIFICATION_TYPES);
       queryText += ` AND notification_type = ANY($${params.length}::text[])`;
+    } else if (req.user.role === 'cashier') {
+      params.push(CASHIER_ALLOWED_NOTIFICATION_TYPES);
+      queryText += ` AND notification_type = ANY($${params.length}::text[])`;
     }
     if (unreadOnly) queryText += ' AND is_read = false';
     params.push(limit);
@@ -111,6 +115,9 @@ router.get('/unread/count', authenticateToken, async (req, res) => {
     let queryText = 'SELECT COUNT(*) as unread_count FROM notifications WHERE user_id = $1 AND is_read = false';
     if (req.user.role === 'manager') {
       params.push(MANAGER_ALLOWED_NOTIFICATION_TYPES);
+      queryText += ` AND notification_type = ANY($${params.length}::text[])`;
+    } else if (req.user.role === 'cashier') {
+      params.push(CASHIER_ALLOWED_NOTIFICATION_TYPES);
       queryText += ` AND notification_type = ANY($${params.length}::text[])`;
     }
     const result = await query(queryText, params);

@@ -1,25 +1,31 @@
-export const MANAGER_VISIBLE_NOTIFICATION_TYPES = [
+export const MANAGER_NOTIFICATION_TYPES = [
   'batch',
+  'batch_updated',
   'low_stock',
   'out_of_stock',
   'order_created',
   'order_updated',
   'order_deleted',
-  'product_created',
-  'product_updated',
 ];
 
-function shouldIncludeManagers(notificationType, includeManagers) {
-  if (!includeManagers) return false;
-  return MANAGER_VISIBLE_NOTIFICATION_TYPES.includes(String(notificationType || ''));
-}
+export const CASHIER_NOTIFICATION_TYPES = [
+  'low_stock',
+  'out_of_stock',
+  'order_created',
+  'order_updated',
+  'order_deleted',
+];
 
-function buildScopedRoleClause(role) {
-  return `(role = '${role}' AND ($1 IS NULL OR location_id = $1 OR location_id IS NULL))`;
+function roleShouldReceiveType(role, notificationType) {
+  const normalizedType = String(notificationType || '');
+  if (role === 'admin') return true;
+  if (role === 'manager') return MANAGER_NOTIFICATION_TYPES.includes(normalizedType);
+  if (role === 'cashier') return CASHIER_NOTIFICATION_TYPES.includes(normalizedType);
+  return false;
 }
 
 export async function insertNotificationsForRecipients(db, {
-  locationId,
+  locationId = null,
   title,
   message,
   notificationType,
@@ -28,19 +34,18 @@ export async function insertNotificationsForRecipients(db, {
   includeCashiers = false,
 }) {
   const normalizedType = String(notificationType || '');
-  const includeManagersForType = shouldIncludeManagers(normalizedType, includeManagers);
   const recipientClauses = [];
 
-  if (includeAdmins) {
+  if (includeAdmins && roleShouldReceiveType('admin', normalizedType)) {
     recipientClauses.push(`role = 'admin'`);
   }
 
-  if (includeManagersForType) {
-    recipientClauses.push(buildScopedRoleClause('manager'));
+  if (includeManagers && roleShouldReceiveType('manager', normalizedType)) {
+    recipientClauses.push(`role = 'manager'`);
   }
 
-  if (includeCashiers) {
-    recipientClauses.push(buildScopedRoleClause('cashier'));
+  if (includeCashiers && roleShouldReceiveType('cashier', normalizedType)) {
+    recipientClauses.push(`role = 'cashier'`);
   }
 
   if (!recipientClauses.length) {
@@ -49,7 +54,7 @@ export async function insertNotificationsForRecipients(db, {
 
   await db.query(
     `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-     SELECT id, $1, $2, $3, $4
+     SELECT id, $1::integer, $2, $3, $4
      FROM users
      WHERE is_active = true
        AND (${recipientClauses.join(' OR ')})`,
