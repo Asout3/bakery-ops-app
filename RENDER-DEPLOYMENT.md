@@ -83,7 +83,7 @@ This guide will help you deploy the Bakery Operations backend to Render.com (FRE
 7. **Add Environment Variables**
    Scroll down to "Environment Variables" section and click "Add Environment Variable"
    
-   Add these THREE variables:
+   Add these FOUR variables:
    
    **Variable 1:**
    - Key: `DATABASE_URL`
@@ -96,6 +96,10 @@ This guide will help you deploy the Bakery Operations backend to Render.com (FRE
    **Variable 3:**
    - Key: `NODE_ENV`
    - Value: `production`
+
+   **Variable 4:**
+   - Key: `ALLOWED_ORIGINS`
+   - Value: your deployed frontend origin(s), comma-separated
 
 8. **Deploy!**
    - Click "Create Web Service"
@@ -137,6 +141,11 @@ This guide will help you deploy the Bakery Operations backend to Render.com (FRE
     
     Replace `bakery-ops-backend` with YOUR actual Render service name!
 
+    Preferred production setup:
+    - keep frontend requests on same-origin `/api`
+    - configure your frontend host to rewrite `/api/*` to the Render backend
+    - only use a direct `VITE_API_URL=https://...` backend origin when you also maintain matching `ALLOWED_ORIGINS`
+
 12. **Restart Frontend**
     ```bash
     cd /workspaces/bakery-ops-app
@@ -166,6 +175,8 @@ This guide will help you deploy the Bakery Operations backend to Render.com (FRE
 - Make sure VITE_API_URL has https:// and .com at the end
 - Restart frontend after changing .env
 - Check browser console for errors
+- If the frontend calls the backend directly, verify the frontend origin is present in `ALLOWED_ORIGINS`
+- If you use a frontend proxy or Vercel rewrite, verify `/api/*` still points at the current backend after a deployment or database switch
 
 ### Database connection failing?
 - Verify DATABASE_URL is the "External Database URL" from Render
@@ -198,7 +209,7 @@ Once everything works:
 - [ ] Copy database connection URL
 - [ ] Run setup-db script with Render database URL
 - [ ] Create Web Service for backend
-- [ ] Add 3 environment variables
+- [ ] Add 4 environment variables
 - [ ] Deploy backend
 - [ ] Get backend URL
 - [ ] Update client/.env with backend URL

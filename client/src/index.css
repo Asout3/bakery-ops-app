@@ -552,11 +552,15 @@ textarea, textarea.form-control, .form-note-input {
   font-size: 0.875rem;
   font-weight: 500;
   line-height: 1.45;
-  animation: slideInRight .22s ease;
+  animation: slideInRight .22s ease, toastFloat 5.4s ease-in-out infinite;
 }
 @keyframes slideInRight {
   from { transform: translateX(30px); opacity: 0; }
   to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes toastFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
 }
 .toast-accent {
   position: absolute;
@@ -628,6 +632,19 @@ textarea, textarea.form-control, .form-note-input {
 }
 .toast-close:hover {
   background: rgba(255,255,255,0.14);
+}
+.toast-progress {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3px;
+  background: rgba(255,255,255,0.28);
+  transform-origin: left center;
+  animation: toastProgress linear forwards;
+  animation-duration: var(--toast-duration, 5000ms);
+}
+@keyframes toastProgress {
+  from { transform: scaleX(1); opacity: 0.95; }
+  to { transform: scaleX(0); opacity: 0.4; }
 }
 
 /* ── Spinner / Loading ──────────────────────────────────────── */

@@ -3,6 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { query } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
+import { insertNotificationsForRecipients } from '../services/notificationDispatchService.js';
 
 const router = express.Router();
 
@@ -228,13 +229,13 @@ router.post(
         [req.user.id, req.user.location_id, 'product_created', `Created product: ${effectiveGroup} / ${name}`]
       );
 
-      await query(
-        `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-         SELECT id, COALESCE($1, location_id), 'New Product Variant Created', $2, 'product_created'
-         FROM users
-         WHERE role = 'admin' AND is_active = true`,
-        [req.user.location_id || null, `${effectiveGroup} / ${name} was created.`]
-      );
+      await insertNotificationsForRecipients({ query }, {
+        locationId: req.user.location_id || null,
+        title: 'New Product Variant Created',
+        message: `${effectiveGroup} / ${name} was created.`,
+        notificationType: 'product_created',
+        includeAdmins: true,
+      });
 
       res.status(201).json({ ...createdProduct, group_name: effectiveGroup, is_expired: false });
     } catch (err) {
@@ -321,18 +322,13 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), body('
     const afterGroup = String(after.group_name || after.name || '').trim();
     const groupNote = beforeGroup !== afterGroup ? ` Group renamed from "${beforeGroup}" to "${afterGroup}".` : '';
     const archiveNote = before.is_active !== false && after.is_active === false ? ' Variant archived.' : '';
-    await query(
-      `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-       SELECT id, COALESCE($1, location_id), $2, $3, $4
-       FROM users
-       WHERE role = 'admin' AND is_active = true`,
-      [
-        req.user.location_id || null,
-        archiveNote ? 'Product Variant Archived' : 'Product Variant Updated',
-        `${afterGroup} / ${after.name} was updated.${groupNote}${archiveNote}`,
-        archiveNote ? 'product_archived' : 'product_updated',
-      ]
-    );
+    await insertNotificationsForRecipients({ query }, {
+      locationId: req.user.location_id || null,
+      title: archiveNote ? 'Product Variant Archived' : 'Product Variant Updated',
+      message: `${afterGroup} / ${after.name} was updated.${groupNote}${archiveNote}`,
+      notificationType: archiveNote ? 'product_archived' : 'product_updated',
+      includeAdmins: true,
+    });
 
     const updated = result.rows[0];
     res.json({

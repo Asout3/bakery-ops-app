@@ -59,9 +59,25 @@ export default function Layout() {
           ? raw
           : raw.filter((loc) => Number(loc.id) === Number(user?.location_id));
         setLocations(scoped);
-        const singleLocation = user?.location_id || scoped[0]?.id;
-        if (singleLocation && Number(selectedLocationId || 0) !== Number(singleLocation)) {
-          setLocation(singleLocation);
+
+        const availableIds = new Set(scoped.map((loc) => String(loc.id)));
+        const currentSelection = String(selectedLocationId || '').trim();
+        const hasCurrentSelection = currentSelection && availableIds.has(currentSelection);
+        if (hasCurrentSelection) {
+          return;
+        }
+
+        const preferredLocation = [user?.location_id, scoped[0]?.id]
+          .map((value) => (value ? String(value) : ''))
+          .find((value) => value && availableIds.has(value));
+
+        if (preferredLocation) {
+          setLocation(preferredLocation);
+          return;
+        }
+
+        if (selectedLocationId) {
+          setLocation('');
         }
       } catch (err) {
         console.error('Failed to fetch locations:', err);

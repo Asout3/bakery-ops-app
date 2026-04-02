@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 
 const ToastContext = createContext(null);
@@ -13,17 +13,61 @@ const ICONS = {
 
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
+  const timeoutIdsRef = useRef(new Map());
+  const dedupeKeysRef = useRef(new Map());
 
-  const removeToast = useCallback((id) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
+  const clearToastTimeout = useCallback((id) => {
+    const timeoutId = timeoutIdsRef.current.get(id);
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+      timeoutIdsRef.current.delete(id);
+    }
   }, []);
 
+  const removeToast = useCallback((id) => {
+    clearToastTimeout(id);
+    setToasts((prev) => {
+      const existing = prev.find((toast) => toast.id === id);
+      if (existing?.dedupeKey) {
+        dedupeKeysRef.current.delete(existing.dedupeKey);
+      }
+      return prev.filter((toast) => toast.id !== id);
+    });
+  }, [clearToastTimeout]);
+
+  const scheduleToastRemoval = useCallback((id, duration) => {
+    clearToastTimeout(id);
+    timeoutIdsRef.current.set(
+      id,
+      window.setTimeout(() => {
+        removeToast(id);
+      }, duration)
+    );
+  }, [clearToastTimeout, removeToast]);
+
   const pushToast = useCallback((toast) => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const next = { id, type: 'info', duration: 4500, title: '', ...toast };
-    setToasts((prev) => [...prev, next]);
-    window.setTimeout(() => removeToast(id), next.duration);
-  }, [removeToast]);
+    const existingId = toast.dedupeKey ? dedupeKeysRef.current.get(toast.dedupeKey) : null;
+    const id = existingId || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const next = { id, type: 'info', duration: 5000, title: '', ...toast };
+
+    setToasts((prev) => {
+      if (existingId) {
+        return prev.map((item) => (item.id === existingId ? { ...item, ...next, id: existingId } : item));
+      }
+      return [...prev, next];
+    });
+
+    if (next.dedupeKey) {
+      dedupeKeysRef.current.set(next.dedupeKey, id);
+    }
+    scheduleToastRemoval(id, next.duration);
+  }, [scheduleToastRemoval]);
+
+  useEffect(() => () => {
+    timeoutIdsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    timeoutIdsRef.current.clear();
+    dedupeKeysRef.current.clear();
+  }, []);
 
   const value = useMemo(() => ({
     pushToast,
@@ -38,7 +82,12 @@ export function ToastProvider({ children }) {
       {children}
       <div className="toast-stack" role="status" aria-live="polite" aria-atomic="false">
         {toasts.map((toast) => (
-          <div key={toast.id} className={`toast-item toast-${toast.type}`} role="alert">
+          <div
+            key={toast.id}
+            className={`toast-item toast-${toast.type}`}
+            role="alert"
+            style={{ '--toast-duration': `${toast.duration}ms` }}
+          >
             <div className="toast-accent" />
             <span className="toast-icon">{ICONS[toast.type] || ICONS.info}</span>
             <div className="toast-copy">
@@ -53,6 +102,7 @@ export function ToastProvider({ children }) {
             <button className="toast-close" onClick={() => removeToast(toast.id)} aria-label="Dismiss notification">
               <X size={14} />
             </button>
+            <div className="toast-progress" aria-hidden="true" />
           </div>
         ))}
       </div>

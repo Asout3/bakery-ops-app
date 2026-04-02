@@ -5,6 +5,7 @@ import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
 import { consumeStockBatches } from '../services/stockBatchService.js';
 import { createLowStockNotificationIfNeeded } from '../services/stockAlertService.js';
+import { insertNotificationsForRecipients } from '../services/notificationDispatchService.js';
 
 const router = express.Router();
 
@@ -37,13 +38,15 @@ function isWithinEditWindow(createdAt) {
 }
 
 async function notifyRoles(tx, locationId, roles, title, message, notificationType) {
-  await tx.query(
-    `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-     SELECT id, $1, $2, $3, $4
-     FROM users
-     WHERE role = ANY($5::text[]) AND is_active = true AND location_id = $1`,
-    [locationId, title, message, notificationType, roles]
-  );
+  await insertNotificationsForRecipients(tx, {
+    locationId,
+    title,
+    message,
+    notificationType,
+    includeAdmins: roles.includes('admin'),
+    includeManagers: roles.includes('manager'),
+    includeCashiers: roles.includes('cashier'),
+  });
 }
 
 async function getOrderById(orderId) {

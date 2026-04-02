@@ -4,6 +4,7 @@ import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
 import { createLowStockNotificationIfNeeded, createLowStockNotificationsForProducts } from '../services/stockAlertService.js';
+import { insertNotificationsForRecipients } from '../services/notificationDispatchService.js';
 import { processExpiredInventoryForLocation } from '../services/wasteService.js';
 import { addStockBatch, clearProductStock, replaceProductStock, syncInventoryFromStockBatches } from '../services/stockBatchService.js';
 
@@ -492,33 +493,22 @@ router.post(
         const totalBatchValue = Number(batchValueResult.rows[0]?.total_value || 0);
 
         if (!isFromOfflineQueue) {
-          await tx.query(
-            `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-             SELECT id, $1, $2, $3, 'batch'
-             FROM users 
-             WHERE role = 'admin' 
-             AND (location_id = $1 OR location_id IS NULL)
-             AND is_active = true`,
-            [
-              locationId,
-              `📦 New Batch Sent #${createdBatch.id}`,
-              `${originalActorName} sent a batch with ${items.length} items (Total: ETB ${totalBatchValue.toFixed(2)})`
-            ]
-          );
+          await insertNotificationsForRecipients(tx, {
+            locationId,
+            title: `📦 New Batch Sent #${createdBatch.id}`,
+            message: `${originalActorName} sent a batch with ${items.length} items (Total: ETB ${totalBatchValue.toFixed(2)})`,
+            notificationType: 'batch',
+            includeAdmins: true,
+            includeManagers: true,
+          });
         } else {
-          await tx.query(
-            `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-             SELECT id, $1, $2, $3, 'offline_synced'
-             FROM users
-             WHERE role = 'admin'
-               AND (location_id = $1 OR location_id IS NULL)
-               AND is_active = true`,
-            [
-              locationId,
-              `Offline Batch Synced #${createdBatch.id}`,
-              `${originalActorName} synced an offline batch with ${items.length} item rows.`,
-            ]
-          );
+          await insertNotificationsForRecipients(tx, {
+            locationId,
+            title: `Offline Batch Synced #${createdBatch.id}`,
+            message: `${originalActorName} synced an offline batch with ${items.length} item rows.`,
+            notificationType: 'offline_synced',
+            includeAdmins: true,
+          });
         }
 
         await createLowStockNotificationsForProducts(tx, locationId, items.map((item) => item.product_id));
@@ -771,6 +761,15 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
           metadata: { edited_batch_id: Number(req.params.id) },
         });
       }
+
+      await insertNotificationsForRecipients(tx, {
+        locationId,
+        title: `Batch Updated #${req.params.id}`,
+        message: `${req.user.username} edited batch #${req.params.id} with ${items.length} item rows.`,
+        notificationType: 'batch_updated',
+        includeAdmins: true,
+        includeManagers: true,
+      });
 
       const updated = await tx.query(`UPDATE inventory_batches SET status = 'edited', notes = COALESCE($1, notes) WHERE id = $2 RETURNING *`, [notes || null, req.params.id]);
       return updated.rows[0];

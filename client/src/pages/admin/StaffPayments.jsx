@@ -21,6 +21,25 @@ const initialForm = {
 
 const FREQUENCY_OPTIONS = ['daily', 'weekly', 'monthly'];
 
+function isBranchSelectionError(error) {
+  const message = String(error?.response?.data?.error || error?.message || '').toLowerCase();
+  const code = String(error?.response?.data?.code || '').toUpperCase();
+  return error?.response?.status === 403
+    || code === 'FORBIDDEN'
+    || message.includes('access to this branch');
+}
+
+function getStaffLoadMessage(primaryError, fallbackError) {
+  const effectiveError = fallbackError || primaryError;
+  if (!effectiveError) {
+    return 'No active staff found. Add staff profiles or create staff user accounts.';
+  }
+  if (isBranchSelectionError(effectiveError)) {
+    return 'The selected branch is no longer available. Switch to an active branch and try again.';
+  }
+  return getErrorMessage(effectiveError, 'Failed to load active staff for payments.');
+}
+
 const normalizeStaffTarget = (staff) => {
   const staffProfileId = Number(staff?.staff_profile_id || 0) || null;
   const userId = Number(staff?.user_id || staff?.id || 0) || null;
@@ -58,6 +77,7 @@ export default function StaffPaymentsPage() {
 
   const fetchData = async () => {
     setLoading(true);
+    setStaffLoadError('');
     try {
       const requestConfig = {
         headers: { 'Cache-Control': 'no-cache' },
@@ -76,21 +96,26 @@ export default function StaffPaymentsPage() {
       }
 
       let nextStaff = [];
+      let primaryStaffError = null;
+      let fallbackStaffError = null;
       if (staffResult.status === 'fulfilled') {
         nextStaff = (staffResult.value.data || []).filter((staff) => staff.is_active);
+      } else {
+        primaryStaffError = staffResult.reason;
       }
 
       if (!nextStaff.length) {
         try {
           const fallbackStaffRes = await api.get('/admin/staff', requestConfig);
           nextStaff = (fallbackStaffRes.data || []).filter((staff) => staff.is_active);
-        } catch {
+        } catch (err) {
+          fallbackStaffError = err;
           nextStaff = [];
         }
       }
 
       setStaffMembers(nextStaff);
-      setStaffLoadError(nextStaff.length ? '' : 'No active staff found. Add staff profiles or create staff user accounts.');
+      setStaffLoadError(nextStaff.length ? '' : getStaffLoadMessage(primaryStaffError, fallbackStaffError));
     } finally {
       setLoading(false);
     }

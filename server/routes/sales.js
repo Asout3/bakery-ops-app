@@ -274,7 +274,7 @@ async function runSalePostCommitEffects({
       await query(
         `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
          SELECT id, $1, 'High Sale Alert', $2, 'sales_anomaly'
-         FROM users WHERE role IN ('admin', 'manager') AND (location_id = $1 OR location_id IS NULL)`,
+         FROM users WHERE role = 'admin'`,
         [locationId, `Sale ${createdSale.receipt_number} reached $${Number(totalAmount).toFixed(2)} (threshold $${highSaleThreshold.toFixed(2)}).`]
       );
     }
