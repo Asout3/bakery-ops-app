@@ -4,6 +4,7 @@ export const MANAGER_VISIBLE_NOTIFICATION_TYPES = [
   'out_of_stock',
   'order_created',
   'order_updated',
+  'order_deleted',
   'product_created',
   'product_updated',
 ];
@@ -11,6 +12,10 @@ export const MANAGER_VISIBLE_NOTIFICATION_TYPES = [
 function shouldIncludeManagers(notificationType, includeManagers) {
   if (!includeManagers) return false;
   return MANAGER_VISIBLE_NOTIFICATION_TYPES.includes(String(notificationType || ''));
+}
+
+function buildScopedRoleClause(role) {
+  return `(role = '${role}' AND ($1 IS NULL OR location_id = $1 OR location_id IS NULL))`;
 }
 
 export async function insertNotificationsForRecipients(db, {
@@ -31,11 +36,11 @@ export async function insertNotificationsForRecipients(db, {
   }
 
   if (includeManagersForType) {
-    recipientClauses.push(`(role = 'manager' AND location_id = $1)`);
+    recipientClauses.push(buildScopedRoleClause('manager'));
   }
 
   if (includeCashiers) {
-    recipientClauses.push(`(role = 'cashier' AND location_id = $1)`);
+    recipientClauses.push(buildScopedRoleClause('cashier'));
   }
 
   if (!recipientClauses.length) {

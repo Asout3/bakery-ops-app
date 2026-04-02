@@ -500,6 +500,7 @@ router.post(
             notificationType: 'batch',
             includeAdmins: true,
             includeManagers: true,
+            includeCashiers: true,
           });
         } else {
           await insertNotificationsForRecipients(tx, {

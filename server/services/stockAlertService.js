@@ -116,6 +116,7 @@ export async function createLowStockNotificationIfNeeded(db, locationId, product
     notificationType,
     includeAdmins: true,
     includeManagers: true,
+    includeCashiers: true,
   });
 
   await db.query(

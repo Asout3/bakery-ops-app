@@ -104,10 +104,25 @@ export function NotificationProvider({ children }) {
       return Number.isFinite(ts) ? Math.max(max, ts) : max;
     }, 0);
     if (!initializedRef.current) {
+      const initialUnread = sorted
+        .filter((item) => !item.is_read)
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       sorted.forEach((item) => seenTokens.add(toNotificationToken(item)));
       persistSeenNotificationTokens(cacheKey, seenTokens);
       lastHandledNotificationTsRef.current = latestTs;
       initializedRef.current = true;
+
+      for (const notification of initialUnread) {
+        toast.info(notification.message, {
+          title: notification.title,
+          duration: 7000,
+          actionLabel: 'Open',
+          onAction: openNotificationsCenter,
+        });
+        if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+          await showSystemNotification(notification, user?.role === 'manager' ? '/manager/notifications' : '/admin/notifications');
+        }
+      }
       return;
     }
 

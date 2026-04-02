@@ -236,6 +236,7 @@ router.post(
         notificationType: 'product_created',
         includeAdmins: true,
         includeManagers: true,
+        includeCashiers: true,
       });
 
       res.status(201).json({ ...createdProduct, group_name: effectiveGroup, is_expired: false });
@@ -330,6 +331,7 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), body('
       notificationType: archiveNote ? 'product_archived' : 'product_updated',
       includeAdmins: true,
       includeManagers: !archiveNote,
+      includeCashiers: !archiveNote,
     });
 
     const updated = result.rows[0];

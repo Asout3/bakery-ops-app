@@ -8,4 +8,5 @@ test('stock alert notifications use the shared admin and manager dispatch helper
   assert.match(file, /await insertNotificationsForRecipients\(db, \{/);
   assert.match(file, /includeAdmins: true,/);
   assert.match(file, /includeManagers: true,/);
+  assert.match(file, /includeCashiers: true,/);
 });
