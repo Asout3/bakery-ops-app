@@ -2,9 +2,10 @@ import express from 'express';
 import { query } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
+import { MANAGER_VISIBLE_NOTIFICATION_TYPES } from '../services/notificationDispatchService.js';
 
 const router = express.Router();
-const MANAGER_ALLOWED_NOTIFICATION_TYPES = ['low_stock', 'out_of_stock', 'order_created', 'order_updated', 'order_deleted'];
+const MANAGER_ALLOWED_NOTIFICATION_TYPES = MANAGER_VISIBLE_NOTIFICATION_TYPES;
 
 router.get('/rules', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {

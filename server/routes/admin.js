@@ -3,6 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { query } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { validatePassword } from '../middleware/security.js';
+import { getTargetLocationId } from '../utils/location.js';
 import { adminLifecycleRepository } from '../repositories/adminLifecycleRepository.js';
 import { createStaffAccount, updateStaffAccount, archiveStaffAccount, archiveStaffProfile } from '../services/adminLifecycleService.js';
 
@@ -307,8 +308,7 @@ router.get('/staff-expense-summary', authenticateToken, authorizeRoles('admin'),
 
 router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
-    const parsedLocationId = req.query.location_id ? Number(req.query.location_id) : null;
-    const locationId = Number.isFinite(parsedLocationId) && parsedLocationId > 0 ? parsedLocationId : null;
+    const locationId = await getTargetLocationId(req, query);
     const staffProfilesTable = await query(
       `SELECT 1
        FROM information_schema.tables
@@ -443,7 +443,11 @@ router.get('/staff-for-payments', authenticateToken, authorizeRoles('admin'), as
     }
   } catch (err) {
     console.error('Get staff for payments error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(err.status || 500).json({
+      error: err.message || 'Internal server error',
+      code: err.code || 'STAFF_FOR_PAYMENTS_FETCH_ERROR',
+      requestId: req.requestId,
+    });
   }
 });
 

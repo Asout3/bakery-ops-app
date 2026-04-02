@@ -1,3 +1,5 @@
+import { insertNotificationsForRecipients } from './notificationDispatchService.js';
+
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
 let stockAlertStateSchemaPromise = null;
 
@@ -107,17 +109,14 @@ export async function createLowStockNotificationIfNeeded(db, locationId, product
     ? `${snapshot.groupName} / ${snapshot.name} is out of stock (0 remaining, threshold ${snapshot.threshold}).`
     : `${snapshot.groupName} / ${snapshot.name} is running low (${snapshot.quantity} remaining, threshold ${snapshot.threshold}).`;
 
-  await db.query(
-    `INSERT INTO notifications (user_id, location_id, title, message, notification_type)
-     SELECT id, $1, $2, $3, $4
-     FROM users
-     WHERE is_active = true
-       AND (
-         (role = 'admin' AND (location_id = $1 OR location_id IS NULL))
-         OR (role = 'manager' AND location_id = $1)
-       )`,
-    [locationId, title, message, notificationType]
-  );
+  await insertNotificationsForRecipients(db, {
+    locationId,
+    title,
+    message,
+    notificationType,
+    includeAdmins: true,
+    includeManagers: true,
+  });
 
   await db.query(
     `INSERT INTO stock_alert_states (location_id, product_id, last_state, last_notification_type, last_notified_at, updated_at)

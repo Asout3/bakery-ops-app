@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 
 test('staff-for-payments route guards missing payment_due_date column during DB migrations', async () => {
   const file = await readFile(new URL('./admin.js', import.meta.url), 'utf8');
+  assert.match(file, /import \{ getTargetLocationId \} from '\.\.\/utils\/location\.js';/);
+  assert.match(file, /const locationId = await getTargetLocationId\(req, query\);/);
   assert.match(file, /information_schema\.tables/);
   assert.match(file, /table_name = 'staff_profiles'/);
   assert.match(file, /information_schema\.columns/);

@@ -37,7 +37,7 @@ function persistSeenNotificationTokens(cacheKey, ids) {
   }
 }
 
-async function showSystemNotification(notification) {
+async function showSystemNotification(notification, targetUrl) {
   if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
     return;
   }
@@ -48,7 +48,7 @@ async function showSystemNotification(notification) {
     tag: `bakery-notification-${notification.id}`,
     data: {
       notificationId: notification.id,
-      url: '/admin/notifications',
+      url: targetUrl || '/admin/notifications',
     },
   };
 
@@ -142,10 +142,10 @@ export function NotificationProvider({ children }) {
         onAction: openNotificationsCenter,
       });
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-        await showSystemNotification(notification);
+        await showSystemNotification(notification, user?.role === 'manager' ? '/manager/notifications' : '/admin/notifications');
       }
     }
-  }, [openNotificationsCenter, toast]);
+  }, [openNotificationsCenter, toast, user?.role]);
 
   const fetchNotifications = useCallback(async ({ silent = false } = {}) => {
     if (!isAuthenticated || authLoading) return false;
