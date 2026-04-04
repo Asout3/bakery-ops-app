@@ -175,8 +175,14 @@ sequenceDiagram
 - Manual History Lifecycle runs now execute full transactional cleanup scope (sales, sale items, batches, batch items, orders, order items, expenses, staff payments, waste, inventory/activity logs) while keeping staff accounts and products intact.
 - Archive row-move accounting now safely supports both `SELECT COUNT(*)` and driver-level `rowCount` mutation responses, preventing lifecycle crashes when DB drivers return different mutation payload shapes.
 - Notification delivery is now role-scoped for the single-site operating model: admins receive every persisted notification, managers receive stock/batch/pre-order notifications, and cashiers receive toast alerts for stock and pre-order events without a notification center workflow.
+- Notification toasts now default to a 10-second display window with stronger dedupe and improved readability, while remaining fully suppressed on `/login`.
 - Pre-order performance is now emphasized on the Orders page (product details, pickup time, and audit context), while Sales keeps its Batch Performance history view for operational stock review.
 - Staff-payment UI data loading is now fault-tolerant: payments and staff sources are fetched independently, stale branch selections are healed against active locations after database switches, and the page falls back to `/api/admin/staff` when `/api/admin/staff-for-payments` is unavailable.
+- Staff-payment management is now simplified to all-time totals plus current-month totals, with edit flows preserving the original payment date unless the operator explicitly changes it and note fields rendering readable text instead of raw JSON blobs.
+- Inventory pages for admins and ground managers now include a dedicated `Well Stocked` filter so healthy stock is separated from low-stock and out-of-stock states.
+- Ground-manager order queue updates now apply locally from the PATCH response instead of forcing a full page reload after each action.
+- Batch workflow summaries now surface sent, edited, voided, and total-action counts, and batch-edit cost totals are recalculated from the live edited line items.
+- Salary-due notifications now open a 3-day lookahead window so upcoming payroll reminders are issued earlier without changing payment records.
 - Batch edit workflows now ignore already-voided stock rows from prior edits, allowing multiple valid edits within the full 20-minute window.
 - Receipt reprint enforcement now honors `0` manual reprints correctly (no fallback override), and reprint window values are applied from saved settings using nullish-safe defaults.
 - Cashier sales now block add/increase actions when stock is exhausted, hide expired variants, and reject expired product checkout server-side.

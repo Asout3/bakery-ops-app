@@ -117,7 +117,7 @@ export function NotificationProvider({ children }) {
         const targetPath = resolveNotificationTargetPath(user?.role, notification);
         toast.info(notification.message, {
           title: notification.title,
-          duration: 5000,
+          duration: 10000,
           dedupeKey: `notification:${toNotificationToken(notification)}`,
           actionLabel: user?.role === 'cashier' ? '' : 'Open',
           onAction: user?.role === 'cashier' ? undefined : openNotificationsCenter,
@@ -147,7 +147,7 @@ export function NotificationProvider({ children }) {
       const targetPath = resolveNotificationTargetPath(user?.role, notification);
       toast.info(notification.message, {
         title: notification.title,
-        duration: 5000,
+        duration: 10000,
         dedupeKey: `notification:${toNotificationToken(notification)}`,
         actionLabel: user?.role === 'cashier' ? '' : 'Open',
         onAction: user?.role === 'cashier' ? undefined : openNotificationsCenter,

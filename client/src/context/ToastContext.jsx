@@ -48,7 +48,7 @@ export function ToastProvider({ children }) {
   const pushToast = useCallback((toast) => {
     const existingId = toast.dedupeKey ? dedupeKeysRef.current.get(toast.dedupeKey) : null;
     const id = existingId || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const next = { id, type: 'info', duration: 5000, title: '', ...toast };
+    const next = { id, type: 'info', duration: 10000, title: '', ...toast };
 
     setToasts((prev) => {
       if (existingId) {

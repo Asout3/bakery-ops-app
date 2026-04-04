@@ -240,6 +240,10 @@ export default function ManagerBatches() {
     sent: batches.filter((b) => b.status === 'sent').length,
     voided: batches.filter((b) => b.status === 'voided').length,
     edited: batches.filter((b) => b.status === 'edited').length,
+    totalActions: batches.reduce((sum, batch) => {
+      if (batch.status === 'edited') return sum + 2;
+      return sum + 1;
+    }, 0),
   };
   const filteredBatches = batches.filter((batch) => {
     const matchesStatus = statusFilter === 'all' || batch.status === statusFilter;
@@ -307,8 +311,11 @@ export default function ManagerBatches() {
       <div className="card mb-4">
         <div className="card-body d-flex gap-2 flex-wrap align-items-center">
           <span className="badge bg-secondary">Showing {filteredBatches.length} rows</span>
+          <span className="badge bg-primary">Total Batches: {stats.total}</span>
           <span className="badge bg-success">Sent: {stats.sent}</span>
+          <span className="badge bg-info">Edited: {stats.edited}</span>
           <span className="badge bg-danger">Voided: {stats.voided}</span>
+          <span className="badge bg-dark">Total Actions: {stats.totalActions}</span>
         </div>
       </div>
 
@@ -491,7 +498,7 @@ export default function ManagerBatches() {
                   <tfoot>
                     <tr>
                       <th colSpan="4" className="text-end">Total Cost:</th>
-                      <th>ETB {Number(selectedBatch.total_cost || 0).toFixed(2)}</th>
+                      <th>ETB {editingItems.reduce((sum, item) => sum + (Number(item.unit_cost || 0) * Number(item.quantity || 0)), 0).toFixed(2)}</th>
                     </tr>
                   </tfoot>
                 </table>

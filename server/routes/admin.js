@@ -589,7 +589,7 @@ router.get('/check-salary-due', authenticateToken, authorizeRoles('admin'), asyn
         AND sp.monthly_salary > 0
         AND sp.payment_due_date BETWEEN $1 AND $2
       ORDER BY sp.payment_due_date ASC
-    `, [currentDay, currentDay + 2]);
+    `, [currentDay, currentDay + 3]);
     
     const staffList = staffDue.rows.map(s => ({
       id: s.id,
@@ -644,7 +644,7 @@ router.get('/check-salary-due', authenticateToken, authorizeRoles('admin'), asyn
       notifications_sent: notificationsCreated.length,
       message: notificationsCreated.length > 0 
         ? `Created notifications for ${notificationsCreated.length} staff members`
-        : 'No salary payments due within 2 days'
+        : 'No salary payments due within 3 days'
     });
   } catch (err) {
     console.error('Check salary due error:', err);

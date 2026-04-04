@@ -13,13 +13,8 @@ const initialForm = {
   amount: '',
   payment_date: new Date().toISOString().split('T')[0],
   payment_type: 'salary',
-  payment_frequency: 'monthly',
-  payout_mode: 'pay_now',
-  payroll_month: new Date().toISOString().slice(0, 7),
   notes: '',
 };
-
-const FREQUENCY_OPTIONS = ['daily', 'weekly', 'monthly'];
 
 function isBranchSelectionError(error) {
   const message = String(error?.response?.data?.error || error?.message || '').toLowerCase();
@@ -59,7 +54,6 @@ export default function StaffPaymentsPage() {
   const [notePreview, setNotePreview] = useState(null);
   const [suggestedPayment, setSuggestedPayment] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [frequencyFilter, setFrequencyFilter] = useState('all');
   const [staffLoadError, setStaffLoadError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const toast = useToast();
@@ -203,10 +197,7 @@ export default function StaffPaymentsPage() {
       amount: String(payment.amount),
       payment_date: payment.payment_date,
       payment_type: payment.payment_type || 'salary',
-      payment_frequency: payment.payment_frequency || 'monthly',
-      payout_mode: payment.payout_mode || 'pay_now',
-      payroll_month: payment.payroll_month || new Date().toISOString().slice(0, 7),
-      notes: payment.notes || '',
+      notes: getReadableNote(payment.notes),
     });
     setShowForm(true);
   };
@@ -220,11 +211,8 @@ export default function StaffPaymentsPage() {
       staff_profile_id: staffProfileId || undefined,
       user_id: staffProfileId ? undefined : (userId || undefined),
       amount: Number(formData.amount),
-      payment_date: formData.payment_date,
+      payment_date: editingPayment && formData.payment_date === editingPayment.payment_date ? undefined : formData.payment_date,
       payment_type: formData.payment_type,
-      payment_frequency: 'monthly',
-      payout_mode: 'pay_now',
-      payroll_month: null,
       notes: String(formData.notes || '').trim(),
     };
 
@@ -282,24 +270,22 @@ export default function StaffPaymentsPage() {
 
   const summary = useMemo(() => {
     const total = payments.reduce((acc, payment) => acc + Number(payment.amount || 0), 0);
-    const byFrequency = FREQUENCY_OPTIONS.reduce((acc, key) => {
-      acc[key] = payments.filter((p) => (p.payment_frequency || 'monthly') === key).reduce((sum, p) => sum + Number(p.amount || 0), 0);
-      return acc;
-    }, {});
-    return { total, byFrequency };
+    const currentMonthKey = new Date().toISOString().slice(0, 7);
+    const monthly = payments
+      .filter((payment) => String(payment.payment_date || '').slice(0, 7) === currentMonthKey)
+      .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    return { total, monthly };
   }, [payments]);
 
 
   const filteredPayments = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
     return payments.filter((payment) => {
-      const frequency = payment.payment_frequency || 'monthly';
-      if (frequencyFilter !== 'all' && frequency !== frequencyFilter) return false;
       if (!needle) return true;
       const hay = `${payment.payment_code || ''} ${payment.staff_name || ''} ${payment.created_by_name || ''}`.toLowerCase();
       return hay.includes(needle);
     });
-  }, [payments, searchTerm, frequencyFilter]);
+  }, [payments, searchTerm]);
 
   if (loading) {
     return <div className="loading-container"><div className="spinner"></div></div>;
@@ -318,17 +304,14 @@ export default function StaffPaymentsPage() {
       <div className="card mb-3">
         <div className="card-body">
           <div className="row g-2">
-            <div className="col-md-8"><input className="form-control" placeholder="Search by payment ID, staff name, creator..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
-            <div className="col-md-4"><select className="form-select" value={frequencyFilter} onChange={(e) => setFrequencyFilter(e.target.value)}><option value="all">All Frequencies</option>{FREQUENCY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+            <div className="col-md-12"><input className="form-control" placeholder="Search by payment ID, staff name, creator..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
           </div>
         </div>
       </div>
 
       <div className="stats-grid mb-4">
         <div className="stat-card card"><div className="stat-icon bg-success text-white"><DollarSign size={24} /></div><div className="stat-content"><h3>ETB {summary.total.toFixed(2)}</h3><p>Total Paid</p></div></div>
-        <div className="stat-card card"><div className="stat-icon bg-primary text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.byFrequency.daily?.toFixed(2) || '0.00'}</h3><p>Daily Paid</p></div></div>
-        <div className="stat-card card"><div className="stat-icon bg-info text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.byFrequency.weekly?.toFixed(2) || '0.00'}</h3><p>Weekly Paid</p></div></div>
-        <div className="stat-card card"><div className="stat-icon bg-warning text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.byFrequency.monthly?.toFixed(2) || '0.00'}</h3><p>Monthly Paid</p></div></div>
+        <div className="stat-card card"><div className="stat-icon bg-warning text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.monthly.toFixed(2)}</h3><p>Current Month</p></div></div>
       </div>
 
       <div className="card">
