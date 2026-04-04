@@ -91,8 +91,11 @@ export default function ProductsPage() {
       setCategories((current) => [...current, response.data].sort((a, b) => a.name.localeCompare(b.name)));
       setNewCategoryName('');
       setMessage({ type: 'success', text: t('categoryAdded') });
+      toast.success(t('categoryAdded'));
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to add category.') });
+      const errorMessage = getErrorMessage(err, 'Failed to add category.');
+      setMessage({ type: 'danger', text: errorMessage });
+      toast.error(errorMessage);
     }
   };
 
