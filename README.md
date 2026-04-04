@@ -183,6 +183,8 @@ sequenceDiagram
 - Ground-manager order queue updates now apply locally from the PATCH response instead of forcing a full page reload after each action.
 - Batch workflow summaries now surface sent, edited, voided, and total-action counts, and batch-edit cost totals are recalculated from the live edited line items.
 - Salary-due notifications now open a 3-day lookahead window so upcoming payroll reminders are issued earlier without changing payment records.
+- Activity logs are now capped to the newest 100 rows per location by a database trigger, preserving FIFO retention across sessions without relying on client fetch limits.
+- Reports now use real dated expenses, staff payments, batch costs, waste loss, and hourly sales breakdowns instead of placeholder derived percentages, improving chart accuracy and export consistency.
 - Batch edit workflows now ignore already-voided stock rows from prior edits, allowing multiple valid edits within the full 20-minute window.
 - Receipt reprint enforcement now honors `0` manual reprints correctly (no fallback override), and reprint window values are applied from saved settings using nullish-safe defaults.
 - Cashier sales now block add/increase actions when stock is exhausted, hide expired variants, and reject expired product checkout server-side.
