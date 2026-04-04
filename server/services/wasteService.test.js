@@ -55,6 +55,7 @@ test('processExpiredInventoryForLocation moves expired stock batches into waste 
   assert.ok(calls.some((call) => call.text.includes('UPDATE inventory_stock_batches')));
   assert.ok(calls.some((call) => call.text.includes('INSERT INTO inventory_movements')));
   assert.ok(calls.some((call) => call.text.includes('INSERT INTO inventory (product_id, location_id, quantity, source, last_updated)')));
+  assert.ok(calls.some((call) => call.text.includes("notification_type)\n     SELECT id, $1, $2, $3, 'waste'")));
 });
 
 test('createLowStockNotificationIfNeeded skips when stock is above threshold', async () => {
@@ -281,6 +282,33 @@ test('processExpiredInventoryForLocation aggregates multiple rows and rounds tot
   const summary = await processExpiredInventoryForLocation(db, 1, 10);
   assert.equal(summary.processedCount, 2);
   assert.equal(summary.totalLoss, 9.01);
+});
+
+test('processExpiredInventoryForLocation skips expiring-soon notification insert when cooldown dedupe exists', async () => {
+  let expiringInsertCount = 0;
+  const db = {
+    async query(text) {
+      if (text.includes('sb.expires_at <= NOW() + ($2::int * INTERVAL \'1 hour\')')) {
+        return {
+          rows: [{
+            product_id: 7,
+            quantity_remaining: 3,
+            product_name: 'Chocolate Cake',
+            group_name: 'Cake',
+            seconds_until_expiry: 3500,
+          }],
+        };
+      }
+      if (text.includes('notification_type = $4')) return { rows: [{ id: 77 }] };
+      if (text.includes('FROM inventory_stock_batches sb') && text.includes('sb.expires_at <= NOW()')) return { rows: [] };
+      if (text.includes('INSERT INTO notifications') && text.includes('product_expiring_soon')) expiringInsertCount += 1;
+      return { rows: [], rowCount: 0 };
+    },
+  };
+
+  const summary = await processExpiredInventoryForLocation(db, 3, 2);
+  assert.deepEqual(summary, { processedCount: 0, totalLoss: 0, items: [] });
+  assert.equal(expiringInsertCount, 0);
 });
 
 test('processExpiredInventoryForAllLocations returns empty array when no locations are expired', async () => {

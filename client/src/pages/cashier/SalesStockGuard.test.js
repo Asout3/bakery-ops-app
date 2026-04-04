@@ -5,6 +5,8 @@ import { readFileSync } from 'node:fs';
 test('cashier sales page clamps stock on quantity entry and before checkout', () => {
   const file = readFileSync(new URL('./Sales.jsx', import.meta.url), 'utf8');
   assert.match(file, /const resetQuantityDraft = \(productId, fallbackValue\)/);
+  assert.match(file, /const handleQuantityDraftChange = \(productId, rawValue\)/);
+  assert.match(file, /max=\{Math\.max\(1, Number\(products\.find\(\(p\) => Number\(p\.id\) === Number\(item\.product_id\)\)\?\.stock_quantity \|\| 0\)\)\}/);
   assert.match(file, /toast\.warning\('Out of stock'\)/);
   assert.match(file, /const adjustedCart = \[\];/);
   assert.match(file, /if \(hasStockConflict\) \{/);

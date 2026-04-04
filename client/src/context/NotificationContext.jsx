@@ -78,6 +78,22 @@ export function NotificationProvider({ children }) {
   const lastHandledNotificationTsRef = useRef(0);
   const fetchPromiseRef = useRef(null);
   const isNotificationSuppressed = typeof window !== 'undefined' && shouldSuppressNotificationsForPathname(window.location.pathname);
+  const isNotificationSuppressedRef = useRef(isNotificationSuppressed);
+  const isAuthenticatedRef = useRef(Boolean(isAuthenticated));
+
+  useEffect(() => {
+    isNotificationSuppressedRef.current = isNotificationSuppressed;
+  }, [isNotificationSuppressed]);
+
+  useEffect(() => {
+    isAuthenticatedRef.current = Boolean(isAuthenticated);
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (isNotificationSuppressed || !isAuthenticated) {
+      toast.clearAll();
+    }
+  }, [isAuthenticated, isNotificationSuppressed, toast]);
 
   const clearPollTimeout = useCallback(() => {
     if (pollTimeoutRef.current) {
@@ -114,6 +130,7 @@ export function NotificationProvider({ children }) {
       initializedRef.current = true;
 
       for (const notification of initialUnread) {
+        if (isNotificationSuppressedRef.current || !isAuthenticatedRef.current) break;
         const targetPath = resolveNotificationTargetPath(user?.role, notification);
         toast.info(notification.message, {
           title: notification.title,
@@ -144,6 +161,7 @@ export function NotificationProvider({ children }) {
     }
 
     for (const notification of announceList) {
+      if (isNotificationSuppressedRef.current || !isAuthenticatedRef.current) break;
       const targetPath = resolveNotificationTargetPath(user?.role, notification);
       toast.info(notification.message, {
         title: notification.title,

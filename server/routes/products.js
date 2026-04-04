@@ -89,6 +89,13 @@ router.post('/categories', authenticateToken, authorizeRoles('admin', 'manager')
       return res.status(409).json({ error: 'Category already exists', code: 'DUPLICATE_CATEGORY', requestId: req.requestId });
     }
     const created = await query('INSERT INTO categories (name) VALUES ($1) RETURNING id, name', [name]);
+    await insertNotificationsForRecipients({ query }, {
+      locationId: req.user.location_id || null,
+      title: 'New Product Category Added',
+      message: `${name} category was created.`,
+      notificationType: 'category_created',
+      includeAdmins: true,
+    });
     res.status(201).json(created.rows[0]);
   } catch (err) {
     console.error('Create category error:', err);

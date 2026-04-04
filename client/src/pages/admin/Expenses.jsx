@@ -91,10 +91,11 @@ export default function ExpensesPage() {
     }
     setIsSubmittingExpense(true);
     try {
+      const payload = isAdmin ? formData : { ...formData, expense_date: today };
       if (editingExpense) {
-        await api.put(`/expenses/${editingExpense.id}`, formData);
+        await api.put(`/expenses/${editingExpense.id}`, payload);
       } else {
-        await api.post('/expenses', formData);
+        await api.post('/expenses', payload);
       }
       await fetchExpenses();
       resetForm();
@@ -206,7 +207,7 @@ export default function ExpensesPage() {
             )}
             <div className="mb-3"><label className="form-label">Description</label><textarea className="form-control" rows="3" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} /></div>
             <div className="mb-3"><label className="form-label">Amount *</label><input type="number" className="form-control" min="0" step="0.01" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required /></div>
-            <div className="mb-3"><label className="form-label">Date *</label><input type="date" className="form-control" value={formData.expense_date} onChange={(e) => setFormData({ ...formData, expense_date: e.target.value })} max={isAdmin ? undefined : today} required /></div>
+            {isAdmin ? <div className="mb-3"><label className="form-label">Date *</label><input type="date" className="form-control" value={formData.expense_date} onChange={(e) => setFormData({ ...formData, expense_date: e.target.value })} required /></div> : null}
             <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForm} disabled={isSubmittingExpense}>Cancel</button><button type="submit" className="btn btn-primary" disabled={isSubmittingExpense}>{isSubmittingExpense ? 'Saving…' : (editingExpense ? 'Update Expense' : 'Add Expense')}</button></div>
           </form>
         </div></div>
