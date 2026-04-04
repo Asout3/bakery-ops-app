@@ -29,6 +29,7 @@ If you are developing a production application, we recommend using TypeScript wi
 - Manager order actions now prevent restarting already-ready pre-orders, and finalized orders are protected from further edits.
 
 - Staff Payments UI now includes quick search + frequency filtering, a simplified pay form (removed frequency/payroll-month inputs), and improved suggested-payment readability/interactions.
+- Staff Payments UI now auto-uses the action date for new payments, renders legacy note JSON in human-readable text, and supports month-based payment filtering.
 - Offline sync UX now uses global toast notifications for queued actions, sync start, successful sync completion, retry states, and attention-needed outcomes.
 - Cashier sales checkout footer was reworked into a clear vertical stack (Payment Method, Total, Complete Sale button) and larger product/size selectors for faster touch interaction.
 - Admin sales page scroll behavior was hardened so long sales and batch-performance tables remain fully scrollable.
@@ -41,3 +42,4 @@ If you are developing a production application, we recommend using TypeScript wi
 - Admin inventory view removes Add Item and Delete actions, keeping the page focused on inventory edits only.
 - Manager inventory batch-cart quantity input now mirrors cashier behavior (Backspace-safe drafts + explicit Remove action for deletion).
 - Manager batch edit modal now auto-closes after a successful update for faster repeated workflows.
+- Dashboard now includes a Gross Profit KPI card (`Revenue - Sold Item Cost`) and cashier quantity clamping now shows an `Out of stock` toast when user input exceeds available stock.

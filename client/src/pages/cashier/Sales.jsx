@@ -274,6 +274,9 @@ export default function Sales() {
     const product = products.find((p) => Number(p.id) === Number(productId));
     const maxQty = Math.max(1, Number(product?.stock_quantity || 0));
     const clamped = Math.min(maxQty, Math.max(1, Number(normalized)));
+    if (Number(normalized) > maxQty) {
+      toast.warning('Out of stock');
+    }
     setQuantityDrafts((current) => ({ ...current, [productId]: String(clamped) }));
   };
 

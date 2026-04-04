@@ -62,6 +62,8 @@ export const AuthProvider = ({ children }) => {
     try {
       await api.post('/auth/logout', { refresh_token: getRefreshToken() }, { headers: { 'X-Skip-Auth-Redirect': 'true' } });
     } catch {
+      clearSession();
+      setUser(null);
       return;
     }
     clearSession();

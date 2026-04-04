@@ -62,5 +62,8 @@ export function getBasePollDelay(visibilityState) {
 
 export function shouldSuppressNotificationsForPathname(pathname) {
   const normalized = String(pathname || '').trim().toLowerCase();
-  return normalized === '/login' || normalized.startsWith('/login/');
+  return normalized === '/login'
+    || normalized.startsWith('/login/')
+    || normalized === '/logout'
+    || normalized.startsWith('/logout/');
 }

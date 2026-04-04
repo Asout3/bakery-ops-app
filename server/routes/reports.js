@@ -144,6 +144,16 @@ router.get('/daily', authenticateToken, async (req, res) => {
       [locationId, date]
     );
 
+    const soldItemCostResult = await query(
+      `SELECT COALESCE(SUM(si.quantity * COALESCE(p.cost, 0)), 0) as sold_item_cost
+       FROM sale_items si
+       JOIN sales s ON si.sale_id = s.id
+       JOIN products p ON p.id = si.product_id
+       WHERE s.location_id = $1 AND DATE(s.sale_date) = $2
+         AND ${nonVoidedExpr}`,
+      [locationId, date]
+    );
+
     const expensesResult = await query(
       `SELECT 
          COUNT(*) as expense_count,
@@ -288,7 +298,8 @@ router.get('/daily', authenticateToken, async (req, res) => {
     const totalBatchCosts = parseFloat(batchCostResult.rows[0]?.total_batch_cost || 0);
     const totalWasteLoss = parseFloat(wasteSummary.total_waste_loss || 0);
     const totalCosts = totalExpenses + totalStaffPayments + totalBatchCosts + totalWasteLoss;
-    const grossProfit = totalRevenue - totalExpenses;
+    const soldItemCost = parseFloat(soldItemCostResult.rows[0]?.sold_item_cost || 0);
+    const grossProfit = totalRevenue - soldItemCost;
     const netProfit = totalRevenue - totalCosts;
 
     res.json({
@@ -312,6 +323,7 @@ router.get('/daily', authenticateToken, async (req, res) => {
       },
       profit: {
         gross_profit: grossProfit,
+        sold_item_cost: soldItemCost,
         net_profit: netProfit,
         total_costs: totalCosts,
         batch_costs: totalBatchCosts,
@@ -416,6 +428,16 @@ router.get('/weekly', authenticateToken, async (req, res) => {
        GROUP BY p.id, p.name
        ORDER BY revenue DESC
        LIMIT 10`,
+      [locationId, startDate, endDate]
+    );
+
+    const soldItemCostResult = await query(
+      `SELECT COALESCE(SUM(si.quantity * COALESCE(p.cost, 0)), 0) as sold_item_cost
+       FROM sale_items si
+       JOIN sales s ON si.sale_id = s.id
+       JOIN products p ON p.id = si.product_id
+       WHERE s.location_id = $1 AND DATE(s.sale_date) BETWEEN $2 AND $3
+         AND ${nonVoidedExpr}`,
       [locationId, startDate, endDate]
     );
 
@@ -554,7 +576,8 @@ router.get('/weekly', authenticateToken, async (req, res) => {
     const totalBatchCosts = parseFloat(batchCostResult.rows[0]?.total_batch_cost || 0);
     const totalWasteLoss = parseFloat(wasteSummary.total_waste_loss || 0);
     const totalCosts = totalExpenses + totalStaffPayments + totalBatchCosts + totalWasteLoss;
-    const grossProfit = totalRevenue - totalExpenses;
+    const soldItemCost = parseFloat(soldItemCostResult.rows[0]?.sold_item_cost || 0);
+    const grossProfit = totalRevenue - soldItemCost;
     const netProfit = totalRevenue - totalCosts;
     const transactions = salesByDayResult.rows.reduce((acc, row) => acc + Number(row.transactions || 0), 0);
 
@@ -568,6 +591,7 @@ router.get('/weekly', authenticateToken, async (req, res) => {
         total_waste_loss: totalWasteLoss,
         total_costs: totalCosts,
         gross_profit: grossProfit,
+        sold_item_cost: soldItemCost,
         net_profit: netProfit,
         total_transactions: transactions,
         expense_count: parseInt(totals.expense_count) || 0,
@@ -728,6 +752,18 @@ router.get('/monthly', authenticateToken, async (req, res) => {
       [locationId, year, month]
     );
 
+    const soldItemCostResult = await query(
+      `SELECT COALESCE(SUM(si.quantity * COALESCE(p.cost, 0)), 0) as sold_item_cost
+       FROM sale_items si
+       JOIN sales s ON si.sale_id = s.id
+       JOIN products p ON p.id = si.product_id
+       WHERE s.location_id = $1
+         AND EXTRACT(YEAR FROM s.sale_date) = $2
+         AND EXTRACT(MONTH FROM s.sale_date) = $3
+         AND ${nonVoidedExpr}`,
+      [locationId, year, month]
+    );
+
     const paymentMethodsResult = await query(
       `SELECT s.payment_method, COUNT(*) as count, COALESCE(SUM(s.total_amount), 0) as total
        FROM sales s
@@ -865,7 +901,8 @@ router.get('/monthly', authenticateToken, async (req, res) => {
     const totalWasteLoss = parseFloat(wasteSummary.total_waste_loss || 0);
     const totalCosts = totalExpenses + totalStaffPayments + totalBatchCosts + totalWasteLoss;
     const totalRevenue = parseFloat(sales.total_sales) || 0;
-    const grossProfit = totalRevenue - totalExpenses;
+    const soldItemCost = parseFloat(soldItemCostResult.rows[0]?.sold_item_cost || 0);
+    const grossProfit = totalRevenue - soldItemCost;
     const netProfit = totalRevenue - totalCosts;
 
     res.json({
@@ -895,6 +932,7 @@ router.get('/monthly', authenticateToken, async (req, res) => {
       },
       profit: {
         gross_profit: grossProfit,
+        sold_item_cost: soldItemCost,
         net_profit: netProfit,
         total_costs: totalCosts,
         batch_costs: totalBatchCosts,

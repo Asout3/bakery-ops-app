@@ -57,6 +57,7 @@ export default function Dashboard() {
         batchCosts: 0,
         wasteLoss: 0,
         totalCosts: 0,
+        grossProfit: 0,
         netProfit: 0,
       };
     }
@@ -70,8 +71,9 @@ export default function Dashboard() {
       const wasteLoss = Number(report.profit?.waste_loss || report.waste?.total_waste_loss || 0);
       const totalCosts = Number(report.profit?.total_costs || expenses + staffPayments + batchCosts + wasteLoss);
       const revenue = baseRevenue;
+      const grossProfit = Number(report.profit?.gross_profit || (revenue - Number(report.profit?.sold_item_cost || 0)));
       const netProfit = Number(report.profit?.net_profit || baseRevenue - totalCosts);
-      return { revenue, transactions, expenses, staffPayments, batchCosts, wasteLoss, totalCosts, netProfit };
+      return { revenue, transactions, expenses, staffPayments, batchCosts, wasteLoss, totalCosts, grossProfit, netProfit };
     }
 
     if (period === 'weekly') {
@@ -83,8 +85,9 @@ export default function Dashboard() {
       const wasteLoss = Number(report.summary?.total_waste_loss || report.waste?.total_waste_loss || 0);
       const totalCosts = Number(report.summary?.total_costs || expenses + staffPayments + batchCosts + wasteLoss);
       const revenue = baseRevenue;
+      const grossProfit = Number(report.summary?.gross_profit || (revenue - Number(report.summary?.sold_item_cost || 0)));
       const netProfit = Number(report.summary?.net_profit || baseRevenue - totalCosts);
-      return { revenue, transactions, expenses, staffPayments, batchCosts, wasteLoss, totalCosts, netProfit };
+      return { revenue, transactions, expenses, staffPayments, batchCosts, wasteLoss, totalCosts, grossProfit, netProfit };
     }
 
     const baseRevenue = Number(report.sales?.total_sales || 0);
@@ -95,8 +98,9 @@ export default function Dashboard() {
     const wasteLoss = Number(report.costs?.waste_loss || report.waste?.total_waste_loss || 0);
     const totalCosts = Number(report.costs?.total_costs || expenses + staffPayments + batchCosts + wasteLoss);
     const revenue = baseRevenue;
+    const grossProfit = Number(report.profit?.gross_profit || (revenue - Number(report.profit?.sold_item_cost || 0)));
     const netProfit = Number(report.profit?.net_profit || baseRevenue - totalCosts);
-    return { revenue, transactions, expenses, staffPayments, batchCosts, wasteLoss, totalCosts, netProfit };
+    return { revenue, transactions, expenses, staffPayments, batchCosts, wasteLoss, totalCosts, grossProfit, netProfit };
   }, [report, period]);
 
   const topProducts = report?.top_products || [];
@@ -147,6 +151,7 @@ export default function Dashboard() {
         <StatCard icon={<DollarSign size={18} />} label={`${t(period)} Revenue`} value={formatMoney(totals.revenue)} sub={`${totals.transactions} transactions`} />
         <StatCard icon={<Receipt size={18} />} label={`${t(period)} Expenses`} value={formatMoney(totals.expenses)} sub={`${expenseRows.length} entries`} />
         <StatCard icon={<Users size={18} />} label={t('staffPayments')} value={formatMoney(totals.staffPayments)} sub={`${staffPaymentRows.length} payments`} />
+        <StatCard icon={<Wallet size={18} />} label="Gross Profit" value={formatMoney(totals.grossProfit)} sub="Revenue - sold item cost" tone={totals.grossProfit >= 0 ? 'success' : 'danger'} />
         <StatCard icon={<Receipt size={18} />} label="Total Batch Cost" value={formatMoney(totals.batchCosts)} sub={`${Number(report?.details?.batches?.batch_count || 0)} batches`} tone="warning" />
         <StatCard icon={<Receipt size={18} />} label="Waste Loss" value={formatMoney(totals.wasteLoss)} sub={`${Number(report?.waste?.waste_count || report?.summary?.waste_count || 0)} waste records`} tone="danger" />
         <StatCard icon={<Wallet size={18} />} label="Net Profit" value={formatMoney(totals.netProfit)} sub="Revenue - all costs" tone={totals.netProfit >= 0 ? 'success' : 'danger'} />
@@ -194,6 +199,7 @@ export default function Dashboard() {
         headers={['Component', 'Amount', 'Transparency Note']}
         rows={[
           ['Total Revenue', formatMoney(totals.revenue), 'From completed sales in this period'],
+          ['Gross Profit', formatMoney(totals.grossProfit), 'Revenue - sold quantity cost (COGS)'],
           ['Batch Production Cost', formatMoney(totals.batchCosts), `${Number(report?.details?.batches?.batch_count || 0)} non-voided batches × product unit cost`],
           ['Manual Expenses', formatMoney(totals.expenses), 'Recorded expenses table entries'],
           ['Staff Payments', formatMoney(totals.staffPayments), 'Payroll and advances paid in period'],
@@ -207,6 +213,7 @@ export default function Dashboard() {
         <div className="card-header"><h3>{period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly'} Summary</h3></div>
         <div className="card-body summary-list">
           <SummaryItem label="Total Revenue" value={formatMoney(totals.revenue)} />
+          <SummaryItem label="Gross Profit" value={formatMoney(totals.grossProfit)} />
           <SummaryItem label="Total Expenses" value={formatMoney(totals.expenses)} />
           <SummaryItem label="Total Staff Payments" value={formatMoney(totals.staffPayments)} />
           <SummaryItem label="Waste Loss" value={formatMoney(totals.wasteLoss)} />
