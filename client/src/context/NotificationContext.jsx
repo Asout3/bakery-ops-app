@@ -96,6 +96,13 @@ export function NotificationProvider({ children }) {
     }
   }, [isAuthenticated, isNotificationSuppressed, toast]);
 
+  const clearPollTimeout = useCallback(() => {
+    if (pollTimeoutRef.current) {
+      clearTimeout(pollTimeoutRef.current);
+      pollTimeoutRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     const nextUserToken = `${user?.id || 'anonymous'}:${user?.role || 'unknown'}`;
     if (lastUserTokenRef.current && lastUserTokenRef.current !== nextUserToken) {
@@ -110,13 +117,6 @@ export function NotificationProvider({ children }) {
     }
     lastUserTokenRef.current = nextUserToken;
   }, [clearPollTimeout, toast, user?.id, user?.role]);
-
-  const clearPollTimeout = useCallback(() => {
-    if (pollTimeoutRef.current) {
-      clearTimeout(pollTimeoutRef.current);
-      pollTimeoutRef.current = null;
-    }
-  }, []);
 
   const openNotificationsCenter = useCallback(() => {
     const targetPath = resolveNotificationTargetPath(user?.role, null);
