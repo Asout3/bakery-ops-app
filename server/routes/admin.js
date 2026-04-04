@@ -138,6 +138,122 @@ router.post(
   }
 );
 
+router.put(
+  '/staff/:id',
+  authenticateToken,
+  authorizeRoles('admin'),
+  body('full_name').optional().trim().isLength({ min: 3 }),
+  body('phone_number').optional().trim().custom(isEthiopianMobilePhone),
+  body('role_preference').optional().isIn(['cashier', 'manager', 'other']),
+  body('age').optional({ nullable: true }).isInt({ min: 17, max: 100 }),
+  body('monthly_salary').optional({ nullable: true }).isFloat({ min: 0 }),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({ error: 'Invalid staff id', code: 'INVALID_STAFF_ID', requestId: req.requestId });
+      }
+
+      const existing = await query(
+        `SELECT sp.*, u.id AS user_id
+         FROM staff_profiles sp
+         LEFT JOIN users u ON u.id = sp.linked_user_id
+         WHERE sp.id = $1`,
+        [id]
+      );
+      if (!existing.rows.length) {
+        return res.status(404).json({ error: 'Staff member not found', code: 'STAFF_NOT_FOUND', requestId: req.requestId });
+      }
+
+      const staff = existing.rows[0];
+      const nextRolePreference = req.body.role_preference || staff.role_preference;
+      const nextJobTitle = nextRolePreference === 'other'
+        ? (req.body.other_role_title || staff.job_title || 'Other Staff')
+        : nextRolePreference;
+      const nextPhoneNumber = req.body.phone_number === undefined ? staff.phone_number : req.body.phone_number;
+      const nextNationalId = req.body.national_id === undefined ? staff.national_id : (req.body.national_id || null);
+      const nextAge = req.body.age === undefined || req.body.age === null || req.body.age === '' ? null : Number(req.body.age);
+      const nextSalary = req.body.monthly_salary === undefined || req.body.monthly_salary === null || req.body.monthly_salary === ''
+        ? Number(staff.monthly_salary || 0)
+        : Number(req.body.monthly_salary);
+
+      if (!isEthiopianMobilePhone(nextPhoneNumber)) {
+        return res.status(400).json({ error: 'Phone number must be +2519XXXXXXXX or +2517XXXXXXXX', code: 'INVALID_PHONE_NUMBER', requestId: req.requestId });
+      }
+
+      if (nextAge !== null && nextAge < 17) {
+        return res.status(400).json({ error: 'Age must be greater than 16', code: 'INVALID_AGE', requestId: req.requestId });
+      }
+
+      if (nextNationalId) {
+        const duplicateNationalId = await query(
+          'SELECT id FROM staff_profiles WHERE national_id = $1 AND id <> $2 LIMIT 1',
+          [nextNationalId, id]
+        );
+        if (duplicateNationalId.rows.length) {
+          return res.status(400).json({ error: 'National ID already exists', code: 'DUPLICATE_NATIONAL_ID', requestId: req.requestId });
+        }
+      }
+
+      const updated = await query(
+        `UPDATE staff_profiles
+         SET full_name = COALESCE($1, full_name),
+             national_id = $2,
+             phone_number = $3,
+             age = $4,
+             monthly_salary = $5,
+             role_preference = $6,
+             job_title = $7,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $8
+         RETURNING *`,
+        [
+          req.body.full_name || null,
+          nextNationalId,
+          nextPhoneNumber,
+          nextAge,
+          nextSalary,
+          nextRolePreference,
+          nextJobTitle,
+          id,
+        ]
+      );
+
+      if (staff.user_id) {
+        await query(
+          `UPDATE users
+           SET full_name = $1,
+               national_id = $2,
+               phone_number = $3,
+               age = $4,
+               monthly_salary = $5,
+               job_title = $6,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $7`,
+          [
+            updated.rows[0].full_name,
+            updated.rows[0].national_id,
+            updated.rows[0].phone_number,
+            updated.rows[0].age,
+            updated.rows[0].monthly_salary,
+            updated.rows[0].job_title,
+            staff.user_id,
+          ]
+        );
+      }
+
+      await notifyAdmins(updated.rows[0].location_id || req.user.location_id || null, 'Staff Profile Updated', `${updated.rows[0].full_name} profile was updated.`, 'staff_profile_updated');
+      res.json(updated.rows[0]);
+    } catch (err) {
+      console.error('Update staff profile error:', err);
+      res.status(500).json({ error: 'Internal server error', code: 'STAFF_UPDATE_ERROR', requestId: req.requestId });
+    }
+  }
+);
+
 router.patch('/staff/:id/status', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -473,7 +589,7 @@ router.get('/check-salary-due', authenticateToken, authorizeRoles('admin'), asyn
         AND sp.monthly_salary > 0
         AND sp.payment_due_date BETWEEN $1 AND $2
       ORDER BY sp.payment_due_date ASC
-    `, [currentDay, currentDay + 2]);
+    `, [currentDay, currentDay + 3]);
     
     const staffList = staffDue.rows.map(s => ({
       id: s.id,
@@ -528,7 +644,7 @@ router.get('/check-salary-due', authenticateToken, authorizeRoles('admin'), asyn
       notifications_sent: notificationsCreated.length,
       message: notificationsCreated.length > 0 
         ? `Created notifications for ${notificationsCreated.length} staff members`
-        : 'No salary payments due within 2 days'
+        : 'No salary payments due within 3 days'
     });
   } catch (err) {
     console.error('Check salary due error:', err);

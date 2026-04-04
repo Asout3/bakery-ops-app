@@ -194,7 +194,7 @@ export default function Inventory() {
     const qty = Number(inventory[productId]?.quantity || 0);
     if (qty <= 0) return 'out';
     if (qty <= getLowStockThreshold(product)) return 'low';
-    return 'healthy';
+    return 'well';
   };
 
   const stockCounts = useMemo(() => products
@@ -203,7 +203,7 @@ export default function Inventory() {
       const status = getStockStatus(product.id, product);
       acc[status] += 1;
       return acc;
-    }, { low: 0, out: 0, healthy: 0 }), [products, inventory]);
+    }, { low: 0, out: 0, well: 0 }), [products, inventory]);
 
 
 
@@ -276,6 +276,7 @@ export default function Inventory() {
               <select className="form-select" style={{ maxWidth: '220px' }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option value="all">All Categories</option>{Array.from(new Set(products.filter((p) => p.is_active !== false).map((p) => p.category_name || 'Uncategorized'))).sort().map((category) => <option key={category} value={category}>{category}</option>)}</select>
               <div className="manager-stock-filters">
                 <button type="button" className={`stock-filter-btn ${stockFilter === 'all' ? 'active all' : ''}`} onClick={() => setStockFilter('all')}>All ({products.filter((p) => p.is_active !== false).length})</button>
+                <button type="button" className={`stock-filter-btn ${stockFilter === 'well' ? 'active healthy' : ''}`} onClick={() => setStockFilter('well')}>Well Stocked ({stockCounts.well})</button>
                 <button type="button" className={`stock-filter-btn ${stockFilter === 'low' ? 'active low' : ''}`} onClick={() => setStockFilter('low')}>Low Stock ({stockCounts.low})</button>
                 <button type="button" className={`stock-filter-btn ${stockFilter === 'out' ? 'active out' : ''}`} onClick={() => setStockFilter('out')}>Out of Stock ({stockCounts.out})</button>
               </div>

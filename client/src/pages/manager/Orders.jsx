@@ -25,9 +25,9 @@ export default function ManagerOrders() {
 
   const updateOrder = async (order, patch) => {
     try {
-      await api.patch(`/orders/${order.id}`, patch);
+      const response = await api.patch(`/orders/${order.id}`, patch);
+      setOrders((current) => current.map((item) => (item.id === order.id ? (response.data || item) : item)));
       setMessage({ type: 'success', text: `Order #${order.id} updated.` });
-      load();
     } catch (err) {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to update order.') });
     }

@@ -7,6 +7,7 @@ import {
   getInitialNotificationsToAnnounce,
   getNewNotificationsToAnnounce,
   resolveNotificationTargetPath,
+  shouldSuppressNotificationsForPathname,
   toNotificationToken,
 } from './notificationClientUtils.js';
 
@@ -46,4 +47,10 @@ test('notification targets remain role-specific', () => {
 test('polling delays are faster in the foreground than the background', () => {
   assert.equal(getBasePollDelay('visible'), ACTIVE_POLL_MS);
   assert.equal(getBasePollDelay('hidden'), BACKGROUND_POLL_MS);
+});
+
+test('notification polling is suppressed on the login page', () => {
+  assert.equal(shouldSuppressNotificationsForPathname('/login'), true);
+  assert.equal(shouldSuppressNotificationsForPathname('/login/reset'), true);
+  assert.equal(shouldSuppressNotificationsForPathname('/admin/dashboard'), false);
 });

@@ -771,6 +771,8 @@ router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager')
         includeManagers: true,
       });
 
+      await createLowStockNotificationsForProducts(tx, locationId, uniqueProductIds);
+
       const updated = await tx.query(`UPDATE inventory_batches SET status = 'edited', notes = COALESCE($1, notes) WHERE id = $2 RETURNING *`, [notes || null, req.params.id]);
       return updated.rows[0];
     });
@@ -812,7 +814,21 @@ router.post('/batches/:id/void', authenticateToken, authorizeRoles('admin', 'man
         return batch;
       }
 
+      const batchItemsResult = await tx.query('SELECT product_id, quantity FROM batch_items WHERE batch_id = $1', [req.params.id]);
       await voidBatchStock(tx, locationId, req.params.id);
+      const affectedProductIds = [...new Set(batchItemsResult.rows.map((row) => Number(row.product_id)).filter((value) => Number.isInteger(value) && value > 0))];
+
+      await insertNotificationsForRecipients(tx, {
+        locationId,
+        title: `Batch Voided #${req.params.id}`,
+        message: `${req.user.username} voided batch #${req.params.id}.`,
+        notificationType: 'batch_updated',
+        includeAdmins: true,
+        includeManagers: true,
+      });
+      if (affectedProductIds.length) {
+        await createLowStockNotificationsForProducts(tx, locationId, affectedProductIds);
+      }
 
       const updated = await tx.query(`UPDATE inventory_batches SET status = 'voided' WHERE id = $1 RETURNING *`, [req.params.id]);
       return updated.rows[0];

@@ -210,6 +210,7 @@ export default function AdminInventory() {
     const threshold = getLowStockThreshold(product);
     if (stockFilter === 'low') return qty > 0 && qty <= threshold;
     if (stockFilter === 'out') return qty <= 0;
+    if (stockFilter === 'well') return qty > threshold;
     return true;
   });
 
@@ -236,6 +237,7 @@ export default function AdminInventory() {
         <div className="search-bar" style={{ maxWidth: '320px' }}><Search size={16}/><input className="input" placeholder="Search inventory by product..." value={search} onChange={(e)=>setSearch(e.target.value)} /></div>
         <div className="btn-group" role="group">
           <button type="button" className={`btn btn-sm ${stockFilter === 'all' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setStockFilter('all')}>All</button>
+          <button type="button" className={`btn btn-sm ${stockFilter === 'well' ? 'btn-success' : 'btn-outline-success'}`} onClick={() => setStockFilter('well')}>Well Stocked</button>
           <button type="button" className={`btn btn-sm ${stockFilter === 'low' ? 'btn-warning' : 'btn-outline-warning'}`} onClick={() => setStockFilter('low')}>Low Stock</button>
           <button type="button" className={`btn btn-sm ${stockFilter === 'out' ? 'btn-danger' : 'btn-outline-danger'}`} onClick={() => setStockFilter('out')}>Out of Stock</button>
         </div>

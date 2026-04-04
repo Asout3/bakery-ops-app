@@ -175,6 +175,18 @@ router.get('/daily', authenticateToken, async (req, res) => {
       [locationId, date]
     );
 
+    const salesByHourResult = await query(
+      `SELECT EXTRACT(HOUR FROM s.sale_date)::int as hour_of_day,
+              COALESCE(SUM(s.total_amount), 0) as total_sales,
+              COUNT(*) as transactions
+       FROM sales s
+       WHERE s.location_id = $1 AND DATE(s.sale_date) = $2
+         AND ${nonVoidedExpr}
+       GROUP BY EXTRACT(HOUR FROM s.sale_date)
+       ORDER BY hour_of_day`,
+      [locationId, date]
+    );
+
 
     const cashierPerformanceResult = await query(
       `WITH sale_base AS (
@@ -305,6 +317,7 @@ router.get('/daily', authenticateToken, async (req, res) => {
         batch_costs: totalBatchCosts,
         waste_loss: totalWasteLoss
       },
+      sales_by_hour: salesByHourResult.rows,
       top_products: topProductsResult.rows,
       payment_methods: paymentMethodsResult.rows,
       details: {
@@ -431,6 +444,18 @@ router.get('/weekly', authenticateToken, async (req, res) => {
       [locationId, startDate, endDate]
     );
 
+    const salesByHourResult = await query(
+      `SELECT EXTRACT(HOUR FROM s.sale_date)::int as hour_of_day,
+              COALESCE(SUM(s.total_amount), 0) as total_sales,
+              COUNT(*) as transactions
+       FROM sales s
+       WHERE s.location_id = $1 AND DATE(s.sale_date) BETWEEN $2 AND $3
+         AND ${nonVoidedExpr}
+       GROUP BY EXTRACT(HOUR FROM s.sale_date)
+       ORDER BY hour_of_day`,
+      [locationId, startDate, endDate]
+    );
+
     const cashierPerformanceResult = await query(
       `WITH sale_base AS (
           SELECT s.id,
@@ -549,8 +574,9 @@ router.get('/weekly', authenticateToken, async (req, res) => {
         staff_payment_count: parseInt(totals.staff_payment_count) || 0,
         waste_count: parseInt(wasteSummary.waste_count) || 0,
         avg_transaction: transactions > 0 ? totalRevenue / transactions : 0,
-        },
+      },
       sales_by_day: salesByDayResult.rows,
+      sales_by_hour: salesByHourResult.rows,
       sales_by_category: categoryResult.rows,
       payment_methods: paymentMethodsResult.rows,
       top_products: topProductsResult.rows,
@@ -714,6 +740,20 @@ router.get('/monthly', authenticateToken, async (req, res) => {
       [locationId, year, month]
     );
 
+    const salesByHourResult = await query(
+      `SELECT EXTRACT(HOUR FROM s.sale_date)::int as hour_of_day,
+              COALESCE(SUM(s.total_amount), 0) as total_sales,
+              COUNT(*) as transactions
+       FROM sales s
+       WHERE s.location_id = $1
+         AND EXTRACT(YEAR FROM s.sale_date) = $2
+         AND EXTRACT(MONTH FROM s.sale_date) = $3
+         AND ${nonVoidedExpr}
+       GROUP BY EXTRACT(HOUR FROM s.sale_date)
+       ORDER BY hour_of_day`,
+      [locationId, year, month]
+    );
+
     const cashierPerformanceResult = await query(
       `WITH sale_base AS (
           SELECT s.id,
@@ -861,6 +901,7 @@ router.get('/monthly', authenticateToken, async (req, res) => {
         waste_loss: totalWasteLoss,
         margin_percent: totalRevenue > 0 ? (netProfit / totalRevenue * 100).toFixed(2) : 0
       },
+      sales_by_hour: salesByHourResult.rows,
       top_products: topProductsResult.rows,
       payment_methods: paymentMethodsResult.rows,
       details: {

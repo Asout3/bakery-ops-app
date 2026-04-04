@@ -193,6 +193,9 @@ export default function Sales() {
 
   const getCartQuantity = (productId) => cart.find((item) => item.product_id === productId)?.quantity || 0;
   const getRemainingStock = (product) => Math.max(0, Number(product.stock_quantity || 0) - getCartQuantity(product.id));
+  const resetQuantityDraft = (productId, fallbackValue) => {
+    setQuantityDrafts((current) => ({ ...current, [productId]: String(fallbackValue) }));
+  };
 
   const addVariantToCart = (product) => {
     if (getRemainingStock(product) <= 0) {
@@ -224,8 +227,9 @@ export default function Sales() {
       const product = products.find((p) => Number(p.id) === Number(productId));
       const maxQty = Number(product?.stock_quantity || 0);
       const nextQty = Math.max(1, item.quantity + change);
-      if (maxQty > 0 && nextQty > maxQty) {
-        toast.warning(`${product?.name || 'Item'} is out of stock.`);
+      if (nextQty > maxQty) {
+        resetQuantityDraft(productId, item.quantity);
+        toast.warning('Out of stock');
         return item;
       }
       return { ...item, quantity: nextQty };
@@ -246,8 +250,10 @@ export default function Sales() {
 
     const product = products.find((p) => Number(p.id) === Number(productId));
     const maxQty = Number(product?.stock_quantity || 0);
-    if (maxQty > 0 && quantity > maxQty) {
-      toast.warning(`${product?.name || 'Item'} is out of stock.`);
+    if (quantity > maxQty) {
+      const currentQuantity = cart.find((item) => Number(item.product_id) === Number(productId))?.quantity || 1;
+      resetQuantityDraft(productId, currentQuantity);
+      toast.warning('Out of stock');
       return;
     }
 
@@ -257,6 +263,18 @@ export default function Sales() {
       delete next[productId];
       return next;
     });
+  };
+
+  const handleQuantityDraftChange = (productId, rawValue) => {
+    const normalized = String(rawValue ?? '').replace(/[^\d]/g, '');
+    if (!normalized) {
+      setQuantityDrafts((current) => ({ ...current, [productId]: '' }));
+      return;
+    }
+    const product = products.find((p) => Number(p.id) === Number(productId));
+    const maxQty = Math.max(1, Number(product?.stock_quantity || 0));
+    const clamped = Math.min(maxQty, Math.max(1, Number(normalized)));
+    setQuantityDrafts((current) => ({ ...current, [productId]: String(clamped) }));
   };
 
   const removeFromCart = (productId) => {
@@ -313,6 +331,28 @@ export default function Sales() {
 
   const handleCheckout = async () => {
     if (checkoutInFlightRef.current || cart.length === 0) return;
+    const adjustedCart = [];
+    let hasStockConflict = false;
+    for (const item of cart) {
+      const product = products.find((entry) => Number(entry.id) === Number(item.product_id));
+      const maxQty = Math.max(0, Number(product?.stock_quantity || 0));
+      if (maxQty <= 0) {
+        hasStockConflict = true;
+        continue;
+      }
+      if (Number(item.quantity) > maxQty) {
+        hasStockConflict = true;
+        adjustedCart.push({ ...item, quantity: maxQty });
+        continue;
+      }
+      adjustedCart.push(item);
+    }
+    if (hasStockConflict) {
+      setCart(adjustedCart);
+      setQuantityDrafts({});
+      toast.warning('Out of stock');
+      return;
+    }
     checkoutInFlightRef.current = true;
     setLoading(true);
 
@@ -443,7 +483,7 @@ export default function Sales() {
 
         <div className="cart-section">
           <div className="card"><div className="card-header"><h3><ShoppingCart size={20} />Cart ({cart.length})</h3></div><div className="card-body cart-body">
-            {cart.length === 0 ? <div className="empty-cart"><ShoppingCart size={48} /><p>{t('cartEmpty')}</p></div> : <div className="cart-items">{cart.map((item) => <div key={item.product_id} className="cart-item"><div className="cart-item-details"><div className="cart-item-name">{item.name}</div><div className="cart-item-price">ETB {Number(item.price).toFixed(2)}</div></div><div className="cart-item-actions"><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, -1)}><Minus size={14} /></button><input type="number" min="1" className="form-control form-control-sm" style={{ width: '72px', textAlign: 'center' }} value={quantityDrafts[item.product_id] ?? String(item.quantity)} onChange={(e) => setQuantityDrafts((current) => ({ ...current, [item.product_id]: e.target.value }))} onBlur={(e) => setQuantity(item.product_id, e.target.value)} /><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, 1)}><Plus size={14} /></button><button className="btn btn-sm btn-danger" onClick={() => removeFromCart(item.product_id)}><Trash2 size={14} /></button></div><div className="cart-item-subtotal">ETB {(item.price * item.quantity).toFixed(2)}</div></div>)}</div>}
+            {cart.length === 0 ? <div className="empty-cart"><ShoppingCart size={48} /><p>{t('cartEmpty')}</p></div> : <div className="cart-items">{cart.map((item) => <div key={item.product_id} className="cart-item"><div className="cart-item-details"><div className="cart-item-name">{item.name}</div><div className="cart-item-price">ETB {Number(item.price).toFixed(2)}</div></div><div className="cart-item-actions"><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, -1)}><Minus size={14} /></button><input type="number" min="1" max={Math.max(1, Number(products.find((p) => Number(p.id) === Number(item.product_id))?.stock_quantity || 0))} className="form-control form-control-sm" style={{ width: '72px', textAlign: 'center' }} value={quantityDrafts[item.product_id] ?? String(item.quantity)} onChange={(e) => handleQuantityDraftChange(item.product_id, e.target.value)} onBlur={(e) => setQuantity(item.product_id, e.target.value)} /><button className="btn btn-sm btn-secondary" onClick={() => updateQuantity(item.product_id, 1)}><Plus size={14} /></button><button className="btn btn-sm btn-danger" onClick={() => removeFromCart(item.product_id)}><Trash2 size={14} /></button></div><div className="cart-item-subtotal">ETB {(item.price * item.quantity).toFixed(2)}</div></div>)}</div>}
           </div><div className="card-footer"><div className="payment-method-select"><label htmlFor="payment-method">Payment Method</label><select id="payment-method" className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div><div className="cart-total"><span className="cart-total-label">Total:</span><span className="cart-total-amount">ETB {calculateTotal().toFixed(2)}</span></div><button className="btn btn-success btn-lg" onClick={handleCheckout} disabled={loading || cart.length === 0} style={{ width: '100%', marginTop: '1rem' }}>{loading ? t('processing') : isOnline ? t('completeSale') : t('queueSaleOffline')}</button></div></div>
         </div>
       </div>

@@ -161,6 +161,11 @@ sequenceDiagram
 ### Reliability Mechanisms
 
 - Cashier sales history now prioritizes server data whenever `/api/sales` is reachable and only falls back to local cached receipts when the app is offline, preventing stale data from a previous database from appearing after `DATABASE_URL` changes.
+- POS quantity entry is now clamped against live stock on both the cashier UI and the sales API, preventing overselling and blocking checkout when local cart quantities drift above current inventory.
+- Notification polling and toast delivery are now suppressed on `/login`, preventing stale operational alerts from appearing before the user reaches an authenticated workflow.
+- Pre-orders now require verified payment before `picked_up` status can be applied, in both admin UI actions and the orders API.
+- Ground-manager expense edits and deletes now follow the 20-minute window with owner-only enforcement, and manager-created expenses are restricted to the current date.
+- Staff profile editing now uses a dedicated `/api/admin/staff/:id` update route so profile maintenance no longer fails with `Not Found`.
 - Notification schema bootstrap now runs automatically at API startup, so migrated/empty databases still create and serve notifications without manual intervention.
 - Staff-payment staff lookup now handles partial schema migrations (including missing `payment_due_date`) and always returns active staff rows from the currently selected location.
 - Staff-payment lookup now unions active `staff_profiles` with active manager/cashier user accounts that are not yet linked to a profile, preventing false "No active staff found" states after database URL swaps or partial migrations.
@@ -170,8 +175,16 @@ sequenceDiagram
 - Manual History Lifecycle runs now execute full transactional cleanup scope (sales, sale items, batches, batch items, orders, order items, expenses, staff payments, waste, inventory/activity logs) while keeping staff accounts and products intact.
 - Archive row-move accounting now safely supports both `SELECT COUNT(*)` and driver-level `rowCount` mutation responses, preventing lifecycle crashes when DB drivers return different mutation payload shapes.
 - Notification delivery is now role-scoped for the single-site operating model: admins receive every persisted notification, managers receive stock/batch/pre-order notifications, and cashiers receive toast alerts for stock and pre-order events without a notification center workflow.
+- Notification toasts now default to a 10-second display window with stronger dedupe and improved readability, while remaining fully suppressed on `/login`.
 - Pre-order performance is now emphasized on the Orders page (product details, pickup time, and audit context), while Sales keeps its Batch Performance history view for operational stock review.
 - Staff-payment UI data loading is now fault-tolerant: payments and staff sources are fetched independently, stale branch selections are healed against active locations after database switches, and the page falls back to `/api/admin/staff` when `/api/admin/staff-for-payments` is unavailable.
+- Staff-payment management is now simplified to all-time totals plus current-month totals, with edit flows preserving the original payment date unless the operator explicitly changes it and note fields rendering readable text instead of raw JSON blobs.
+- Inventory pages for admins and ground managers now include a dedicated `Well Stocked` filter so healthy stock is separated from low-stock and out-of-stock states.
+- Ground-manager order queue updates now apply locally from the PATCH response instead of forcing a full page reload after each action.
+- Batch workflow summaries now surface sent, edited, voided, and total-action counts, and batch-edit cost totals are recalculated from the live edited line items.
+- Salary-due notifications now open a 3-day lookahead window so upcoming payroll reminders are issued earlier without changing payment records.
+- Activity logs are now capped to the newest 100 rows per location by a database trigger, preserving FIFO retention across sessions without relying on client fetch limits.
+- Reports now use real dated expenses, staff payments, batch costs, waste loss, and hourly sales breakdowns instead of placeholder derived percentages, improving chart accuracy and export consistency.
 - Batch edit workflows now ignore already-voided stock rows from prior edits, allowing multiple valid edits within the full 20-minute window.
 - Receipt reprint enforcement now honors `0` manual reprints correctly (no fallback override), and reprint window values are applied from saved settings using nullish-safe defaults.
 - Cashier sales now block add/increase actions when stock is exhausted, hide expired variants, and reject expired product checkout server-side.

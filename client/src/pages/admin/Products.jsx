@@ -3,6 +3,7 @@ import './Products.css';
 import api, { getErrorMessage } from '../../api/axios';
 import { Plus, Edit, Trash2, Search, Pencil } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { useToast } from '../../context/ToastContext';
 
 const UNIT_OPTIONS = ['piece', 'kg', 'gram', 'liter', 'pack', 'tray'];
 const emptyVariant = { name: '', price: '', cost: '', unit: 'piece', source: 'baked', category_id: '', low_stock_threshold: '', shelf_life_days: '' };
@@ -23,6 +24,7 @@ const productsControlsRowStyle = {
 
 export default function ProductsPage() {
   const { t } = useLanguage();
+  const toast = useToast();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -89,8 +91,11 @@ export default function ProductsPage() {
       setCategories((current) => [...current, response.data].sort((a, b) => a.name.localeCompare(b.name)));
       setNewCategoryName('');
       setMessage({ type: 'success', text: t('categoryAdded') });
+      toast.success(t('categoryAdded'));
     } catch (err) {
-      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to add category.') });
+      const errorMessage = getErrorMessage(err, 'Failed to add category.');
+      setMessage({ type: 'danger', text: errorMessage });
+      toast.error(errorMessage);
     }
   };
 
@@ -126,8 +131,10 @@ export default function ProductsPage() {
       await fetchProducts();
       resetForms();
       setMessage({ type: 'success', text: 'Product group created.' });
+      toast.success('Product group created.');
     } catch (err) {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to create product group.') });
+      toast.error(getErrorMessage(err, 'Failed to create product group.'));
     } finally {
       setSaving(false);
     }
@@ -157,8 +164,10 @@ export default function ProductsPage() {
       await fetchProducts();
       resetForms();
       setMessage({ type: 'success', text: 'Variant added to group.' });
+      toast.success('Variant added.');
     } catch (err) {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to add variant.') });
+      toast.error(getErrorMessage(err, 'Failed to add variant.'));
     } finally {
       setSaving(false);
     }
@@ -174,8 +183,10 @@ export default function ProductsPage() {
       await fetchProducts();
       resetForms();
       setMessage({ type: 'success', text: 'Variant updated.' });
+      toast.success('Variant updated.');
     } catch (err) {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to save product.') });
+      toast.error(getErrorMessage(err, 'Failed to save product.'));
     } finally {
       setSaving(false);
     }
@@ -187,13 +198,16 @@ export default function ProductsPage() {
       await api.delete(`/products/${id}`);
       await fetchProducts();
       setMessage({ type: 'success', text: 'Variant deleted.' });
+      toast.success('Variant deleted.');
     } catch (err) {
       if (err?.response?.data?.code === 'PRODUCT_DELETE_BLOCKED') {
         await api.put(`/products/${id}`, { is_active: false });
         await fetchProducts();
         setMessage({ type: 'warning', text: 'Variant archived because it has linked history.' });
+        toast.warning('Variant archived because it has linked history.');
       } else {
         setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to delete variant.') });
+        toast.error(getErrorMessage(err, 'Failed to delete variant.'));
       }
     }
   };
@@ -215,8 +229,10 @@ export default function ProductsPage() {
       await fetchProducts();
       setGroupRename({ name: '', next: '' });
       setMessage({ type: 'success', text: `Group renamed to ${nextName}.` });
+      toast.success(`Group renamed to ${nextName}.`);
     } catch (err) {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to rename group.') });
+      toast.error(getErrorMessage(err, 'Failed to rename group.'));
     } finally {
       setSaving(false);
     }

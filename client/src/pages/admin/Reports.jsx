@@ -21,6 +21,7 @@ import { createPdfBlob, createXlsxBlob } from '../../utils/reportExportGenerator
 import './Reports.css';
 import { formatCurrencyETB } from '../../utils/currency';
 import { useLanguage } from '../../context/LanguageContext';
+import { buildExpenseBreakdown, buildProductRows, buildSalesByHour, buildTimelineData, getPeakSalesHourLabel } from './reportAnalytics';
 
 const COLORS = ['#0ea5e9', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6'];
 
@@ -106,13 +107,6 @@ function healthStatus(score) {
   return { key: 'risk', className: 'risk' };
 }
 
-function parseHour(dateTime) {
-  if (!dateTime) return null;
-  const d = new Date(dateTime);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.getHours();
-}
-
 const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const reportLocale = {
@@ -166,6 +160,7 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [currentData, setCurrentData] = useState(null);
   const [previousData, setPreviousData] = useState(null);
+  const [profitabilityRows, setProfitabilityRows] = useState([]);
 
   const selectedRange = useMemo(() => rangeFromPeriod(period, customRange), [period, customRange]);
 
@@ -176,13 +171,16 @@ export default function ReportsPage() {
         const currentReq = api.get(`/reports/weekly?start_date=${selectedRange.startDate}&end_date=${selectedRange.endDate}`);
         const prev = prevRange(selectedRange);
         const prevReq = api.get(`/reports/weekly?start_date=${prev.startDate}&end_date=${prev.endDate}`);
-        const [currRes, prevRes] = await Promise.all([currentReq, prevReq]);
+        const profitabilityReq = api.get(`/reports/products/profitability?start_date=${selectedRange.startDate}&end_date=${selectedRange.endDate}`);
+        const [currRes, prevRes, profitabilityRes] = await Promise.all([currentReq, prevReq, profitabilityReq]);
         setCurrentData(currRes.data || null);
         setPreviousData(prevRes.data || null);
+        setProfitabilityRows(profitabilityRes.data || []);
       } catch (err) {
         console.error('Failed to load reports:', err);
-        setCurrentData({ summary: {}, sales_by_day: [], top_products: [], payment_methods: [], sales_by_category: [], details: { expenses: [], staff_payments: [], batches: { batch_list: [] }, cashier_performance: [] }, data_unavailable: true });
+        setCurrentData({ summary: {}, sales_by_day: [], sales_by_hour: [], top_products: [], payment_methods: [], sales_by_category: [], details: { expenses: [], staff_payments: [], waste: [], batches: { batch_list: [] }, cashier_performance: [] }, data_unavailable: true });
         setPreviousData({ summary: {}, sales_by_day: [] });
+        setProfitabilityRows([]);
       } finally {
         setLoading(false);
       }
@@ -205,41 +203,9 @@ export default function ReportsPage() {
   const score = useMemo(() => healthScore(current, growth.sales), [current, growth.sales]);
   const scoreStatus = healthStatus(score);
 
-  const timelineData = useMemo(() => {
-    const rows = currentData?.sales_by_day || [];
-    return rows.map((row) => {
-      const revenue = Number(row.total_sales || 0);
-      const cost = revenue * 0.42;
-      const expenses = (current.expenses + current.staff + current.waste) / Math.max(rows.length, 1);
-      return {
-        label: row.sale_date || row.date,
-        revenue,
-        production_cost: cost,
-        expenses,
-        net_profit: revenue - cost - expenses,
-      };
-    });
-  }, [currentData, current.expenses, current.staff, current.waste]);
+  const timelineData = useMemo(() => buildTimelineData(currentData), [currentData]);
 
-  const productRows = useMemo(() => {
-    const rows = currentData?.top_products || [];
-    const totalRevenue = rows.reduce((acc, item) => acc + Number(item.revenue || 0), 0);
-    return rows.map((item) => {
-      const revenue = Number(item.revenue || 0);
-      const productionCost = revenue * 0.45;
-      const profit = revenue - productionCost;
-      const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
-      return {
-        name: item.name || item.product_name || rt('unknown'),
-        units: Number(item.total_sold || item.quantity || item.units_sold || 0),
-        revenue,
-        productionCost,
-        profit,
-        margin,
-        contribution: totalRevenue > 0 ? (revenue / totalRevenue) * 100 : 0,
-      };
-    });
-  }, [currentData, rt]);
+  const productRows = useMemo(() => buildProductRows(profitabilityRows, currentData?.top_products || []), [profitabilityRows, currentData]);
 
   const slowMovingRows = useMemo(() => productRows.filter((r) => r.units <= 5 || r.margin < 20), [productRows]);
 
@@ -274,20 +240,18 @@ export default function ReportsPage() {
       .sort((a, b) => b.sales - a.sales);
   }, [currentData]);
 
-  const expensePie = useMemo(() => {
-    const entries = currentData?.sales_by_category || [];
-    if (entries.length) {
-      return entries.map((entry) => ({ name: entry.category || rt('other'), value: Number(entry.revenue || 0) * 0.2 }));
-    }
-    return [
-      { name: rt('ingredients'), value: current.prod * 0.65 },
-      { name: rt('utilities'), value: current.expenses * 0.2 },
-      { name: rt('maintenance'), value: current.expenses * 0.1 },
-      { name: rt('taxes'), value: current.expenses * 0.05 },
-      { name: rt('staffPayroll'), value: current.staff },
-      { name: 'Waste Loss', value: current.waste },
-    ];
-  }, [currentData, current, rt]);
+  const expensePie = useMemo(() => buildExpenseBreakdown(currentData, {
+    ingredients: rt('ingredients'),
+    utilities: rt('utilities'),
+    maintenance: rt('maintenance'),
+    taxes: rt('taxes'),
+    staffPayroll: rt('staffPayroll'),
+    wasteLoss: 'Waste Loss',
+    productionCost: rt('productionCost'),
+    other: rt('other'),
+  }), [currentData, rt]);
+
+  const salesByHour = useMemo(() => buildSalesByHour(currentData), [currentData]);
 
   const insights = useMemo(() => {
     const bestWeekDay = weekdaySales.reduce((best, row) => (row.sales > best.sales ? row : best), { day: '-', sales: 0 });
@@ -299,8 +263,9 @@ export default function ReportsPage() {
       `${topProduct ? topProduct.name : 'Top product'} contributes ${fmtPct(topProduct?.contribution || 0)} of tracked top-product revenue.`,
       `${topPayMethod?.payment_method || 'Top payment method'} dominates with ${fmtMoney(topPayMethod?.total || 0)}.`,
       `${bestWeekDay.day} is the strongest sales day in this period.`,
+      `${getPeakSalesHourLabel(currentData, rt('na'))} is the strongest sales hour based on recorded sales totals.`,
     ];
-  }, [growth.sales, current.netMargin, score, productRows, currentData, weekdaySales]);
+  }, [growth.sales, current.netMargin, score, productRows, currentData, weekdaySales, rt]);
 
   const downloadBlob = (blob, fileName) => {
     const url = URL.createObjectURL(blob);
@@ -330,7 +295,7 @@ export default function ReportsPage() {
       `waste_loss: ${current.waste.toFixed(2)}`,
       `net_profit: ${current.net.toFixed(2)}`,
       `net_margin: ${current.netMargin.toFixed(2)}%`,
-      `health_score: ${score}/100 (${scoreStatus.label})`,
+      `health_score: ${score}/100 (${scoreStatus.key})`,
       '',
       'insights',
       ...insights,
@@ -523,10 +488,7 @@ export default function ReportsPage() {
           <h3>{rt('salesTrendIntel')}</h3>
           <div className="metric-list">
             <div><span>{rt('bestDayOfWeek')}</span><strong>{weekdaySales.reduce((best, row) => row.sales > best.sales ? row : best, { day: '-', sales: 0 }).day}</strong></div>
-            <div><span>{rt('peakSalesHour')}</span><strong>{(() => {
-              const allHours = (currentData?.details?.cashier_performance || []).map((row) => parseHour(row.last_sale_at)).filter((h) => h !== null);
-              return allHours.length ? `${allHours.sort((a, b) => a - b).at(-1)}:00` : rt('na');
-            })()}</strong></div>
+            <div><span>{rt('peakSalesHour')}</span><strong>{getPeakSalesHourLabel(currentData, rt('na'))}</strong></div>
             <div><span>{rt('avgTxValue')}</span><strong>{fmtMoney(currentData?.summary?.avg_transaction || 0)}</strong></div>
             <div><span>{rt('avgItemsTx')}</span><strong>{Number((currentData?.details?.cashier_performance || []).reduce((sum, row) => sum + Number(row.items_sold || 0), 0) / Math.max(1, Number(currentData?.summary?.total_transactions || 0))).toFixed(2)}</strong></div>
           </div>
@@ -543,9 +505,9 @@ export default function ReportsPage() {
         <div>
           <h4>{rt('salesByHour')}</h4>
           <div className="hour-heatmap">
-            {Array.from({ length: 24 }).map((_, hour) => {
-              const strength = Math.max(0.05, Math.min(1, ((timelineData[hour % Math.max(1, timelineData.length)]?.revenue || 0) / Math.max(1, current.sales)) * 8));
-              return <div key={hour} className="hour-cell" style={{ opacity: strength }}>{hour}:00</div>;
+            {salesByHour.map((row) => {
+              const strength = Math.max(0.08, Math.min(1, row.sales / Math.max(1, current.sales)));
+              return <div key={row.hour} className="hour-cell" style={{ opacity: strength }} title={`${String(row.hour).padStart(2, '0')}:00 • ${fmtMoney(row.sales)}`}>{String(row.hour).padStart(2, '0')}:00</div>;
             })}
           </div>
         </div>

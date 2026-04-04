@@ -223,6 +223,7 @@ export const getPoolStats = () => ({
 
 let authSecuritySchemaPromise = null;
 let notificationsSchemaPromise = null;
+let activityLogSchemaPromise = null;
 
 export async function ensureAuthSecuritySchema() {
   if (authSecuritySchemaPromise) {
@@ -258,6 +259,46 @@ export async function ensureAuthSecuritySchema() {
   });
 
   return authSecuritySchemaPromise;
+}
+
+export async function ensureActivityLogRetentionSchema() {
+  if (activityLogSchemaPromise) {
+    return activityLogSchemaPromise;
+  }
+
+  activityLogSchemaPromise = (async () => {
+    await query('CREATE INDEX IF NOT EXISTS idx_activity_log_location_created_desc ON activity_log(location_id, created_at DESC, id DESC)');
+
+    await query(
+      `CREATE OR REPLACE FUNCTION trim_activity_log_per_location()
+       RETURNS TRIGGER AS $$
+       BEGIN
+         DELETE FROM activity_log
+         WHERE id IN (
+           SELECT id
+           FROM activity_log
+           WHERE location_id IS NOT DISTINCT FROM NEW.location_id
+           ORDER BY created_at DESC, id DESC
+           OFFSET 100
+         );
+         RETURN NEW;
+       END;
+       $$ LANGUAGE plpgsql`
+    );
+
+    await query('DROP TRIGGER IF EXISTS trg_trim_activity_log_per_location ON activity_log');
+    await query(
+      `CREATE TRIGGER trg_trim_activity_log_per_location
+       AFTER INSERT ON activity_log
+       FOR EACH ROW
+       EXECUTE FUNCTION trim_activity_log_per_location()`
+    );
+  })().catch((error) => {
+    activityLogSchemaPromise = null;
+    throw error;
+  });
+
+  return activityLogSchemaPromise;
 }
 
 export async function ensureNotificationsSchema() {

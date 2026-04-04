@@ -30,9 +30,9 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (re
              COALESCE(u.username, fp.full_name) as staff_name,
              COALESCE(u.role, fp.role_preference) as role,
              uc.username as created_by_name,
-             COALESCE(CASE WHEN sp.notes LIKE '{%' THEN NULLIF(sp.notes::jsonb ->> 'payment_frequency', '') END, 'monthly') as payment_frequency,
-             COALESCE(CASE WHEN sp.notes LIKE '{%' THEN NULLIF(sp.notes::jsonb ->> 'payout_mode', '') END, 'pay_now') as payout_mode,
-             CASE WHEN sp.notes LIKE '{%' THEN NULLIF(sp.notes::jsonb ->> 'payroll_month', '') END as payroll_month,
+             'monthly' as payment_frequency,
+             'pay_now' as payout_mode,
+             NULL::text as payroll_month,
              ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (sp.created_at + make_interval(mins => $2::int))) as can_edit,
              EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - sp.created_at)) / 60 as age_minutes
       FROM staff_payments sp

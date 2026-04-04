@@ -3,7 +3,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
-import pool, { ensureAuthSecuritySchema, ensureNotificationsSchema, ensureOrdersSchema, ensureProductCreatorSchema, isTransientDbError } from './db.js';
+import pool, { ensureActivityLogRetentionSchema, ensureAuthSecuritySchema, ensureNotificationsSchema, ensureOrdersSchema, ensureProductCreatorSchema, isTransientDbError } from './db.js';
 import { ensureReceiptSchema } from './services/receiptService.js';
 import { ensureWasteSchema } from './services/wasteService.js';
 import { apiLimiter, validateEnvironment, getCorsOptions } from './middleware/security.js';
@@ -35,6 +35,7 @@ await ensureAuthSecuritySchema();
 await ensureProductCreatorSchema();
 await ensureOrdersSchema();
 await ensureNotificationsSchema();
+await ensureActivityLogRetentionSchema();
 await ensureWasteSchema();
 await ensureReceiptSchema();
 
