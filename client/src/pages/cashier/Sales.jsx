@@ -193,6 +193,9 @@ export default function Sales() {
 
   const getCartQuantity = (productId) => cart.find((item) => item.product_id === productId)?.quantity || 0;
   const getRemainingStock = (product) => Math.max(0, Number(product.stock_quantity || 0) - getCartQuantity(product.id));
+  const resetQuantityDraft = (productId, fallbackValue) => {
+    setQuantityDrafts((current) => ({ ...current, [productId]: String(fallbackValue) }));
+  };
 
   const addVariantToCart = (product) => {
     if (getRemainingStock(product) <= 0) {
@@ -224,8 +227,9 @@ export default function Sales() {
       const product = products.find((p) => Number(p.id) === Number(productId));
       const maxQty = Number(product?.stock_quantity || 0);
       const nextQty = Math.max(1, item.quantity + change);
-      if (maxQty > 0 && nextQty > maxQty) {
-        toast.warning(`${product?.name || 'Item'} is out of stock.`);
+      if (nextQty > maxQty) {
+        resetQuantityDraft(productId, item.quantity);
+        toast.warning('Out of stock');
         return item;
       }
       return { ...item, quantity: nextQty };
@@ -246,8 +250,10 @@ export default function Sales() {
 
     const product = products.find((p) => Number(p.id) === Number(productId));
     const maxQty = Number(product?.stock_quantity || 0);
-    if (maxQty > 0 && quantity > maxQty) {
-      toast.warning(`${product?.name || 'Item'} is out of stock.`);
+    if (quantity > maxQty) {
+      const currentQuantity = cart.find((item) => Number(item.product_id) === Number(productId))?.quantity || 1;
+      resetQuantityDraft(productId, currentQuantity);
+      toast.warning('Out of stock');
       return;
     }
 
@@ -313,6 +319,28 @@ export default function Sales() {
 
   const handleCheckout = async () => {
     if (checkoutInFlightRef.current || cart.length === 0) return;
+    const adjustedCart = [];
+    let hasStockConflict = false;
+    for (const item of cart) {
+      const product = products.find((entry) => Number(entry.id) === Number(item.product_id));
+      const maxQty = Math.max(0, Number(product?.stock_quantity || 0));
+      if (maxQty <= 0) {
+        hasStockConflict = true;
+        continue;
+      }
+      if (Number(item.quantity) > maxQty) {
+        hasStockConflict = true;
+        adjustedCart.push({ ...item, quantity: maxQty });
+        continue;
+      }
+      adjustedCart.push(item);
+    }
+    if (hasStockConflict) {
+      setCart(adjustedCart);
+      setQuantityDrafts({});
+      toast.warning('Out of stock');
+      return;
+    }
     checkoutInFlightRef.current = true;
     setLoading(true);
 

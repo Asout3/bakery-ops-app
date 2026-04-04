@@ -7,6 +7,15 @@ import { getTargetLocationId } from '../utils/location.js';
 const router = express.Router();
 const EXPENSE_EDIT_WINDOW_MINUTES = 20;
 
+function toISODateString(value) {
+  if (!value) return '';
+  return String(value).slice(0, 10);
+}
+
+function isCurrentDateValue(value) {
+  return toISODateString(value) === new Date().toISOString().slice(0, 10);
+}
+
 async function resolveEffectiveActor(tx, req, locationId) {
   const queuedActorIdHeader = req.headers['x-offline-actor-id'];
   const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
@@ -243,6 +252,13 @@ router.post('/',
     try {
       const locationId = await getTargetLocationId(req, query);
       const { hasExpenseCategoriesTable } = await getExpenseSchemaSupport();
+      if (req.user.role === 'manager' && !isCurrentDateValue(expense_date)) {
+        return res.status(400).json({
+          error: 'Managers can only record expenses for today.',
+          code: 'EXPENSE_FUTURE_DATE_FORBIDDEN',
+          requestId: req.requestId,
+        });
+      }
 
       if (hasExpenseCategoriesTable) {
         const categoryExists = await query(
@@ -324,19 +340,20 @@ router.post('/',
   }
 );
 
-router.put('/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   const { category, description, amount, expense_date, reason } = req.body;
 
   try {
+    const locationId = await getTargetLocationId(req, query);
     const updated = await withTransaction(async (tx) => {
       const existing = await tx.query(
         `SELECT *,
                 (CURRENT_TIMESTAMP < (created_at + make_interval(mins => $2::int))) as can_edit,
                 EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - created_at)) / 60 as age_minutes
          FROM expenses
-         WHERE id = $1
+         WHERE id = $1 AND location_id = $3
          FOR UPDATE`,
-        [req.params.id, EXPENSE_EDIT_WINDOW_MINUTES]
+        [req.params.id, EXPENSE_EDIT_WINDOW_MINUTES, locationId]
       );
 
       if (!existing.rows.length) {
@@ -346,10 +363,22 @@ router.put('/:id', authenticateToken, authorizeRoles('admin'), async (req, res) 
       }
 
       const expense = existing.rows[0];
+      if (req.user.role === 'manager' && Number(expense.created_by) !== Number(req.user.id)) {
+        const err = new Error('You can only edit your own expenses.');
+        err.status = 403;
+        err.code = 'EXPENSE_EDIT_FORBIDDEN';
+        throw err;
+      }
       if (!expense.can_edit) {
         const err = new Error(`Expenses can only be edited within ${EXPENSE_EDIT_WINDOW_MINUTES} minutes. This expense is ${Math.floor(Number(expense.age_minutes || 0))} minutes old.`);
         err.status = 403;
         err.code = 'EXPENSE_EDIT_WINDOW_EXPIRED';
+        throw err;
+      }
+      if (req.user.role === 'manager' && expense_date && !isCurrentDateValue(expense_date)) {
+        const err = new Error('Managers can only keep expenses on the current date.');
+        err.status = 400;
+        err.code = 'EXPENSE_FUTURE_DATE_FORBIDDEN';
         throw err;
       }
 
@@ -380,17 +409,18 @@ router.put('/:id', authenticateToken, authorizeRoles('admin'), async (req, res) 
   }
 });
 
-router.delete('/:id', authenticateToken, authorizeRoles('admin'), async (req, res) => {
+router.delete('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
+    const locationId = await getTargetLocationId(req, query);
     await withTransaction(async (tx) => {
       const existing = await tx.query(
         `SELECT *,
                 (CURRENT_TIMESTAMP < (created_at + make_interval(mins => $2::int))) as can_edit,
                 EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - created_at)) / 60 as age_minutes
          FROM expenses
-         WHERE id = $1
+         WHERE id = $1 AND location_id = $3
          FOR UPDATE`,
-        [req.params.id, EXPENSE_EDIT_WINDOW_MINUTES]
+        [req.params.id, EXPENSE_EDIT_WINDOW_MINUTES, locationId]
       );
 
       if (!existing.rows.length) {
@@ -400,6 +430,12 @@ router.delete('/:id', authenticateToken, authorizeRoles('admin'), async (req, re
       }
 
       const expense = existing.rows[0];
+      if (req.user.role === 'manager' && Number(expense.created_by) !== Number(req.user.id)) {
+        const err = new Error('You can only delete your own expenses.');
+        err.status = 403;
+        err.code = 'EXPENSE_DELETE_FORBIDDEN';
+        throw err;
+      }
       if (!expense.can_edit) {
         const err = new Error(`Expenses can only be deleted within ${EXPENSE_EDIT_WINDOW_MINUTES} minutes. This expense is ${Math.floor(Number(expense.age_minutes || 0))} minutes old.`);
         err.status = 403;

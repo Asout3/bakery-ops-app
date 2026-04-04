@@ -11,6 +11,7 @@ import {
   resolveNotificationTargetPath,
   resolveSeenCacheKey,
   sortNotificationsDesc,
+  shouldSuppressNotificationsForPathname,
   toNotificationToken,
 } from './notificationClientUtils';
 
@@ -76,6 +77,7 @@ export function NotificationProvider({ children }) {
   const seenCacheKeyRef = useRef(resolveSeenCacheKey(user?.id, user?.role));
   const lastHandledNotificationTsRef = useRef(0);
   const fetchPromiseRef = useRef(null);
+  const isNotificationSuppressed = typeof window !== 'undefined' && shouldSuppressNotificationsForPathname(window.location.pathname);
 
   const clearPollTimeout = useCallback(() => {
     if (pollTimeoutRef.current) {
@@ -90,6 +92,12 @@ export function NotificationProvider({ children }) {
   }, [user?.role]);
 
   const handleIncomingNotifications = useCallback(async (list) => {
+    if (isNotificationSuppressed) {
+      setNotifications([]);
+      setUnreadCount(0);
+      return;
+    }
+
     const sorted = sortNotificationsDesc(list);
     const unread = sorted.filter((item) => !item.is_read).length;
     setNotifications(sorted);
@@ -148,10 +156,15 @@ export function NotificationProvider({ children }) {
         await showSystemNotification(notification, targetPath);
       }
     }
-  }, [openNotificationsCenter, toast, user?.role]);
+  }, [isNotificationSuppressed, openNotificationsCenter, toast, user?.role]);
 
   const fetchNotifications = useCallback(async ({ silent = false } = {}) => {
     if (!isAuthenticated || authLoading) return false;
+    if (isNotificationSuppressed) {
+      setNotifications([]);
+      setUnreadCount(0);
+      return false;
+    }
     if (fetchPromiseRef.current) {
       return fetchPromiseRef.current;
     }
@@ -180,12 +193,17 @@ export function NotificationProvider({ children }) {
     })();
 
     return fetchPromiseRef.current;
-  }, [authLoading, handleIncomingNotifications, isAuthenticated]);
+  }, [authLoading, handleIncomingNotifications, isAuthenticated, isNotificationSuppressed]);
 
   const schedulePolling = useCallback(async ({ immediate = false } = {}) => {
     clearPollTimeout();
 
     if (!isAuthenticated || authLoading) {
+      return;
+    }
+    if (isNotificationSuppressed) {
+      setNotifications([]);
+      setUnreadCount(0);
       return;
     }
 
@@ -209,7 +227,7 @@ export function NotificationProvider({ children }) {
     pollTimeoutRef.current = window.setTimeout(() => {
       void schedulePolling({ immediate: true });
     }, pollDelayRef.current);
-  }, [authLoading, clearPollTimeout, fetchNotifications, isAuthenticated]);
+  }, [authLoading, clearPollTimeout, fetchNotifications, isAuthenticated, isNotificationSuppressed]);
 
   const markAsRead = useCallback(async (id) => {
     if (!isAuthenticated) return;
@@ -268,7 +286,7 @@ export function NotificationProvider({ children }) {
   }, [toast]);
 
   useEffect(() => {
-    if (!isAuthenticated || authLoading) {
+    if (!isAuthenticated || authLoading || isNotificationSuppressed) {
       setNotifications([]);
       setUnreadCount(0);
       initializedRef.current = false;
@@ -304,7 +322,7 @@ export function NotificationProvider({ children }) {
       window.removeEventListener('online', handleVisibilityChange);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [authLoading, clearPollTimeout, isAuthenticated, schedulePolling, user?.id, user?.role]);
+  }, [authLoading, clearPollTimeout, isAuthenticated, isNotificationSuppressed, schedulePolling, user?.id, user?.role]);
 
   const refresh = useCallback(async (options = {}) => {
     const success = await fetchNotifications(options);

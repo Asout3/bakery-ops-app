@@ -59,3 +59,8 @@ export function resolveNotificationTargetPath(role, notification) {
 export function getBasePollDelay(visibilityState) {
   return visibilityState === 'hidden' ? BACKGROUND_POLL_MS : ACTIVE_POLL_MS;
 }
+
+export function shouldSuppressNotificationsForPathname(pathname) {
+  const normalized = String(pathname || '').trim().toLowerCase();
+  return normalized === '/login' || normalized.startsWith('/login/');
+}

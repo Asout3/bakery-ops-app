@@ -17,6 +17,7 @@ import {
   normalizeReceiptTemplateSchema,
   summarizePrintEvents,
 } from '../services/receiptService.js';
+import { multiplyCurrency, roundCurrency, sumCurrency } from '../utils/money.js';
 
 const router = express.Router();
 const expiryProcessingCooldownMs = Number(process.env.EXPIRED_WASTE_PROCESS_COOLDOWN_MS || (15 * 60 * 1000));
@@ -688,9 +689,9 @@ router.post(
             inactiveError.code = 'PRODUCT_INACTIVE';
             throw inactiveError;
           }
-          const unitPrice = Number(product.price);
-          const subtotal = unitPrice * item.quantity;
-          totalAmount += subtotal;
+          const unitPrice = roundCurrency(product.price);
+          const subtotal = multiplyCurrency(unitPrice, item.quantity);
+          totalAmount = roundCurrency(totalAmount + subtotal);
 
           saleItems.push({
             product_id: item.product_id,
@@ -1090,7 +1091,14 @@ router.put('/:id/items', authenticateToken, authorizeRoles('admin', 'cashier', '
       const existingItemsResult = await tx.query('SELECT product_id, quantity FROM sale_items WHERE sale_id = $1', [saleId]);
       const existingByProductId = new Map(existingItemsResult.rows.map((row) => [Number(row.product_id), Number(row.quantity || 0)]));
       const productIds = [...new Set(normalizedItems.map((item) => item.product_id))];
-      const productResult = await tx.query('SELECT id, price FROM products WHERE id = ANY($1::int[])', [productIds]);
+      const productResult = await tx.query(
+        `SELECT p.id, p.price, COALESCE(SUM(i.quantity), 0) AS available_quantity
+         FROM products p
+         LEFT JOIN inventory i ON i.product_id = p.id AND i.location_id = $1
+         WHERE p.id = ANY($2::int[])
+         GROUP BY p.id, p.price`,
+        [locationId, productIds]
+      );
       const productById = new Map(productResult.rows.map((row) => [Number(row.id), row]));
 
       for (const productId of productIds) {
@@ -1105,6 +1113,13 @@ router.put('/:id/items', authenticateToken, authorizeRoles('admin', 'cashier', '
       for (const item of normalizedItems) {
         const previousQuantity = existingByProductId.get(item.product_id) || 0;
         const delta = item.quantity - previousQuantity;
+        const availableQuantity = Number(productById.get(item.product_id)?.available_quantity || 0);
+        if (delta > 0 && delta > availableQuantity) {
+          const err = new Error(`Insufficient stock for product ${item.product_id}`);
+          err.status = 400;
+          err.code = 'INSUFFICIENT_STOCK';
+          throw err;
+        }
         if (delta === 0) continue;
         if (delta > 0) {
           await consumeStockBatches(tx, {
@@ -1132,12 +1147,12 @@ router.put('/:id/items', authenticateToken, authorizeRoles('admin', 'cashier', '
       }
 
       await tx.query('DELETE FROM sale_items WHERE sale_id = $1', [saleId]);
-      const totalAmount = normalizedItems.reduce((sum, item) => sum + (Number(productById.get(item.product_id).price || 0) * item.quantity), 0);
+      const totalAmount = sumCurrency(normalizedItems.map((item) => multiplyCurrency(productById.get(item.product_id).price || 0, item.quantity)));
       const editedSaleItems = normalizedItems.map((item) => ({
         product_id: item.product_id,
         quantity: item.quantity,
-        unit_price: Number(productById.get(item.product_id).price || 0),
-        subtotal: Number(productById.get(item.product_id).price || 0) * item.quantity,
+        unit_price: roundCurrency(productById.get(item.product_id).price || 0),
+        subtotal: multiplyCurrency(productById.get(item.product_id).price || 0, item.quantity),
       }));
       const { values, placeholders } = buildBulkSaleItemsInsert(saleId, editedSaleItems);
       await tx.query(
@@ -1145,9 +1160,27 @@ router.put('/:id/items', authenticateToken, authorizeRoles('admin', 'cashier', '
          VALUES ${placeholders}`,
         values
       );
-      await tx.query('UPDATE sales SET total_amount = $1 WHERE id = $2', [totalAmount, saleId]);
-
       const config = await getReceiptConfig(locationId || null, tx);
+      const receiptTemplateSnapshot = normalizeReceiptTemplateSchema(sale.receipt_template_snapshot || {});
+      const saleForReceipt = {
+        ...sale,
+        total_amount: totalAmount,
+      };
+      const receiptPayload = buildReceiptPayload({
+        sale: saleForReceipt,
+        items: editedSaleItems,
+        template: receiptTemplateSnapshot,
+        settings: normalizeReceiptSettings(config.settings || {}),
+      });
+      await tx.query(
+        `UPDATE sales
+         SET total_amount = $1,
+             receipt_payload = $2,
+             receipt_generated_at = NOW()
+         WHERE id = $3`,
+        [totalAmount, JSON.stringify(receiptPayload), saleId]
+      );
+
       return getSaleWithItems(saleId, tx, config.settings);
     });
 
@@ -1341,7 +1374,7 @@ async function getSaleWithItems(saleId, tx = null, settings = null) {
 
   const sale = saleResult.rows[0];
   sale.items = itemsResult.rows;
-  sale.receipt_payload = sale.receipt_payload || buildReceiptPayload({
+  sale.receipt_payload = buildReceiptPayload({
     sale,
     items: sale.items,
     template: normalizeReceiptTemplateSchema(sale.receipt_template_snapshot || {}),

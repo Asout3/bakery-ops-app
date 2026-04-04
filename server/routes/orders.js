@@ -6,6 +6,7 @@ import { getTargetLocationId } from '../utils/location.js';
 import { consumeStockBatches } from '../services/stockBatchService.js';
 import { createLowStockNotificationIfNeeded } from '../services/stockAlertService.js';
 import { insertNotificationsForRecipients } from '../services/notificationDispatchService.js';
+import { roundCurrency } from '../utils/money.js';
 
 const router = express.Router();
 
@@ -199,8 +200,8 @@ router.post('/',
             throw e;
           }
 
-          const subtotal = unitPrice * qty;
-          totalAmount += subtotal;
+          const subtotal = roundCurrency(unitPrice * qty);
+          totalAmount = roundCurrency(totalAmount + subtotal);
           normalizedItems.push({ product_id: productId, custom_item_name: productId ? null : itemName, quantity: qty, unit_price: unitPrice, subtotal });
         }
 
@@ -317,6 +318,12 @@ router.patch('/:id', authenticateToken, authorizeRoles('admin', 'manager', 'cash
 
       let nextPaidAmount = paid_amount === undefined ? Number(order.paid_amount || 0) : normalizeNumber(paid_amount, Number(order.paid_amount || 0));
       if (verify_payment === true) nextPaidAmount = effectiveTotalAmount;
+      if (nextStatus === 'picked_up' && nextPaidAmount < effectiveTotalAmount) {
+        const e = new Error('Payment must be verified before pickup.');
+        e.status = 400;
+        e.code = 'ORDER_PICKUP_PAYMENT_REQUIRED';
+        throw e;
+      }
       if ((paid_amount !== undefined || verify_payment === true) && nextPaidAmount > effectiveTotalAmount) {
         const e = new Error('Paid amount cannot be greater than order total.');
         e.status = 400;

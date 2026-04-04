@@ -63,6 +63,7 @@ export default function AdminOrders() {
 
 
   const isFinalOrderState = (order) => ['picked_up', 'delivered', 'cancelled'].includes(order?.status);
+  const canMarkPickedUp = (order) => !isFinalOrderState(order) && order.status !== 'picked_up' && order.payment_status === 'verified';
 
   const patch = async (orderId, payload) => {
     try {
@@ -105,7 +106,7 @@ export default function AdminOrders() {
                   <td>ETB {Number(order.total_amount || 0).toFixed(2)} total / ETB {Number(order.paid_amount || 0).toFixed(2)} paid <span className={`badge ms-1 ${order.payment_status === 'verified' ? 'badge-success' : 'badge-warning'}`}>{order.payment_status}</span></td>
                   <td className="d-flex gap-2 flex-wrap">
                     {order.payment_status !== 'verified' && !isFinalOrderState(order) && <button className="btn btn-sm btn-outline-primary" onClick={() => patch(order.id, { verify_payment: true })}>Verify Payment</button>}
-                    {order.status !== 'picked_up' && !isFinalOrderState(order) && <button className="btn btn-sm btn-success" onClick={() => patch(order.id, { status: 'picked_up' })}>Mark Picked Up</button>}
+                    {order.status !== 'picked_up' && !isFinalOrderState(order) && <button className="btn btn-sm btn-success" onClick={() => patch(order.id, { status: 'picked_up' })} disabled={!canMarkPickedUp(order)} title={canMarkPickedUp(order) ? 'Mark order as picked up' : 'Verify payment before pickup'}>Mark Picked Up</button>}
                     <button className="btn btn-sm btn-outline-info" onClick={() => setSelectedNoteOrder(order)}>View Note</button>
                     {!isFinalOrderState(order) && <button className="btn btn-sm btn-outline-secondary" onClick={() => setEditingOrder({ ...order })}>Edit</button>}
                     {canDeleteOrder(order) && <button className="btn btn-sm btn-outline-danger" onClick={() => deleteOrder(order.id)}>Delete</button>}

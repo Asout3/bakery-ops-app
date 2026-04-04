@@ -26,11 +26,12 @@ export default function ExpensesPage() {
   const [isSubmittingCategory, setIsSubmittingCategory] = useState(false);
   const hasManagedCategories = categories.some((category) => category.id);
   const toast = useToast();
+  const today = new Date().toISOString().split('T')[0];
   const [formData, setFormData] = useState({
     category: '',
     description: '',
     amount: '',
-    expense_date: new Date().toISOString().split('T')[0],
+    expense_date: today,
   });
 
   useEffect(() => {
@@ -74,7 +75,7 @@ export default function ExpensesPage() {
   const resetForm = () => {
     setShowForm(false);
     setEditingExpense(null);
-    setFormData({ category: categories[0]?.name || '', description: '', amount: '', expense_date: new Date().toISOString().split('T')[0] });
+    setFormData({ category: categories[0]?.name || '', description: '', amount: '', expense_date: today });
   };
 
   const handleSubmit = async (e) => {
@@ -82,6 +83,10 @@ export default function ExpensesPage() {
     if (isSubmittingExpense) return;
     if (!isAdmin && !categories.some((category) => String(category.name) === String(formData.category))) {
       setMessage({ type: 'danger', text: 'Managers must select an existing expense category.' });
+      return;
+    }
+    if (!isAdmin && formData.expense_date !== today) {
+      setMessage({ type: 'danger', text: 'Managers can only use the current date for expenses.' });
       return;
     }
     setIsSubmittingExpense(true);
@@ -157,7 +162,11 @@ export default function ExpensesPage() {
     return Math.max(0, Math.ceil(EXPENSE_EDIT_WINDOW_MINUTES - elapsed));
   };
 
-  const isEditable = (expense) => isAdmin && getMinutesRemaining(expense) > 0;
+  const isEditable = (expense) => {
+    if (getMinutesRemaining(expense) <= 0) return false;
+    if (isAdmin) return true;
+    return Number(expense?.created_by) === Number(user?.id);
+  };
 
   if (loading) return <div className="loading-container"><div className="spinner"></div></div>;
 
@@ -165,7 +174,7 @@ export default function ExpensesPage() {
     <div className="expenses-page">
       <div className="page-header">
         <h2>Expenses Management</h2>
-        <button className="btn btn-primary" onClick={() => { setEditingExpense(null); setFormData({ category: categories[0]?.name || '', description: '', amount: '', expense_date: new Date().toISOString().split('T')[0] }); setShowForm(true); }}>
+        <button className="btn btn-primary" onClick={() => { setEditingExpense(null); setFormData({ category: categories[0]?.name || '', description: '', amount: '', expense_date: today }); setShowForm(true); }}>
           <Plus size={18} /> Add Expense
         </button>
       </div>
@@ -178,9 +187,9 @@ export default function ExpensesPage() {
         <div className="stat-card card bg-light"><div className="stat-icon bg-info text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {expenses.length > 0 ? (expenses.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0) / expenses.length).toFixed(2) : '0.00'}</h3><p>Avg. Expense</p></div></div>
       </div>
 
-      <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>Expense ID</th><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th>Created By</th>{isAdmin && <th>Edit Window</th>}{isAdmin && <th>Actions</th>}</tr></thead><tbody>
-        {expenses.length === 0 ? <tr><td colSpan={isAdmin ? 8 : 6} className="text-center">No expenses found</td></tr> : expenses.map((expense) => (
-          <tr key={expense.id}><td>{expense.expense_code || `EXP-${String(expense.id).padStart(6, '0')}`}</td><td>{new Date(expense.expense_date).toLocaleDateString()}</td><td><span className="badge badge-primary">{expense.category}</span></td><td><button className="btn btn-sm btn-outline-secondary" onClick={() => setShowDescription(expense)}><Eye size={14} /> View</button></td><td><strong>ETB {Number(expense.amount).toFixed(2)}</strong></td><td>{expense.created_by_name || '-'}</td>{isAdmin && <td>{isEditable(expense) ? <span className="badge badge-warning"><Clock size={12} className="me-1" />{getMinutesRemaining(expense)}m left</span> : <span className="badge badge-secondary">Locked</span>}</td>}{isAdmin && <td><button className="btn btn-sm btn-outline-primary me-2" onClick={() => { if (!isEditable(expense)) return; setEditingExpense(expense); setFormData({ category: expense.category, description: expense.description || '', amount: expense.amount, expense_date: expense.expense_date }); setShowForm(true); }} disabled={!isEditable(expense)}><Edit size={14} /></button><button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(expense.id)} disabled={!isEditable(expense)}><Trash2 size={14} /></button></td>}</tr>
+      <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>Expense ID</th><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th>Created By</th><th>Edit Window</th><th>Actions</th></tr></thead><tbody>
+        {expenses.length === 0 ? <tr><td colSpan={8} className="text-center">No expenses found</td></tr> : expenses.map((expense) => (
+          <tr key={expense.id}><td>{expense.expense_code || `EXP-${String(expense.id).padStart(6, '0')}`}</td><td>{new Date(expense.expense_date).toLocaleDateString()}</td><td><span className="badge badge-primary">{expense.category}</span></td><td><button className="btn btn-sm btn-outline-secondary" onClick={() => setShowDescription(expense)}><Eye size={14} /> View</button></td><td><strong>ETB {Number(expense.amount).toFixed(2)}</strong></td><td>{expense.created_by_name || '-'}</td><td>{isEditable(expense) ? <span className="badge badge-warning"><Clock size={12} className="me-1" />{getMinutesRemaining(expense)}m left</span> : <span className="badge badge-secondary">Locked</span>}</td><td><button className="btn btn-sm btn-outline-primary me-2" onClick={() => { if (!isEditable(expense)) return; setEditingExpense(expense); setFormData({ category: expense.category, description: expense.description || '', amount: expense.amount, expense_date: isAdmin ? expense.expense_date : today }); setShowForm(true); }} disabled={!isEditable(expense)}><Edit size={14} /></button><button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(expense.id)} disabled={!isEditable(expense)}><Trash2 size={14} /></button></td></tr>
         ))}
       </tbody></table></div></div></div>
 
@@ -192,12 +201,12 @@ export default function ExpensesPage() {
               <div className="mb-3">
                 <label className="form-label">Manage Categories</label>
                 <div className="d-flex gap-2 mb-2"><input className="form-control" value={newCategoryName} placeholder="New category name" onChange={(e) => setNewCategoryName(e.target.value)} /><button type="button" className="btn btn-outline-primary" onClick={handleCreateCategory} disabled={isSubmittingCategory}>{isSubmittingCategory ? 'Creating…' : 'Create'}</button></div>
-                <div className="d-flex flex-wrap gap-2">{categories.map((category) => (isAdmin ? <button key={category.id} type="button" className="btn btn-sm btn-outline-danger" onClick={() => handleDeleteCategory(category.id)}>{category.name} ×</button> : <span key={category.id || category.name} className="badge badge-secondary">{category.name}</span>))}</div>
+                <div className="d-flex flex-wrap gap-2">{categories.map((category) => (category.id ? <button key={category.id} type="button" className="btn btn-sm btn-outline-danger" onClick={() => handleDeleteCategory(category.id)}>{category.name} ×</button> : <span key={category.id || category.name} className="badge badge-secondary">{category.name}</span>))}</div>
               </div>
             )}
             <div className="mb-3"><label className="form-label">Description</label><textarea className="form-control" rows="3" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} /></div>
             <div className="mb-3"><label className="form-label">Amount *</label><input type="number" className="form-control" min="0" step="0.01" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required /></div>
-            <div className="mb-3"><label className="form-label">Date *</label><input type="date" className="form-control" value={formData.expense_date} onChange={(e) => setFormData({ ...formData, expense_date: e.target.value })} required /></div>
+            <div className="mb-3"><label className="form-label">Date *</label><input type="date" className="form-control" value={formData.expense_date} onChange={(e) => setFormData({ ...formData, expense_date: e.target.value })} max={isAdmin ? undefined : today} required /></div>
             <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForm} disabled={isSubmittingExpense}>Cancel</button><button type="submit" className="btn btn-primary" disabled={isSubmittingExpense}>{isSubmittingExpense ? 'Saving…' : (editingExpense ? 'Update Expense' : 'Add Expense')}</button></div>
           </form>
         </div></div>

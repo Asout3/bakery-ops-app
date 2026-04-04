@@ -161,6 +161,11 @@ sequenceDiagram
 ### Reliability Mechanisms
 
 - Cashier sales history now prioritizes server data whenever `/api/sales` is reachable and only falls back to local cached receipts when the app is offline, preventing stale data from a previous database from appearing after `DATABASE_URL` changes.
+- POS quantity entry is now clamped against live stock on both the cashier UI and the sales API, preventing overselling and blocking checkout when local cart quantities drift above current inventory.
+- Notification polling and toast delivery are now suppressed on `/login`, preventing stale operational alerts from appearing before the user reaches an authenticated workflow.
+- Pre-orders now require verified payment before `picked_up` status can be applied, in both admin UI actions and the orders API.
+- Ground-manager expense edits and deletes now follow the 20-minute window with owner-only enforcement, and manager-created expenses are restricted to the current date.
+- Staff profile editing now uses a dedicated `/api/admin/staff/:id` update route so profile maintenance no longer fails with `Not Found`.
 - Notification schema bootstrap now runs automatically at API startup, so migrated/empty databases still create and serve notifications without manual intervention.
 - Staff-payment staff lookup now handles partial schema migrations (including missing `payment_due_date`) and always returns active staff rows from the currently selected location.
 - Staff-payment lookup now unions active `staff_profiles` with active manager/cashier user accounts that are not yet linked to a profile, preventing false "No active staff found" states after database URL swaps or partial migrations.
