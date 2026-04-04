@@ -113,6 +113,10 @@ export default function SalesPage() {
   }), [batches, filters]);
 
   const totalAmount = filteredSales.reduce((sum, sale) => sum + Number(sale.total_amount || 0), 0);
+  const totalBatchCost = filteredBatches.reduce((sum, batch) => sum + Number(batch.total_cost || 0), 0);
+  const batchActionCount = filteredBatches.length;
+  const sentBatchCount = filteredBatches.filter((batch) => String(batch.status || 'sent') === 'sent').length;
+  const editedBatchCount = filteredBatches.filter((batch) => String(batch.status || '') === 'edited').length;
 
   if (loading) {
     return <div className="loading-container"><div className="spinner"></div></div>;
@@ -163,11 +167,19 @@ export default function SalesPage() {
           </tbody></table></div></div></div>
         </>
       ) : (
-        <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>Batch #</th><th>Created At</th><th>Created By</th><th>Status</th><th>Items</th><th>Total Cost</th><th>Sync</th><th>Details</th></tr></thead><tbody>
+        <>
+          <div className="stats-grid mb-4">
+            <div className="stat-card card bg-light"><div className="stat-icon bg-success text-white"><DollarSign size={24} /></div><div className="stat-content"><h3>ETB {totalBatchCost.toFixed(2)}</h3><p>Total Batch Cost</p></div></div>
+            <div className="stat-card card bg-light"><div className="stat-icon bg-primary text-white"><Package size={24} /></div><div className="stat-content"><h3>{batchActionCount}</h3><p>Total Actions</p></div></div>
+            <div className="stat-card card bg-light"><div className="stat-icon bg-info text-white"><CreditCard size={24} /></div><div className="stat-content"><h3>{sentBatchCount}</h3><p>Total Batches Sent</p></div></div>
+            <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><Calendar size={24} /></div><div className="stat-content"><h3>{editedBatchCount}</h3><p>Total Batches Edited</p></div></div>
+          </div>
+          <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>Batch #</th><th>Created At</th><th>Created By</th><th>Status</th><th>Items</th><th>Total Cost</th><th>Sync</th><th>Details</th></tr></thead><tbody>
           {filteredBatches.length === 0 ? <tr><td colSpan="8" className="text-center text-muted py-4">No batches found</td></tr> : filteredBatches.map((batch) => (
             <tr key={batch.id}><td>#{batch.id}</td><td>{formatAddisDateTime(batch.created_at, { hour12: true })}</td><td>{batch.display_creator_name || batch.created_by_name}</td><td><span className={`badge ${batch.status === 'voided' ? 'badge-danger' : batch.status === 'edited' ? 'badge-warning' : 'badge-success'}`}>{batch.status || 'sent'}</span></td><td>{Number(batch.items_count || 0)}</td><td>ETB {Number(batch.total_cost || 0).toFixed(2)}</td><td>{batch.was_synced ? 'Synced' : batch.is_offline ? 'Offline' : 'Online'}</td><td><button className="btn btn-sm btn-outline-primary" onClick={() => openBatchDetails(batch)}><Eye size={14} /> View</button></td></tr>
           ))}
         </tbody></table></div></div></div>
+        </>
       )}
 
       {selectedSale ? <SaleReceiptDetail sale={selectedSale} settings={receiptSettings} currentRole={user?.role || 'admin'} onClose={() => setSelectedSale(null)} onSaleUpdated={fetchData} toast={toast} /> : null}

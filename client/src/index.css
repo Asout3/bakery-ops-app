@@ -535,7 +535,18 @@ textarea, textarea.form-control, .form-note-input {
   flex-direction: column;
   gap: 0.55rem;
   max-width: min(420px, calc(100vw - 2rem));
+  max-height: min(72vh, 680px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.25rem;
   pointer-events: none;
+}
+.toast-stack::-webkit-scrollbar {
+  width: 8px;
+}
+.toast-stack::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 58%, transparent);
+  border-radius: 999px;
 }
 .toast-item {
   pointer-events: auto;
@@ -552,7 +563,11 @@ textarea, textarea.form-control, .form-note-input {
   font-size: 0.92rem;
   font-weight: 500;
   line-height: 1.45;
-  animation: slideInRight .22s ease, toastFloat 5.4s ease-in-out infinite;
+  animation:
+    slideInRight .24s cubic-bezier(.2,.8,.2,1),
+    toastFloat 4.8s ease-in-out infinite,
+    toastExit .34s ease forwards;
+  animation-delay: 0s, 0s, calc(var(--toast-duration, 10000ms) - 340ms);
 }
 @keyframes slideInRight {
   from { transform: translateX(30px); opacity: 0; }
@@ -561,6 +576,12 @@ textarea, textarea.form-control, .form-note-input {
 @keyframes toastFloat {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-1px); }
+}
+@keyframes toastExit {
+  to {
+    opacity: 0;
+    transform: translateX(22px) scale(0.98);
+  }
 }
 .toast-accent {
   position: absolute;

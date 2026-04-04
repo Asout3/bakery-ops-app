@@ -35,6 +35,13 @@ export function ToastProvider({ children }) {
     });
   }, [clearToastTimeout]);
 
+  const clearAllToasts = useCallback(() => {
+    timeoutIdsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    timeoutIdsRef.current.clear();
+    dedupeKeysRef.current.clear();
+    setToasts([]);
+  }, []);
+
   const scheduleToastRemoval = useCallback((id, duration) => {
     clearToastTimeout(id);
     timeoutIdsRef.current.set(
@@ -71,11 +78,12 @@ export function ToastProvider({ children }) {
 
   const value = useMemo(() => ({
     pushToast,
+    clearAll: clearAllToasts,
     success: (message, opts = {}) => pushToast({ ...opts, type: 'success', message }),
     error:   (message, opts = {}) => pushToast({ ...opts, type: 'error',   message }),
     warning: (message, opts = {}) => pushToast({ ...opts, type: 'warning', message }),
     info:    (message, opts = {}) => pushToast({ ...opts, type: 'info',    message }),
-  }), [pushToast]);
+  }), [clearAllToasts, pushToast]);
 
   return (
     <ToastContext.Provider value={value}>
