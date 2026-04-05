@@ -13,7 +13,10 @@ test('buildTimelineData uses real dated expenses, staff payments, waste, and bat
       staff_payments: [{ payment_date: '2026-04-02', amount: '15' }],
       waste: [{ wasted_at: '2026-04-02T08:00:00.000Z', total_loss: '5' }],
       batches: {
-        batch_list: [{ created_at: '2026-04-01T06:00:00.000Z', line_cost: '30' }],
+        batch_list: [
+          { created_at: '2026-04-01T06:00:00.000Z', line_cost: '30', status: 'sent' },
+          { created_at: '2026-04-01T08:00:00.000Z', line_cost: '99', status: 'voided' },
+        ],
       },
     },
   });
@@ -34,7 +37,7 @@ test('buildExpenseBreakdown aggregates real operating categories and finance buc
       ],
       staff_payments: [{ amount: '25' }],
       waste: [{ total_loss: '7.5' }],
-      batches: { batch_list: [{ line_cost: '30' }] },
+      batches: { batch_list: [{ line_cost: '30', status: 'sent' }, { line_cost: '80', status: 'voided' }] },
     },
   }, {
     staffPayroll: 'Staff Payroll',

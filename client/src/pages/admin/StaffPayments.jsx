@@ -11,7 +11,6 @@ const PAYMENT_EDIT_WINDOW_MINUTES = 20;
 const initialForm = {
   staff_profile_id: '',
   amount: '',
-  payment_date: new Date().toISOString().split('T')[0],
   payment_type: 'salary',
   notes: '',
 };
@@ -54,6 +53,7 @@ export default function StaffPaymentsPage() {
   const [notePreview, setNotePreview] = useState(null);
   const [suggestedPayment, setSuggestedPayment] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [staffLoadError, setStaffLoadError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const toast = useToast();
@@ -126,7 +126,7 @@ export default function StaffPaymentsPage() {
         return bDate - aDate;
       });
     const lastPaymentDate = staffPayments[0]?.payment_date ? new Date(staffPayments[0].payment_date) : null;
-    const targetDate = formData.payment_date ? new Date(formData.payment_date) : new Date();
+    const targetDate = new Date();
     const workedDays = lastPaymentDate ? Math.max(1, Math.ceil((targetDate - lastPaymentDate) / (1000 * 60 * 60 * 24))) : 30;
     const monthlySalary = Number(selected.monthly_salary || 0);
     const dailyRate = monthlySalary > 0 ? (monthlySalary / 30) : 0;
@@ -172,7 +172,20 @@ export default function StaffPaymentsPage() {
 
     try {
       const parsed = JSON.parse(trimmed);
-      if (typeof parsed?.notes === 'string' && parsed.notes.trim()) return parsed.notes.trim();
+      const parts = [];
+      if (typeof parsed?.notes === 'string' && parsed.notes.trim()) {
+        parts.push(parsed.notes.trim());
+      }
+      if (parsed?.payment_frequency) {
+        parts.push(`Frequency: ${parsed.payment_frequency}`);
+      }
+      if (parsed?.payout_mode) {
+        parts.push(`Mode: ${parsed.payout_mode}`);
+      }
+      if (parsed?.payroll_month) {
+        parts.push(`Payroll month: ${parsed.payroll_month}`);
+      }
+      if (parts.length) return parts.join(' • ');
       return trimmed;
     } catch {
       return trimmed;
@@ -195,7 +208,6 @@ export default function StaffPaymentsPage() {
     setFormData({
       staff_profile_id: payment.staff_profile_id ? String(payment.staff_profile_id) : '',
       amount: String(payment.amount),
-      payment_date: payment.payment_date,
       payment_type: payment.payment_type || 'salary',
       notes: getReadableNote(payment.notes),
     });
@@ -211,7 +223,6 @@ export default function StaffPaymentsPage() {
       staff_profile_id: staffProfileId || undefined,
       user_id: staffProfileId ? undefined : (userId || undefined),
       amount: Number(formData.amount),
-      payment_date: editingPayment && formData.payment_date === editingPayment.payment_date ? undefined : formData.payment_date,
       payment_type: formData.payment_type,
       notes: String(formData.notes || '').trim(),
     };
@@ -268,24 +279,25 @@ export default function StaffPaymentsPage() {
     }
   };
 
-  const summary = useMemo(() => {
-    const total = payments.reduce((acc, payment) => acc + Number(payment.amount || 0), 0);
-    const currentMonthKey = new Date().toISOString().slice(0, 7);
-    const monthly = payments
-      .filter((payment) => String(payment.payment_date || '').slice(0, 7) === currentMonthKey)
-      .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-    return { total, monthly };
-  }, [payments]);
-
-
   const filteredPayments = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
     return payments.filter((payment) => {
+      if (selectedMonth && String(payment.payment_date || '').slice(0, 7) !== selectedMonth) {
+        return false;
+      }
       if (!needle) return true;
       const hay = `${payment.payment_code || ''} ${payment.staff_name || ''} ${payment.created_by_name || ''}`.toLowerCase();
       return hay.includes(needle);
     });
-  }, [payments, searchTerm]);
+  }, [payments, searchTerm, selectedMonth]);
+
+  const summary = useMemo(() => {
+    const total = filteredPayments.reduce((acc, payment) => acc + Number(payment.amount || 0), 0);
+    const monthly = payments
+      .filter((payment) => String(payment.payment_date || '').slice(0, 7) === selectedMonth)
+      .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    return { total, monthly };
+  }, [filteredPayments, payments, selectedMonth]);
 
   if (loading) {
     return <div className="loading-container"><div className="spinner"></div></div>;
@@ -304,14 +316,18 @@ export default function StaffPaymentsPage() {
       <div className="card mb-3">
         <div className="card-body">
           <div className="row g-2">
-            <div className="col-md-12"><input className="form-control" placeholder="Search by payment ID, staff name, creator..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
+            <div className="col-md-4">
+              <label className="form-label">Month</label>
+              <input type="month" className="form-control" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
+            </div>
+            <div className="col-md-8"><label className="form-label">Search</label><input className="form-control" placeholder="Search by payment ID, staff name, creator..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
           </div>
         </div>
       </div>
 
       <div className="stats-grid mb-4">
-        <div className="stat-card card"><div className="stat-icon bg-success text-white"><DollarSign size={24} /></div><div className="stat-content"><h3>ETB {summary.total.toFixed(2)}</h3><p>Total Paid</p></div></div>
-        <div className="stat-card card"><div className="stat-icon bg-warning text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.monthly.toFixed(2)}</h3><p>Current Month</p></div></div>
+        <div className="stat-card card"><div className="stat-icon bg-success text-white"><DollarSign size={24} /></div><div className="stat-content"><h3>ETB {summary.total.toFixed(2)}</h3><p>Selected Month Paid</p></div></div>
+        <div className="stat-card card"><div className="stat-icon bg-warning text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {summary.monthly.toFixed(2)}</h3><p>Month Total</p></div></div>
       </div>
 
       <div className="card">
@@ -357,7 +373,6 @@ export default function StaffPaymentsPage() {
 
                 <div className="col-md-6"><label className="form-label">Staff *</label><select className="form-select" value={formData.staff_profile_id} onChange={(e) => handleStaffSelect(e.target.value)} required><option value="">Select staff</option>{staffMembers.map((staff) => <option key={staff.id} value={staff.id}>{staff.full_name}</option>)}</select></div>
                 <div className="col-md-6"><label className="form-label">Amount *</label><input type="number" min="0" step="0.01" className="form-control" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required /></div>
-                <div className="col-md-4"><label className="form-label">Payment Date *</label><input type="date" className="form-control" value={formData.payment_date} onChange={(e) => { const nextDate = e.target.value; setFormData({ ...formData, payment_date: nextDate }); if (formData.staff_profile_id) { const selected = staffMembers.find((st) => Number(st.id) === Number(formData.staff_profile_id)); if (selected) { const staffPayments = payments.filter((payment) => Number(payment.staff_profile_id) === Number(formData.staff_profile_id)).sort((a, b) => new Date(b.payment_date || b.created_at || 0).getTime() - new Date(a.payment_date || a.created_at || 0).getTime()); const lastPaymentDate = staffPayments[0]?.payment_date ? new Date(staffPayments[0].payment_date) : null; const targetDate = nextDate ? new Date(nextDate) : new Date(); const workedDays = lastPaymentDate ? Math.max(1, Math.ceil((targetDate - lastPaymentDate) / (1000 * 60 * 60 * 24))) : 30; const monthlySalary = Number(selected.monthly_salary || 0); const dailyRate = monthlySalary > 0 ? (monthlySalary / 30) : 0; const recommendedAmount = Math.max(0, dailyRate * workedDays); setSuggestedPayment({ workedDays, dailyRate, recommendedAmount, lastPaymentDate }); } } }} required /></div>
                 <div className="col-12"><label className="form-label">Notes</label><textarea rows="5" className="form-control" style={{ minHeight: "160px", fontSize: "0.98rem" }} value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} /></div>
               </div>
               <div className="modal-footer mt-3"><button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)} disabled={isSubmitting}>Cancel</button><button type="submit" className="btn btn-primary" disabled={isSubmitting}>{isSubmitting ? 'Saving…' : (editingPayment ? 'Update Payment' : 'Pay Now')}</button></div>

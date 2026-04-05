@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 
 const ToastContext = createContext(null);
+const MAX_VISIBLE_TOASTS = 5;
 
 const ICONS = {
   success: <CheckCircle size={16} />,
@@ -61,14 +62,26 @@ export function ToastProvider({ children }) {
       if (existingId) {
         return prev.map((item) => (item.id === existingId ? { ...item, ...next, id: existingId } : item));
       }
-      return [...prev, next];
+      const nextStack = [...prev, next];
+      if (nextStack.length <= MAX_VISIBLE_TOASTS) {
+        return nextStack;
+      }
+      const overflowCount = nextStack.length - MAX_VISIBLE_TOASTS;
+      const removed = nextStack.slice(0, overflowCount);
+      removed.forEach((item) => {
+        clearToastTimeout(item.id);
+        if (item?.dedupeKey) {
+          dedupeKeysRef.current.delete(item.dedupeKey);
+        }
+      });
+      return nextStack.slice(-MAX_VISIBLE_TOASTS);
     });
 
     if (next.dedupeKey) {
       dedupeKeysRef.current.set(next.dedupeKey, id);
     }
     scheduleToastRemoval(id, next.duration);
-  }, [scheduleToastRemoval]);
+  }, [clearToastTimeout, scheduleToastRemoval]);
 
   useEffect(() => () => {
     timeoutIdsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));

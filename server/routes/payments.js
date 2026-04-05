@@ -70,14 +70,13 @@ router.post(
   authenticateToken,
   authorizeRoles('admin', 'manager'),
   body('amount').isFloat({ min: 0 }).withMessage('Amount must be a positive number'),
-  body('payment_date').isDate().withMessage('Valid payment date is required'),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
     }
 
-    const { staff_profile_id, user_id, amount, payment_date, payment_type, payment_frequency, payout_mode, payroll_month, notes } = req.body;
+    const { staff_profile_id, user_id, amount, payment_type, notes } = req.body;
 
     if (!staff_profile_id && !user_id) {
       return res.status(400).json({ error: 'Either staff_profile_id or user_id is required', code: 'VALIDATION_ERROR', requestId: req.requestId });
@@ -134,9 +133,9 @@ router.post(
 
         const paymentResult = await tx.query(
           `INSERT INTO staff_payments (user_id, staff_profile_id, location_id, amount, payment_date, payment_type, notes, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           VALUES ($1, $2, $3, $4, (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date, $5, $6, $7)
            RETURNING *`,
-          [resolvedUserId, resolvedStaffProfileId, locationId, amount, payment_date, payment_type || 'salary', JSON.stringify({ notes: notes || '', payment_frequency: payment_frequency || 'monthly', payout_mode: payout_mode || 'pay_now', payroll_month: payroll_month || null }), effectiveActorId]
+          [resolvedUserId, resolvedStaffProfileId, locationId, amount, payment_type || 'salary', String(notes || '').trim(), effectiveActorId]
         );
 
         const payment = paymentResult.rows[0];
@@ -190,14 +189,13 @@ router.put(
   authenticateToken,
   authorizeRoles('admin'),
   body('amount').optional().isFloat({ min: 0 }),
-  body('payment_date').optional().isDate(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
     }
 
-    const { amount, payment_date, payment_type, payment_frequency, payout_mode, payroll_month, notes } = req.body;
+    const { amount, payment_type, notes } = req.body;
 
     try {
       const locationId = await getTargetLocationId(req, query);
@@ -229,12 +227,11 @@ router.put(
         const result = await tx.query(
           `UPDATE staff_payments
            SET amount = COALESCE($1, amount),
-               payment_date = COALESCE($2, payment_date),
-               payment_type = COALESCE($3, payment_type),
-               notes = COALESCE($4, notes)
-           WHERE id = $5 AND location_id = $6
+               payment_type = COALESCE($2, payment_type),
+               notes = COALESCE($3, notes)
+           WHERE id = $4 AND location_id = $5
            RETURNING *`,
-          [amount || null, payment_date || null, payment_type || null, JSON.stringify({ notes: notes || '', payment_frequency: payment_frequency || 'monthly', payout_mode: payout_mode || 'pay_now', payroll_month: payroll_month || null }), req.params.id, locationId]
+          [amount || null, payment_type || null, String(notes || '').trim() || null, req.params.id, locationId]
         );
 
         return result.rows[0];

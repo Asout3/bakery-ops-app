@@ -26,6 +26,7 @@ export function buildTimelineData(report) {
     addToDateBucket(operatingCostByDate, waste.wasted_at, waste.total_loss);
   }
   for (const batchItem of report?.details?.batches?.batch_list || []) {
+    if (String(batchItem?.status || '').toLowerCase() === 'voided') continue;
     addToDateBucket(batchCostByDate, batchItem.created_at, batchItem.line_cost);
   }
 
@@ -54,7 +55,9 @@ export function buildExpenseBreakdown(report, labels = {}) {
 
   const staffTotal = (report?.details?.staff_payments || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
   const wasteTotal = (report?.details?.waste || []).reduce((sum, row) => sum + Number(row.total_loss || 0), 0);
-  const batchTotal = (report?.details?.batches?.batch_list || []).reduce((sum, row) => sum + Number(row.line_cost || 0), 0);
+  const batchTotal = (report?.details?.batches?.batch_list || [])
+    .filter((row) => String(row?.status || '').toLowerCase() !== 'voided')
+    .reduce((sum, row) => sum + Number(row.line_cost || 0), 0);
 
   if (staffTotal > 0) entries.set(labels.staffPayroll || 'Staff Payroll', staffTotal);
   if (wasteTotal > 0) entries.set(labels.wasteLoss || 'Waste Loss', wasteTotal);

@@ -80,6 +80,7 @@ export function NotificationProvider({ children }) {
   const isNotificationSuppressed = typeof window !== 'undefined' && shouldSuppressNotificationsForPathname(window.location.pathname);
   const isNotificationSuppressedRef = useRef(isNotificationSuppressed);
   const isAuthenticatedRef = useRef(Boolean(isAuthenticated));
+  const lastUserTokenRef = useRef('');
 
   useEffect(() => {
     isNotificationSuppressedRef.current = isNotificationSuppressed;
@@ -101,6 +102,21 @@ export function NotificationProvider({ children }) {
       pollTimeoutRef.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    const nextUserToken = `${user?.id || 'anonymous'}:${user?.role || 'unknown'}`;
+    if (lastUserTokenRef.current && lastUserTokenRef.current !== nextUserToken) {
+      toast.clearAll();
+      setNotifications([]);
+      setUnreadCount(0);
+      initializedRef.current = false;
+      seenNotificationTokensRef.current = new Set();
+      lastHandledNotificationTsRef.current = 0;
+      fetchPromiseRef.current = null;
+      clearPollTimeout();
+    }
+    lastUserTokenRef.current = nextUserToken;
+  }, [clearPollTimeout, toast, user?.id, user?.role]);
 
   const openNotificationsCenter = useCallback(() => {
     const targetPath = resolveNotificationTargetPath(user?.role, null);

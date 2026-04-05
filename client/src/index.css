@@ -553,6 +553,7 @@ textarea, textarea.form-control, .form-note-input {
   position: relative;
   overflow: hidden;
   border-radius: 16px;
+  width: 100%;
   padding: 1rem 1.05rem;
   color: #fff;
   display: flex;
@@ -565,17 +566,12 @@ textarea, textarea.form-control, .form-note-input {
   line-height: 1.45;
   animation:
     slideInRight .24s cubic-bezier(.2,.8,.2,1),
-    toastFloat 4.8s ease-in-out infinite,
     toastExit .34s ease forwards;
-  animation-delay: 0s, 0s, calc(var(--toast-duration, 10000ms) - 340ms);
+  animation-delay: 0s, calc(var(--toast-duration, 10000ms) - 340ms);
 }
 @keyframes slideInRight {
   from { transform: translateX(30px); opacity: 0; }
   to   { transform: translateX(0);    opacity: 1; }
-}
-@keyframes toastFloat {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-1px); }
 }
 @keyframes toastExit {
   to {
