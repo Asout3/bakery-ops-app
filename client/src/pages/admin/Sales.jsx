@@ -113,7 +113,9 @@ export default function SalesPage() {
   }), [batches, filters]);
 
   const totalAmount = filteredSales.reduce((sum, sale) => sum + Number(sale.total_amount || 0), 0);
-  const totalBatchCost = filteredBatches.reduce((sum, batch) => sum + Number(batch.total_cost || 0), 0);
+  const totalBatchCost = filteredBatches
+    .filter((batch) => String(batch.status || '').toLowerCase() !== 'voided')
+    .reduce((sum, batch) => sum + Number(batch.total_cost || 0), 0);
   const batchActionCount = filteredBatches.length;
   const sentBatchCount = filteredBatches.filter((batch) => String(batch.status || 'sent') === 'sent').length;
   const editedBatchCount = filteredBatches.filter((batch) => String(batch.status || '') === 'edited').length;

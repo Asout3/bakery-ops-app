@@ -59,15 +59,14 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
-    try {
-      await api.post('/auth/logout', { refresh_token: getRefreshToken() }, { headers: { 'X-Skip-Auth-Redirect': 'true' } });
-    } catch {
-      clearSession();
-      setUser(null);
-      return;
-    }
+    const refreshToken = getRefreshToken();
     clearSession();
     setUser(null);
+    try {
+      await api.post('/auth/logout', { refresh_token: refreshToken }, { headers: { 'X-Skip-Auth-Redirect': 'true' } });
+    } catch {
+      return;
+    }
   };
 
   return (
