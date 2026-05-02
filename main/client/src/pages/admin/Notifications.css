@@ -1,0 +1,95 @@
+/* Notifications.css */
+.notifications-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.notifications-summary {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.summary-chip {
+  background: var(--surface-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--r-full);
+  padding: 0.3rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.summary-chip-warning {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: #7a5000;
+}
+.summary-chip-live {
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(37, 99, 235, 0.28);
+  color: #1d4ed8;
+}
+
+.notifications-list { display: flex; flex-direction: column; gap: 0.65rem; }
+
+.notification-item {
+  border: 1px solid var(--accent-border);
+  border-left: 3px solid transparent;
+  border-radius: var(--r);
+  overflow: hidden;
+  transition: box-shadow .15s, transform .15s, border-color .15s;
+}
+.notification-item:hover {
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+.notification-item.unread {
+  border-left-color: var(--btn-mid);
+  border-color: rgba(244,162,97,0.28);
+  background: linear-gradient(135deg, rgba(244,162,97,0.08), rgba(255,255,255,0.98));
+}
+.notification-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1.1rem 0.5rem;
+}
+.notification-title { flex: 1; min-width: 0; }
+.notification-title h5 {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+.unread-badge {
+  background: var(--btn-mid);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--r-full);
+  letter-spacing: 0.04em;
+}
+.notification-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+  flex-wrap: wrap;
+}
+.notification-type { font-size: 0.72rem !important; }
+.notification-date { font-size: 0.75rem; color: var(--text-muted); }
+.notification-actions { display: flex; gap: 0.4rem; flex-shrink: 0; flex-wrap: wrap; }
+.notification-body {
+  padding: 0 1.1rem 0.85rem;
+}
+.notification-body p {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin: 0;
+}

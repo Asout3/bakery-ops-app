@@ -1,0 +1,141 @@
+/* Expenses.css */
+.expenses-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.expenses-filter-card {
+  border: 1px solid var(--accent-border);
+  border-radius: var(--r-lg);
+}
+
+.expenses-filter-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.expenses-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 180px;
+  max-width: 220px;
+}
+
+.expenses-filter-field .form-label {
+  margin-bottom: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.expenses-filter-field .form-control {
+  min-height: 2.2rem;
+  font-size: 0.84rem;
+}
+
+.expenses-clear-filter-btn {
+  min-height: 2.2rem;
+}
+
+.expenses-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.78rem;
+}
+
+.expenses-metric-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--r);
+  padding: 0.76rem 0.82rem;
+  background: color-mix(in srgb, var(--card-bg) 95%, var(--surface-bg));
+}
+
+.expenses-metric-icon {
+  width: 2.45rem;
+  height: 2.45rem;
+  border-radius: var(--r-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.expenses-metric-icon.tone-danger { background: #b84848; }
+.expenses-metric-icon.tone-warning { background: #c18a2c; }
+.expenses-metric-icon.tone-info { background: #2f8ea6; }
+
+.expenses-metric-content h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.expenses-metric-content p {
+  margin: 0.26rem 0 0;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.expenses-table-card {
+  border: 1px solid var(--accent-border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.expenses-table-card .table-responsive {
+  overflow: auto;
+}
+
+.expenses-table-card .table {
+  margin: 0;
+}
+
+.expenses-table-card .table thead th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.expenses-table-card .table tbody td {
+  font-size: 0.82rem;
+  vertical-align: middle;
+}
+
+.expense-description-preview {
+  margin-top: 0.45rem;
+  font-size: 0.92rem;
+  color: var(--text-primary);
+  white-space: break-spaces;
+  line-height: 1.45;
+}
+
+@media (max-width: 768px) {
+  .expenses-filter-field {
+    min-width: 100%;
+    max-width: 100%;
+  }
+
+  .expenses-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .expenses-clear-filter-btn {
+    width: 100%;
+  }
+}

@@ -1,0 +1,196 @@
+.receipt-settings-page {
+  padding-bottom: 2rem;
+}
+
+.receipt-settings-shell {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+}
+
+.receipt-settings-page__header {
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.receipt-settings-page__actions,
+.receipt-settings-editor__toolbar {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.receipt-settings-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.receipt-settings-section {
+  overflow: hidden;
+}
+
+.receipt-settings-section__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.receipt-settings-section__title-wrap {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+}
+
+.receipt-settings-section__title-wrap h3 {
+  margin-bottom: 0.25rem;
+}
+
+.receipt-settings-section__icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--primary-color, #2563eb);
+  flex-shrink: 0;
+}
+
+.receipt-settings-status-pill {
+  font-size: 0.85rem;
+  padding: 0.45rem 0.75rem;
+}
+
+.receipt-template-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.receipt-template-card {
+  border: 1px solid var(--border-color, #d5d7da);
+  background: var(--surface-color, #fff);
+  border-radius: 14px;
+  padding: 0.9rem;
+  text-align: left;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.receipt-template-card:hover {
+  border-color: rgba(37, 99, 235, 0.45);
+  transform: translateY(-1px);
+}
+
+.receipt-template-card.active {
+  border-color: var(--primary-color, #2563eb);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.15);
+}
+
+.receipt-template-card__title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.receipt-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.receipt-form-grid--compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.receipt-field {
+  min-width: 0;
+}
+
+.receipt-field--span-2 {
+  grid-column: span 2;
+}
+
+.receipt-settings-section .form-control,
+.receipt-settings-section .form-select {
+  width: 100%;
+  min-width: 0;
+}
+
+.receipt-textarea {
+  resize: vertical;
+  min-height: 110px;
+}
+
+.receipt-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.receipt-toggle-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  border: 1px solid var(--border-color, #d5d7da);
+  border-radius: 12px;
+  padding: 0.8rem 0.9rem;
+  background: var(--surface-color, #fff);
+}
+
+.receipt-toggle-field input {
+  margin-top: 0.2rem;
+}
+
+.receipt-settings-testing-note {
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--text-color, #1f2937);
+}
+
+.receipt-settings-preview-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 1rem;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.015));
+  overflow-x: auto;
+}
+
+@media (max-width: 992px) {
+  .receipt-form-grid,
+  .receipt-form-grid--compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .receipt-settings-shell {
+    width: 100%;
+  }
+
+  .receipt-form-grid,
+  .receipt-form-grid--compact,
+  .receipt-template-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .receipt-field--span-2 {
+    grid-column: span 1;
+  }
+
+  .receipt-settings-page__actions,
+  .receipt-settings-editor__toolbar {
+    width: 100%;
+  }
+
+  .receipt-settings-page__actions .btn,
+  .receipt-settings-editor__toolbar .btn {
+    flex: 1 1 180px;
+  }
+}
