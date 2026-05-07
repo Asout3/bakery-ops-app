@@ -1,8 +1,24 @@
 import axios from 'axios';
 import { clearSession, getAccessToken, getRefreshToken, persistSession } from '../utils/authSession';
 
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+function resolveApiBaseUrl() {
+  const configured = (import.meta.env.VITE_API_URL || '').trim();
+  if (configured) return configured;
+
+  const { hostname } = window.location;
+  if (hostname.endsWith('.github.dev') && !hostname.endsWith('.app.github.dev')) {
+    return `https://${hostname.replace('.github.dev', '-5000.app.github.dev')}/api`;
+  }
+
+  return '/api';
+}
+
+const API_URL = resolveApiBaseUrl();
 const REQUEST_TIMEOUT = 15000;
+
+if (import.meta.env.DEV) {
+  console.info('[API] Base URL:', API_URL);
+}
 
 const api = axios.create({
   baseURL: API_URL,
