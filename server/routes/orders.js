@@ -7,6 +7,7 @@ import { consumeStockBatches } from '../services/stockBatchService.js';
 import { createLowStockNotificationIfNeeded } from '../services/stockAlertService.js';
 import { insertNotificationsForRecipients } from '../services/notificationDispatchService.js';
 import { roundCurrency } from '../utils/money.js';
+import { AppError } from '../utils/errors.js';
 
 const router = express.Router();
 
@@ -42,6 +43,10 @@ function clampLimit(value, fallback = 100, max = 300) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return fallback;
   return Math.min(Math.trunc(n), max);
+}
+
+function hasPaginationRequest(req) {
+  return req.query.limit !== undefined || req.query.cursor_created_at !== undefined || req.query.cursor_id !== undefined;
 }
 
 function isWithinEditWindow(createdAt) {
@@ -93,7 +98,8 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager', 'cashier')
   try {
     const locationId = await getTargetLocationId(req, query);
     const includeCompleted = req.query.include_completed === 'true';
-    const limit = clampLimit(req.query.limit);
+    const paginationRequested = hasPaginationRequest(req);
+    const limit = paginationRequested ? clampLimit(req.query.limit) : 300;
     const cursorCreatedAt = req.query.cursor_created_at ? new Date(String(req.query.cursor_created_at)) : null;
     const cursorId = Number(req.query.cursor_id || 0) || null;
 
@@ -209,9 +215,7 @@ router.post('/',
           productResult.rows.forEach((product) => productsById.set(Number(product.id), product));
           const missingProductId = productIds.find((productId) => !productsById.has(productId));
           if (missingProductId) {
-            const e = new Error(`Product ${missingProductId} not found`);
-            e.status = 404;
-            throw e;
+            throw new AppError(`Product ${missingProductId} not found`, 404, 'PRODUCT_NOT_FOUND');
           }
         }
 
@@ -221,9 +225,7 @@ router.post('/',
           let itemName = typeof rawItem.custom_item_name === 'string' ? rawItem.custom_item_name.trim() : '';
           let unitPrice = normalizeNumber(rawItem.unit_price, 0);
           if (unitPrice < 0) {
-            const e = new Error('unit_price cannot be negative');
-            e.status = 400;
-            throw e;
+            throw new AppError('unit_price cannot be negative', 400, 'VALIDATION_ERROR');
           }
 
           if (productId) {
@@ -233,9 +235,7 @@ router.post('/',
           }
 
           if (!productId && !itemName) {
-            const e = new Error('custom_item_name is required for custom order items');
-            e.status = 400;
-            throw e;
+            throw new AppError('custom_item_name is required for custom order items', 400, 'VALIDATION_ERROR');
           }
 
           const subtotal = roundCurrency(unitPrice * qty);
@@ -246,10 +246,7 @@ router.post('/',
         const orderDetails = normalizedItems.map((item) => `${item.product_id ? `Product#${item.product_id}` : item.custom_item_name} x${item.quantity}`).join(', ');
         const normalizedPaidAmount = normalizeNumber(paid_amount, 0);
         if (normalizedPaidAmount > totalAmount) {
-          const e = new Error('Paid amount cannot be greater than the order total.');
-          e.status = 400;
-          e.code = 'ORDER_OVERPAY_NOT_ALLOWED';
-          throw e;
+          throw new AppError('Paid amount cannot be greater than the order total.', 400, 'ORDER_OVERPAY_NOT_ALLOWED');
         }
 
         const orderResult = await tx.query(
@@ -293,7 +290,7 @@ router.post('/',
       res.status(201).json(fullOrder);
     } catch (err) {
       console.error('Create order error:', err);
-      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'ORDER_CREATE_ERROR', requestId: req.requestId });
+      res.status(err.status || err.statusCode || 500).json({ error: err.message || 'Internal server error', code: err.code || 'ORDER_CREATE_ERROR', requestId: req.requestId });
     }
   }
 );

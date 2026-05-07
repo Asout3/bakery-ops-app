@@ -132,9 +132,10 @@ export function getCorsOptions() {
   const configuredOrigins = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
     : [];
+  const localDevelopmentOrigins = ['http://localhost:3000', 'http://localhost:5000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5000', 'http://127.0.0.1:5173'];
   const allowedOrigins = configuredOrigins.length > 0
     ? configuredOrigins
-    : ['http://localhost:3000', 'http://localhost:5000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5000', 'http://127.0.0.1:5173'];
+    : (isProductionRuntime ? [] : localDevelopmentOrigins);
 
   const authRedirectHeaders = ['X-Skip-Auth-Redirect', 'Cache-Control'];
   const browserCacheHeaders = ['Accept', 'Accept-Language', 'Cache-Control'];
