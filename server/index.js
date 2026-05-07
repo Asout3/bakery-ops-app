@@ -89,6 +89,8 @@ if (process.env.NODE_ENV !== 'test') {
   app.use(morgan(isProduction ? 'combined' : 'dev'));
 }
 
+app.use('/api/', apiLimiter);
+
 app.options('/api/health', (req, res) => {
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Accept, Content-Type');
@@ -131,8 +133,6 @@ app.get('/api/live', (req, res) => {
   res.header('Cache-Control', 'no-store');
   res.status(200).json({ alive: true, timestamp: Date.now() });
 });
-
-app.use('/api/', apiLimiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productsRoutes);
