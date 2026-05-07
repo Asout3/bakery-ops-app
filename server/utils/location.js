@@ -15,6 +15,13 @@ export async function getTargetLocationId(req, dbQuery) {
   let requestedLocationId = await ensureExistingLocationId(rawRequestedLocationId, dbQuery);
 
   if (!requestedLocationId) {
+    const singleLocationId = await resolveSingleActiveLocationId(dbQuery);
+    if (singleLocationId) {
+      requestedLocationId = singleLocationId;
+    }
+  }
+
+  if (!requestedLocationId) {
     const noLocationError = new Error('Location context is required');
     noLocationError.status = 400;
     throw noLocationError;
@@ -73,6 +80,23 @@ async function ensureExistingLocationId(locationId, dbQuery) {
 
   if (existingResult.rows.length > 0) {
     return numericLocationId;
+  }
+
+  return null;
+}
+
+
+async function resolveSingleActiveLocationId(dbQuery) {
+  const result = await dbQuery(
+    `SELECT id
+     FROM locations
+     WHERE is_active = true
+     ORDER BY id ASC
+     LIMIT 2`
+  );
+
+  if (result.rows.length === 1) {
+    return Number(result.rows[0].id);
   }
 
   return null;
