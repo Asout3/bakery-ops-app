@@ -371,7 +371,7 @@ router.post(
         const originalActorName = effectiveActor.actorName;
 
         if (idempotencyKey) {
-          await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`inventory-batches:${effectiveCreatedBy}:${idempotencyKey}`]);
+          await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`inventory-batches:${effectiveCreatedBy}:${idempotencyKey}`]);
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
              WHERE user_id = $1 AND idempotency_key = $2 AND endpoint = $3`,

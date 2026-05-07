@@ -128,6 +128,32 @@ export function validateEnvironment() {
   console.log('[INFO] Environment validation passed');
 }
 
+function normalizeOrigin(value) {
+  const raw = String(value || '').trim().replace(/^https?:\/\/https?:\/\//i, 'https://').replace(/\/+$/, '');
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return null;
+  }
+}
+
+function buildAllowedOriginSet(values) {
+  const normalized = values.map(normalizeOrigin).filter(Boolean);
+  return new Set(normalized);
+}
+
+function isGithubDevCompanionOrigin(requestOrigin, allowedOriginSet) {
+  if (!requestOrigin.endsWith('.github.dev')) return false;
+  for (const allowedOrigin of allowedOriginSet) {
+    if (allowedOrigin.endsWith('.app.github.dev') || allowedOrigin.endsWith('.github.dev')) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function getCorsOptions() {
   const configuredOrigins = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
@@ -136,13 +162,20 @@ export function getCorsOptions() {
   const allowedOrigins = configuredOrigins.length > 0
     ? configuredOrigins
     : (isProductionRuntime ? [] : localDevelopmentOrigins);
+  const allowedOriginSet = buildAllowedOriginSet(allowedOrigins);
 
   const authRedirectHeaders = ['X-Skip-Auth-Redirect', 'Cache-Control'];
   const browserCacheHeaders = ['Accept', 'Accept-Language', 'Cache-Control'];
 
   return {
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      const normalizedOrigin = normalizeOrigin(origin);
+      if (normalizedOrigin && (allowedOriginSet.has(normalizedOrigin) || isGithubDevCompanionOrigin(normalizedOrigin, allowedOriginSet))) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));

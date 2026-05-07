@@ -4,6 +4,7 @@ import { body, validationResult } from 'express-validator';
 import { query, withTransaction } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 import { getTargetLocationId } from '../utils/location.js';
+import { AppError } from '../utils/errors.js';
 import { createLowStockNotificationIfNeeded } from '../services/stockAlertService.js';
 import { processExpiredInventoryForLocation } from '../services/wasteService.js';
 import { addStockBatch, consumeStockBatches } from '../services/stockBatchService.js';
@@ -635,7 +636,7 @@ router.post(
         }
 
         if (idempotencyKey) {
-          await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`sales:${effectiveCashierId}:${idempotencyKey}`]);
+          await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`sales:${effectiveCashierId}:${idempotencyKey}`]);
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
              WHERE user_id = $1 AND idempotency_key = $2 AND endpoint = $3`,
@@ -1077,10 +1078,7 @@ router.put('/:id/items', authenticateToken, authorizeRoles('admin', 'cashier', '
         throw err;
       }
       if (req.user.role === 'cashier' && Number(sale.cashier_id) !== Number(req.user.id)) {
-        const err = new Error('You can only edit your own sales');
-        err.status = 403;
-        err.code = 'SALE_OWNERSHIP_REQUIRED';
-        throw err;
+        throw new AppError('You can only edit your own sales', 403, 'SALE_OWNERSHIP_REQUIRED');
       }
 
       const minutesSinceSale = (Date.now() - new Date(sale.sale_date).getTime()) / 60000;
@@ -1213,7 +1211,7 @@ router.put('/:id/items', authenticateToken, authorizeRoles('admin', 'cashier', '
     return res.json(updatedSale);
   } catch (err) {
     console.error('Edit sale items error:', err);
-    return res.status(err.status || 500).json({ error: err.message || 'Failed to edit sale', code: err.code || 'SALE_EDIT_ERROR', requestId: req.requestId });
+    return res.status(err.status || err.statusCode || 500).json({ error: err.message || 'Failed to edit sale', code: err.code || 'SALE_EDIT_ERROR', requestId: req.requestId });
   }
 });
 

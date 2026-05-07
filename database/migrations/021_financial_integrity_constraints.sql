@@ -28,3 +28,13 @@ BEGIN
     ALTER TABLE batch_items ADD CONSTRAINT batch_items_quantity_positive CHECK (quantity > 0) NOT VALID;
   END IF;
 END $$;
+
+ALTER TABLE sales VALIDATE CONSTRAINT sales_total_amount_nonnegative;
+ALTER TABLE sale_items VALIDATE CONSTRAINT sale_items_quantity_positive;
+ALTER TABLE sale_items VALIDATE CONSTRAINT sale_items_unit_price_nonnegative;
+ALTER TABLE sale_items VALIDATE CONSTRAINT sale_items_subtotal_nonnegative;
+ALTER TABLE expenses VALIDATE CONSTRAINT expenses_amount_nonnegative;
+ALTER TABLE staff_payments VALIDATE CONSTRAINT staff_payments_amount_nonnegative;
+ALTER TABLE products VALIDATE CONSTRAINT products_price_nonnegative;
+ALTER TABLE products VALIDATE CONSTRAINT products_cost_nonnegative;
+ALTER TABLE batch_items VALIDATE CONSTRAINT batch_items_quantity_positive;

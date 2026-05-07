@@ -65,8 +65,8 @@ CREATE TABLE IF NOT EXISTS products (
     name VARCHAR(100) NOT NULL,
     group_name VARCHAR(100) NOT NULL,
     category_id INTEGER REFERENCES categories(id),
-    price DECIMAL(10, 2) NOT NULL CHECK (price >= 0),
-    cost DECIMAL(10, 2) CHECK (cost IS NULL OR cost >= 0),
+    price DECIMAL(10, 2) NOT NULL CONSTRAINT products_price_nonnegative CHECK (price >= 0),
+    cost DECIMAL(10, 2) CONSTRAINT products_cost_nonnegative CHECK (cost IS NULL OR cost >= 0),
     unit VARCHAR(20) DEFAULT 'piece',
     expiration_date DATE,
     shelf_life_days INTEGER,
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS batch_items (
     id SERIAL PRIMARY KEY,
     batch_id INTEGER REFERENCES inventory_batches(id) ON DELETE CASCADE,
     product_id INTEGER REFERENCES products(id),
-    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    quantity INTEGER NOT NULL CONSTRAINT batch_items_quantity_positive CHECK (quantity > 0),
     source VARCHAR(20) CHECK (source IN ('baked', 'purchased')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS sales (
     id SERIAL PRIMARY KEY,
     location_id INTEGER REFERENCES locations(id),
     cashier_id INTEGER REFERENCES users(id),
-    total_amount DECIMAL(10, 2) NOT NULL CHECK (total_amount >= 0),
+    total_amount DECIMAL(10, 2) NOT NULL CONSTRAINT sales_total_amount_nonnegative CHECK (total_amount >= 0),
     payment_method VARCHAR(20) DEFAULT 'cash',
     is_offline BOOLEAN DEFAULT false,
     sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -135,9 +135,9 @@ CREATE TABLE IF NOT EXISTS sale_items (
     id SERIAL PRIMARY KEY,
     sale_id INTEGER REFERENCES sales(id) ON DELETE CASCADE,
     product_id INTEGER REFERENCES products(id),
-    quantity INTEGER NOT NULL CHECK (quantity > 0),
-    unit_price DECIMAL(10, 2) NOT NULL CHECK (unit_price >= 0),
-    subtotal DECIMAL(10, 2) NOT NULL CHECK (subtotal >= 0),
+    quantity INTEGER NOT NULL CONSTRAINT sale_items_quantity_positive CHECK (quantity > 0),
+    unit_price DECIMAL(10, 2) NOT NULL CONSTRAINT sale_items_unit_price_nonnegative CHECK (unit_price >= 0),
+    subtotal DECIMAL(10, 2) NOT NULL CONSTRAINT sale_items_subtotal_nonnegative CHECK (subtotal >= 0),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -192,7 +192,7 @@ CREATE TABLE IF NOT EXISTS expenses (
     location_id INTEGER REFERENCES locations(id),
     category VARCHAR(50) NOT NULL,
     description TEXT,
-    amount DECIMAL(10, 2) NOT NULL CHECK (amount >= 0),
+    amount DECIMAL(10, 2) NOT NULL CONSTRAINT expenses_amount_nonnegative CHECK (amount >= 0),
     expense_date DATE NOT NULL,
     created_by INTEGER REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -213,7 +213,7 @@ CREATE TABLE IF NOT EXISTS staff_payments (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id),
     location_id INTEGER REFERENCES locations(id),
-    amount DECIMAL(10, 2) NOT NULL CHECK (amount >= 0),
+    amount DECIMAL(10, 2) NOT NULL CONSTRAINT staff_payments_amount_nonnegative CHECK (amount >= 0),
     payment_date DATE NOT NULL,
     payment_type VARCHAR(50),
     notes TEXT,

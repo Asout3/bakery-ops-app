@@ -201,7 +201,7 @@ router.post('/',
       const created = await withTransaction(async (tx) => {
         const effectiveActor = await resolveEffectiveActor(tx, req, locationId);
         if (idempotencyKey) {
-          await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`orders:${effectiveActor.actorId}:${idempotencyKey}`]);
+          await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`orders:${effectiveActor.actorId}:${idempotencyKey}`]);
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys WHERE user_id = $1 AND idempotency_key = $2 AND endpoint = $3`,
             [effectiveActor.actorId, idempotencyKey, '/api/orders']
