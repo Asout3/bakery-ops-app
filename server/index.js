@@ -91,7 +91,9 @@ if (process.env.NODE_ENV !== 'test') {
 // Health check endpoint with explicit CORS for connectivity checks
 // This endpoint is critical for offline detection - always allow access
 app.options('/api/health', (req, res) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  if (process.env.NODE_ENV !== 'production') {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Accept, Content-Type');
   res.header('Access-Control-Max-Age', '86400');
@@ -99,36 +101,21 @@ app.options('/api/health', (req, res) => {
 });
 
 app.get('/api/health', async (req, res) => {
-  // Set CORS headers explicitly for health check (important for connectivity detection)
-  res.header('Access-Control-Allow-Origin', '*');
+  if (process.env.NODE_ENV !== 'production') {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
   res.header('Cache-Control', 'no-store, no-cache, must-revalidate');
   
   try {
-    const dbStart = Date.now();
     await pool.query('SELECT 1');
-    const dbLatency = Date.now() - dbStart;
-    
     res.json({
       status: 'ok',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      environment: process.env.NODE_ENV || 'development',
-      database: {
-        connected: true,
-        latencyMs: dbLatency
-      },
-      version: process.env.npm_package_version || '1.0.0'
+      timestamp: new Date().toISOString()
     });
   } catch {
     res.status(503).json({
       status: 'degraded',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      environment: process.env.NODE_ENV || 'development',
-      database: {
-        connected: false,
-        error: 'Database connection failed'
-      }
+      timestamp: new Date().toISOString()
     });
   }
 });
@@ -144,13 +131,17 @@ app.get('/api/ready', async (req, res) => {
 
 // Simple liveness check - always accessible
 app.options('/api/live', (req, res) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  if (process.env.NODE_ENV !== 'production') {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.sendStatus(204);
 });
 
 app.get('/api/live', (req, res) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  if (process.env.NODE_ENV !== 'production') {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
   res.header('Cache-Control', 'no-store');
   res.status(200).json({ alive: true, timestamp: Date.now() });
 });
