@@ -15,7 +15,9 @@ export async function getTargetLocationId(req, dbQuery) {
   let requestedLocationId = await ensureExistingLocationId(rawRequestedLocationId, dbQuery);
 
   if (!requestedLocationId) {
-    requestedLocationId = await ensureDefaultLocationId(dbQuery);
+    const noLocationError = new Error('Location context is required');
+    noLocationError.status = 400;
+    throw noLocationError;
   }
 
   if (!requestedLocationId) {
@@ -53,33 +55,6 @@ export async function getTargetLocationId(req, dbQuery) {
   }
 
   return requestedLocationId;
-}
-
-async function ensureDefaultLocationId(dbQuery) {
-  const existingResult = await dbQuery(
-    `SELECT id
-     FROM locations
-     WHERE is_active = true
-     ORDER BY id ASC
-     LIMIT 1`
-  );
-
-  if (existingResult.rows.length > 0) {
-    return Number(existingResult.rows[0].id) || null;
-  }
-
-  try {
-    const createdResult = await dbQuery(
-      `INSERT INTO locations (name, address, phone, is_active)
-       VALUES ($1, NULL, NULL, true)
-       RETURNING id`,
-      ['Main Branch']
-    );
-    return Number(createdResult.rows[0]?.id) || null;
-  } catch {
-    const retryResult = await dbQuery('SELECT id FROM locations ORDER BY id ASC LIMIT 1');
-    return Number(retryResult.rows[0]?.id) || null;
-  }
 }
 
 async function ensureExistingLocationId(locationId, dbQuery) {

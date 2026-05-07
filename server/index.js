@@ -91,7 +91,9 @@ if (process.env.NODE_ENV !== 'test') {
 // Health check endpoint with explicit CORS for connectivity checks
 // This endpoint is critical for offline detection - always allow access
 app.options('/api/health', (req, res) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  if (process.env.NODE_ENV !== 'production') {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Accept, Content-Type');
   res.header('Access-Control-Max-Age', '86400');
@@ -129,7 +131,9 @@ app.get('/api/ready', async (req, res) => {
 
 // Simple liveness check - always accessible
 app.options('/api/live', (req, res) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  if (process.env.NODE_ENV !== 'production') {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.sendStatus(204);
 });
