@@ -93,6 +93,11 @@ router.post(
     }
 
     const idempotencyKey = req.headers['x-idempotency-key'];
+    const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
+
+    if (isFromOfflineQueue && !idempotencyKey) {
+      return res.status(400).json({ error: 'Queued staff payments require an idempotency key', code: 'IDEMPOTENCY_KEY_REQUIRED', requestId: req.requestId });
+    }
 
     try {
       const locationId = await getTargetLocationId(req, query);

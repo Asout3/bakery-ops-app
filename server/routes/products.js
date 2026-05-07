@@ -261,6 +261,10 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), body('
   const normalizedShelfLifeDays = normalizeShelfLifeDays(req.body.shelf_life_days);
 
   try {
+    if (req.user.role !== 'admin' && (Object.prototype.hasOwnProperty.call(req.body, 'price') || Object.prototype.hasOwnProperty.call(req.body, 'cost'))) {
+      return res.status(403).json({ error: 'Only admins can update product price or cost', code: 'PRODUCT_PRICE_COST_ADMIN_ONLY', requestId: req.requestId });
+    }
+
     const previous = await query('SELECT id, name, group_name, is_active FROM products WHERE id = $1 LIMIT 1', [id]);
     if (!previous.rows.length) {
       return res.status(404).json({ error: 'Product not found', code: 'NOT_FOUND', requestId: req.requestId });

@@ -255,6 +255,11 @@ router.post('/',
 
     const { category, description, amount, expense_date } = req.body;
     const idempotencyKey = req.headers['x-idempotency-key'];
+    const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
+
+    if (isFromOfflineQueue && !idempotencyKey) {
+      return res.status(400).json({ error: 'Queued expenses require an idempotency key', code: 'IDEMPOTENCY_KEY_REQUIRED', requestId: req.requestId });
+    }
 
     try {
       const locationId = await getTargetLocationId(req, query);
@@ -285,6 +290,7 @@ router.post('/',
         const effectiveActorId = await resolveEffectiveActor(tx, req, locationId);
 
         if (idempotencyKey) {
+          await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`expenses:${effectiveActorId}:${idempotencyKey}`]);
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
              WHERE user_id = $1 AND idempotency_key = $2 AND endpoint = $3`,

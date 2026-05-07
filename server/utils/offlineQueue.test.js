@@ -247,7 +247,7 @@ test('flushQueue marks deterministic client errors as conflict', async () => {
   assert.equal(queued[0].status, 'conflict');
 });
 
-test('flushQueue auto-adjusts queued sale quantity on insufficient stock and retries as pending', async () => {
+test('flushQueue marks insufficient-stock queued sales as conflicts without mutating payload', async () => {
   await enqueueOperation({
     id: 'adjust-op',
     url: '/sales',
@@ -259,26 +259,26 @@ test('flushQueue auto-adjusts queued sale quantity on insufficient stock and ret
     call: 0,
     async request() {
       this.call += 1;
-      if (this.call === 1) {
-        const err = new Error('Insufficient stock');
-        err.response = {
-          status: 400,
-          data: {
-            code: 'INSUFFICIENT_STOCK',
-            details: { product_id: 5, available_quantity: 3, requested_quantity: 8 },
-          },
-        };
-        throw err;
-      }
-      return { data: { ok: true } };
+      const err = new Error('Insufficient stock');
+      err.response = {
+        status: 400,
+        data: {
+          code: 'INSUFFICIENT_STOCK',
+          details: { product_id: 5, available_quantity: 3, requested_quantity: 8 },
+        },
+      };
+      throw err;
     },
   };
 
   const first = await flushQueue(api);
   const queuedAfterFirst = await listQueuedOperations();
-  assert.equal(first.synced, 1);
-  assert.equal(api.call, 2);
-  assert.equal(queuedAfterFirst.length, 0);
+  assert.equal(first.synced, 0);
+  assert.equal(first.failed, 1);
+  assert.equal(api.call, 1);
+  assert.equal(queuedAfterFirst.length, 1);
+  assert.equal(queuedAfterFirst[0].status, 'conflict');
+  assert.deepEqual(queuedAfterFirst[0].data.items, [{ product_id: 5, quantity: 8 }]);
 });
 
 test('flushQueue limits overlapping calls with skip response', async () => {

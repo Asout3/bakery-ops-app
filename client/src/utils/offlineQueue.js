@@ -290,7 +290,7 @@ function tryBuildAdjustedSalePayload(op, error) {
   return {
     adjusted: true,
     payload: { ...op.data, items: nextItems },
-    reason: `Adjusted queued sale to available stock (${availableQty}) for product ${productId}.`,
+    reason: `Queued sale needs review: only ${availableQty} available for product ${productId}, but ${Number(op.data.items.find((item) => Number(item.product_id) === productId)?.quantity || 0)} requested.`,
   };
 }
 export async function enqueueOperation(operation) {
@@ -478,39 +478,8 @@ export async function flushQueue(api) {
         let reason = resolveSyncErrorMessage(error);
 
         const adjustedSale = tryBuildAdjustedSalePayload(op, error);
-
-        if (adjustedSale?.adjusted) {
-          const updatedOp = {
-            ...op,
-            data: adjustedSale.payload,
-            retries,
-            status: 'pending',
-            nextRetry: Date.now(),
-            lastError: adjustedSale.reason,
-            lastAttempt: new Date().toISOString(),
-          };
-          tx.objectStore(OPS_STORE).put(updatedOp);
-          const payloadTx = db.transaction(PAYLOAD_STORE, 'readwrite');
-          payloadTx.objectStore(PAYLOAD_STORE).put({
-            operation_id: op.id,
-            payload: adjustedSale.payload,
-            created_at: new Date().toISOString(),
-          });
-          await txPromise(payloadTx);
-          await txPromise(tx);
-          db.close();
-          failed += 1;
-          if (!isAuxiliaryOperation(op)) visibleFailed += 1;
-          await appendHistory({
-            id: `${op.id}-adjusted-${Date.now()}`,
-            operation_id: op.id,
-            status: 'pending',
-            message: adjustedSale.reason,
-            created_at: new Date().toISOString(),
-            retryCount: retries,
-            statusCode,
-          });
-          continue;
+        if (adjustedSale) {
+          reason = adjustedSale.reason;
         }
 
         if (isAuthOrSessionIssue) {

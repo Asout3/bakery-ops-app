@@ -601,6 +601,10 @@ router.post(
     const idempotencyKey = req.headers['x-idempotency-key'];
     const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
 
+    if (isFromOfflineQueue && !idempotencyKey) {
+      return res.status(400).json({ error: 'Queued sales require an idempotency key', code: 'IDEMPOTENCY_KEY_REQUIRED', requestId: req.requestId });
+    }
+
     try {
       const locationId = await getTargetLocationId(req, query);
       const requestStartedAt = Date.now();
@@ -1072,6 +1076,12 @@ router.put('/:id/items', authenticateToken, authorizeRoles('admin', 'cashier', '
         err.code = 'SALE_ALREADY_VOIDED';
         throw err;
       }
+      if (req.user.role === 'cashier' && Number(sale.cashier_id) !== Number(req.user.id)) {
+        const err = new Error('You can only edit your own sales');
+        err.status = 403;
+        err.code = 'SALE_OWNERSHIP_REQUIRED';
+        throw err;
+      }
 
       const minutesSinceSale = (Date.now() - new Date(sale.sale_date).getTime()) / 60000;
       if (req.user.role !== 'admin' && minutesSinceSale > 20) {
@@ -1225,7 +1235,8 @@ router.post('/:id/void', authenticateToken, authorizeRoles('admin', 'cashier', '
         `SELECT s.*, u.username as cashier_name
          FROM sales s
          JOIN users u ON s.cashier_id = u.id
-         WHERE s.id = $1 AND s.location_id = $2`,
+         WHERE s.id = $1 AND s.location_id = $2
+         FOR UPDATE OF s`,
         [saleId, locationId]
       );
       
@@ -1242,6 +1253,12 @@ router.post('/:id/void', authenticateToken, authorizeRoles('admin', 'cashier', '
         err.status = 400;
         throw err;
       }
+      if (req.user.role === 'cashier' && Number(sale.cashier_id) !== Number(req.user.id)) {
+        const err = new Error('You can only void your own sales');
+        err.status = 403;
+        err.code = 'SALE_OWNERSHIP_REQUIRED';
+        throw err;
+      }
       
       const saleTime = new Date(sale.sale_date);
       const now = new Date();
@@ -1255,7 +1272,7 @@ router.post('/:id/void', authenticateToken, authorizeRoles('admin', 'cashier', '
       }
       
       const itemsResult = await tx.query(
-        `SELECT si.*, p.name as product_name
+        `SELECT si.*, p.name as product_name, COALESCE(p.source, 'manual') as product_source
          FROM sale_items si
          JOIN products p ON si.product_id = p.id
          WHERE si.sale_id = $1`,
@@ -1267,7 +1284,7 @@ router.post('/:id/void', authenticateToken, authorizeRoles('admin', 'cashier', '
           productId: Number(item.product_id),
           locationId,
           quantity: Number(item.quantity || 0),
-          source: 'manual',
+          source: item.product_source || 'manual',
           referenceType: 'sale_void',
           referenceId: saleId,
           createdBy: req.user.id,

@@ -192,6 +192,9 @@ router.post(
     }
 
     try {
+      if (req.headers['x-queued-request'] === 'true') {
+        return res.status(409).json({ error: 'Queued absolute inventory adjustments require manual review', code: 'OFFLINE_ABSOLUTE_INVENTORY_CONFLICT', requestId: req.requestId });
+      }
       const locationId = await getTargetLocationId(req, query);
       const { product_id, quantity } = req.body;
       const productRes = await query('SELECT source FROM products WHERE id = $1', [product_id]);
@@ -242,6 +245,9 @@ router.put(
     const { quantity } = req.body;
 
     try {
+      if (req.headers['x-queued-request'] === 'true') {
+        return res.status(409).json({ error: 'Queued absolute inventory adjustments require manual review', code: 'OFFLINE_ABSOLUTE_INVENTORY_CONFLICT', requestId: req.requestId });
+      }
       const locationId = await getTargetLocationId(req, query);
       const productRes = await query('SELECT source FROM products WHERE id = $1', [productId]);
       if (!productRes.rows.length) {
@@ -294,6 +300,9 @@ router.put(
 
 router.delete('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
+    if (req.headers['x-queued-request'] === 'true') {
+      return res.status(409).json({ error: 'Queued absolute inventory adjustments require manual review', code: 'OFFLINE_ABSOLUTE_INVENTORY_CONFLICT', requestId: req.requestId });
+    }
     const locationId = await getTargetLocationId(req, query);
     const target = await query(
       `SELECT * FROM inventory WHERE location_id = $1 AND (id = $2 OR product_id = $2) LIMIT 1`,
@@ -350,6 +359,10 @@ router.post(
     const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
     const queuedCreatedAtHeader = req.headers['x-queued-created-at'];
 
+    if (isFromOfflineQueue && !idempotencyKey) {
+      return res.status(400).json({ error: 'Queued inventory batches require an idempotency key', code: 'IDEMPOTENCY_KEY_REQUIRED', requestId: req.requestId });
+    }
+
     try {
       const locationId = await getTargetLocationId(req, query);
       const batch = await withTransaction(async (tx) => {
@@ -358,6 +371,7 @@ router.post(
         const originalActorName = effectiveActor.actorName;
 
         if (idempotencyKey) {
+          await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`inventory-batches:${effectiveCreatedBy}:${idempotencyKey}`]);
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
              WHERE user_id = $1 AND idempotency_key = $2 AND endpoint = $3`,
