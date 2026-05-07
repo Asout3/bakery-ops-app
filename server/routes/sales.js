@@ -1211,7 +1211,7 @@ router.put('/:id/items', authenticateToken, authorizeRoles('admin', 'cashier', '
     return res.json(updatedSale);
   } catch (err) {
     console.error('Edit sale items error:', err);
-    return res.status(err.status || 500).json({ error: err.message || 'Failed to edit sale', code: err.code || 'SALE_EDIT_ERROR', requestId: req.requestId });
+    return res.status(err.status || err.statusCode || 500).json({ error: err.message || 'Failed to edit sale', code: err.code || 'SALE_EDIT_ERROR', requestId: req.requestId });
   }
 });
 
