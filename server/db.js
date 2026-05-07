@@ -224,6 +224,7 @@ export const getPoolStats = () => ({
 let authSecuritySchemaPromise = null;
 let notificationsSchemaPromise = null;
 let activityLogSchemaPromise = null;
+let idempotencySchemaPromise = null;
 
 export async function ensureAuthSecuritySchema() {
   if (authSecuritySchemaPromise) {
@@ -259,6 +260,40 @@ export async function ensureAuthSecuritySchema() {
   });
 
   return authSecuritySchemaPromise;
+}
+
+
+export async function ensureIdempotencySchema() {
+  if (idempotencySchemaPromise) {
+    return idempotencySchemaPromise;
+  }
+
+  idempotencySchemaPromise = (async () => {
+    await query(
+      `CREATE TABLE IF NOT EXISTS idempotency_keys (
+         id SERIAL PRIMARY KEY,
+         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+         location_id INTEGER REFERENCES locations(id),
+         idempotency_key VARCHAR(120) NOT NULL,
+         endpoint VARCHAR(120) NOT NULL,
+         response_payload JSONB NOT NULL,
+         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+       )`
+    );
+    await query(
+      `ALTER TABLE idempotency_keys
+       DROP CONSTRAINT IF EXISTS idempotency_keys_user_id_idempotency_key_key`
+    );
+    await query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_idempotency_user_key_endpoint
+       ON idempotency_keys(user_id, idempotency_key, endpoint)`
+    );
+  })().catch((error) => {
+    idempotencySchemaPromise = null;
+    throw error;
+  });
+
+  return idempotencySchemaPromise;
 }
 
 export async function ensureActivityLogRetentionSchema() {

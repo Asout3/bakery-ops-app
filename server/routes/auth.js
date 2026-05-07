@@ -536,44 +536,46 @@ router.post('/refresh-token/rotate',
     const refreshToken = req.body.refresh_token;
     const tokenHash = hashRefreshToken(refreshToken);
 
-    const tokenResult = await query(
-      `SELECT rt.id, rt.user_id, rt.expires_at, rt.revoked_at,
-              u.id AS user_id_ref, u.username, u.email, u.role, u.location_id, u.full_name, u.phone_number, u.created_at, u.updated_at
-       FROM auth_refresh_tokens rt
-       JOIN users u ON u.id = rt.user_id AND u.is_active = true
-       WHERE rt.token_hash = $1
-       LIMIT 1`,
-      [tokenHash]
-    );
+    const rotated = await withTransaction(async (tx) => {
+      const tokenResult = await tx.query(
+        `SELECT rt.id, rt.user_id, rt.expires_at, rt.revoked_at,
+                u.id AS user_id_ref, u.username, u.email, u.role, u.location_id, u.full_name, u.phone_number, u.created_at, u.updated_at
+         FROM auth_refresh_tokens rt
+         JOIN users u ON u.id = rt.user_id AND u.is_active = true
+         WHERE rt.token_hash = $1
+         LIMIT 1
+         FOR UPDATE OF rt`,
+        [tokenHash]
+      );
 
-    if (!tokenResult.rows.length) {
-      throw new AppError('Invalid refresh token', 401, 'AUTH_REFRESH_INVALID');
-    }
+      if (!tokenResult.rows.length) {
+        throw new AppError('Invalid refresh token', 401, 'AUTH_REFRESH_INVALID');
+      }
 
-    const record = tokenResult.rows[0];
-    if (record.revoked_at) {
-      throw new AppError('Refresh token revoked', 401, 'AUTH_REFRESH_REVOKED');
-    }
+      const record = tokenResult.rows[0];
+      if (record.revoked_at) {
+        throw new AppError('Refresh token revoked', 401, 'AUTH_REFRESH_REVOKED');
+      }
 
-    if (new Date(record.expires_at).getTime() <= Date.now()) {
-      throw new AppError('Refresh token expired', 401, 'AUTH_REFRESH_EXPIRED');
-    }
+      if (new Date(record.expires_at).getTime() <= Date.now()) {
+        throw new AppError('Refresh token expired', 401, 'AUTH_REFRESH_EXPIRED');
+      }
 
-    const user = {
-      id: record.user_id_ref,
-      username: record.username,
-      email: record.email,
-      role: record.role,
-      location_id: record.location_id,
-      full_name: record.full_name,
-      phone_number: record.phone_number,
-      created_at: record.created_at,
-      updated_at: record.updated_at,
-    };
+      const user = {
+        id: record.user_id_ref,
+        username: record.username,
+        email: record.email,
+        role: record.role,
+        location_id: record.location_id,
+        full_name: record.full_name,
+        phone_number: record.phone_number,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+      };
 
-    const tokens = await withTransaction(async (tx) => {
       const issuedRefresh = await issueRefreshToken(tx, user.id, record.id);
       return {
+        user,
         token: generateToken(user),
         refresh_token: issuedRefresh.refreshToken,
         refresh_token_expires_at: issuedRefresh.refreshTokenExpiresAt,
@@ -581,8 +583,7 @@ router.post('/refresh-token/rotate',
     });
 
     res.json({
-      user,
-      ...tokens,
+      ...rotated,
       code: 'TOKEN_REFRESHED',
     });
   })
@@ -594,40 +595,53 @@ router.post('/refresh-token', authenticateToken, asyncHandler(async (req, res) =
     throw new AppError('refresh_token is required', 400, 'AUTH_REFRESH_TOKEN_REQUIRED');
   }
 
-  const result = await query(
-    'SELECT id, username, email, role, location_id, full_name, phone_number, created_at, updated_at FROM users WHERE id = $1 AND is_active = true',
-    [req.user.id]
-  );
-
-  if (result.rows.length === 0) {
-    throw new AppError('User not found or inactive', 401, 'USER_NOT_FOUND');
-  }
-
-  const user = result.rows[0];
   const tokenHash = hashRefreshToken(refreshToken);
-  const tokenResult = await query(
-    `SELECT id, revoked_at, expires_at
-     FROM auth_refresh_tokens
-     WHERE token_hash = $1 AND user_id = $2
-     LIMIT 1`,
-    [tokenHash, user.id]
-  );
+  const refreshed = await withTransaction(async (tx) => {
+    const result = await tx.query(
+      `SELECT rt.id AS refresh_record_id, rt.revoked_at, rt.expires_at,
+              u.id, u.username, u.email, u.role, u.location_id, u.full_name, u.phone_number, u.created_at, u.updated_at
+       FROM auth_refresh_tokens rt
+       JOIN users u ON u.id = rt.user_id AND u.is_active = true
+       WHERE rt.token_hash = $1 AND rt.user_id = $2
+       LIMIT 1
+       FOR UPDATE OF rt`,
+      [tokenHash, req.user.id]
+    );
 
-  if (!tokenResult.rows.length) {
-    throw new AppError('Invalid refresh token', 401, 'AUTH_REFRESH_INVALID');
-  }
-  if (tokenResult.rows[0].revoked_at) {
-    throw new AppError('Refresh token revoked', 401, 'AUTH_REFRESH_REVOKED');
-  }
-  if (new Date(tokenResult.rows[0].expires_at).getTime() <= Date.now()) {
-    throw new AppError('Refresh token expired', 401, 'AUTH_REFRESH_EXPIRED');
-  }
+    if (!result.rows.length) {
+      throw new AppError('Invalid refresh token', 401, 'AUTH_REFRESH_INVALID');
+    }
+    if (result.rows[0].revoked_at) {
+      throw new AppError('Refresh token revoked', 401, 'AUTH_REFRESH_REVOKED');
+    }
+    if (new Date(result.rows[0].expires_at).getTime() <= Date.now()) {
+      throw new AppError('Refresh token expired', 401, 'AUTH_REFRESH_EXPIRED');
+    }
 
-  const token = generateToken(user);
+    const record = result.rows[0];
+    const user = {
+      id: record.id,
+      username: record.username,
+      email: record.email,
+      role: record.role,
+      location_id: record.location_id,
+      full_name: record.full_name,
+      phone_number: record.phone_number,
+      created_at: record.created_at,
+      updated_at: record.updated_at,
+    };
+    const issuedRefresh = await issueRefreshToken(tx, user.id, record.refresh_record_id);
+
+    return {
+      user,
+      token: generateToken(user),
+      refresh_token: issuedRefresh.refreshToken,
+      refresh_token_expires_at: issuedRefresh.refreshTokenExpiresAt,
+    };
+  });
 
   res.json({
-    user,
-    token,
+    ...refreshed,
     code: 'TOKEN_REFRESHED',
   });
 }));

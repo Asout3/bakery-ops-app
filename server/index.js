@@ -3,7 +3,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
-import pool, { ensureActivityLogRetentionSchema, ensureAuthSecuritySchema, ensureNotificationsSchema, ensureOrdersSchema, ensureProductCreatorSchema, isTransientDbError } from './db.js';
+import pool, { ensureActivityLogRetentionSchema, ensureAuthSecuritySchema, ensureIdempotencySchema, ensureNotificationsSchema, ensureOrdersSchema, ensureProductCreatorSchema, isTransientDbError } from './db.js';
 import { ensureReceiptSchema } from './services/receiptService.js';
 import { ensureWasteSchema } from './services/wasteService.js';
 import { apiLimiter, validateEnvironment, getCorsOptions } from './middleware/security.js';
@@ -32,6 +32,7 @@ dotenv.config();
 
 validateEnvironment();
 await ensureAuthSecuritySchema();
+await ensureIdempotencySchema();
 await ensureProductCreatorSchema();
 await ensureOrdersSchema();
 await ensureNotificationsSchema();
@@ -88,12 +89,7 @@ if (process.env.NODE_ENV !== 'test') {
   app.use(morgan(isProduction ? 'combined' : 'dev'));
 }
 
-// Health check endpoint with explicit CORS for connectivity checks
-// This endpoint is critical for offline detection - always allow access
 app.options('/api/health', (req, res) => {
-  if (process.env.NODE_ENV !== 'production') {
-    res.header('Access-Control-Allow-Origin', '*');
-  }
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Accept, Content-Type');
   res.header('Access-Control-Max-Age', '86400');
@@ -101,9 +97,6 @@ app.options('/api/health', (req, res) => {
 });
 
 app.get('/api/health', async (req, res) => {
-  if (process.env.NODE_ENV !== 'production') {
-    res.header('Access-Control-Allow-Origin', '*');
-  }
   res.header('Cache-Control', 'no-store, no-cache, must-revalidate');
   
   try {
@@ -129,19 +122,12 @@ app.get('/api/ready', async (req, res) => {
   }
 });
 
-// Simple liveness check - always accessible
 app.options('/api/live', (req, res) => {
-  if (process.env.NODE_ENV !== 'production') {
-    res.header('Access-Control-Allow-Origin', '*');
-  }
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.sendStatus(204);
 });
 
 app.get('/api/live', (req, res) => {
-  if (process.env.NODE_ENV !== 'production') {
-    res.header('Access-Control-Allow-Origin', '*');
-  }
   res.header('Cache-Control', 'no-store');
   res.status(200).json({ alive: true, timestamp: Date.now() });
 });

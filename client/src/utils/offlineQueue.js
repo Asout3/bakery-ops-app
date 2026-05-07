@@ -9,7 +9,14 @@ const MAX_RETRIES = 5;
 const BASE_RETRY_DELAY_MS = 1000;
 const MAX_BATCH_PER_FLUSH = 20;
 const MAX_FLUSH_CYCLES = 25;
+const MAX_QUEUE_OPERATIONS = 500;
+const MAX_HISTORY_ENTRIES = 1000;
+const MAX_OPERATION_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+const MAX_HISTORY_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const RETENTION_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 let flushLockToken = null;
+let lastRetentionSweepAt = 0;
+let retentionSweepPromise = null;
 
 
 function tryAcquireFlushLock() {
@@ -79,6 +86,141 @@ async function deletePayload(operationId) {
   tx.objectStore(PAYLOAD_STORE).delete(operationId);
   await txPromise(tx);
   db.close();
+}
+
+function requestPromise(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function createdAtRange(cutoffIso) {
+  if (typeof IDBKeyRange === 'undefined') return undefined;
+  return IDBKeyRange.upperBound(cutoffIso);
+}
+
+async function deleteByCreatedAtCursor({ storeName, maxAgeMs, maxDeletes = Infinity }) {
+  const db = await openDb();
+  const tx = db.transaction(storeName, 'readwrite');
+  const store = tx.objectStore(storeName);
+  const source = typeof store.index === 'function' ? store.index('created_at') : store;
+  if (typeof source.openCursor !== 'function') {
+    await txPromise(tx);
+    db.close();
+    return [];
+  }
+
+  const deletedIds = [];
+  const cutoffIso = new Date(Date.now() - maxAgeMs).toISOString();
+  const range = createdAtRange(cutoffIso);
+  await new Promise((resolve, reject) => {
+    const request = source.openCursor(range);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor || deletedIds.length >= maxDeletes) {
+        resolve();
+        return;
+      }
+      if (!range && String(cursor.value?.created_at || '') > cutoffIso) {
+        resolve();
+        return;
+      }
+      const id = storeName === PAYLOAD_STORE ? cursor.value?.operation_id : cursor.value?.id;
+      if (id) deletedIds.push(id);
+      cursor.delete();
+      cursor.continue();
+    };
+  });
+
+  await txPromise(tx);
+  db.close();
+  return deletedIds;
+}
+
+async function pruneOldestByCount(storeName, maxEntries) {
+  const db = await openDb();
+  const tx = db.transaction(storeName, 'readwrite');
+  const store = tx.objectStore(storeName);
+  const source = typeof store.index === 'function' ? store.index('created_at') : store;
+  if (typeof store.count !== 'function' || typeof source.openCursor !== 'function') {
+    await txPromise(tx);
+    db.close();
+    return [];
+  }
+
+  const total = Number(await requestPromise(store.count()) || 0);
+  const deleteTarget = Math.max(0, total - maxEntries);
+  const deletedIds = [];
+  if (deleteTarget > 0) {
+    await new Promise((resolve, reject) => {
+      const request = source.openCursor();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor || deletedIds.length >= deleteTarget) {
+          resolve();
+          return;
+        }
+        const id = storeName === PAYLOAD_STORE ? cursor.value?.operation_id : cursor.value?.id;
+        if (id) deletedIds.push(id);
+        cursor.delete();
+        cursor.continue();
+      };
+    });
+  }
+
+  await txPromise(tx);
+  db.close();
+  return deletedIds;
+}
+
+async function pruneStoreByCreatedAt(storeName, { maxEntries, maxAgeMs }) {
+  const staleIds = await deleteByCreatedAtCursor({ storeName, maxAgeMs });
+  const overflowIds = await pruneOldestByCount(storeName, maxEntries);
+  return [...new Set([...staleIds, ...overflowIds])];
+}
+
+async function deletePayloadsForOperations(operationIds) {
+  if (!operationIds.length) return;
+  const db = await openDb();
+  const tx = db.transaction(PAYLOAD_STORE, 'readwrite');
+  const store = tx.objectStore(PAYLOAD_STORE);
+  operationIds.forEach((operationId) => store.delete(operationId));
+  await txPromise(tx);
+  db.close();
+}
+
+async function runRetentionSweep() {
+  const staleOperationIds = await pruneStoreByCreatedAt(OPS_STORE, { maxEntries: MAX_QUEUE_OPERATIONS, maxAgeMs: MAX_OPERATION_AGE_MS });
+  if (staleOperationIds.length) {
+    await appendHistory({
+      id: `queue-pruned-${Date.now()}`,
+      operation_id: 'retention',
+      status: 'pruned',
+      message: `Pruned ${staleOperationIds.length} stale queued operation(s).`,
+      created_at: new Date().toISOString(),
+    });
+    await deletePayloadsForOperations(staleOperationIds);
+  }
+  await pruneStoreByCreatedAt(HISTORY_STORE, { maxEntries: MAX_HISTORY_ENTRIES, maxAgeMs: MAX_HISTORY_AGE_MS });
+  await deleteByCreatedAtCursor({ storeName: PAYLOAD_STORE, maxAgeMs: MAX_OPERATION_AGE_MS });
+}
+
+async function enforceRetentionLimits({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && now - lastRetentionSweepAt < RETENTION_SWEEP_INTERVAL_MS) return;
+  if (retentionSweepPromise) return retentionSweepPromise;
+
+  retentionSweepPromise = runRetentionSweep()
+    .then(() => {
+      lastRetentionSweepAt = Date.now();
+    })
+    .finally(() => {
+      retentionSweepPromise = null;
+    });
+  return retentionSweepPromise;
 }
 
 async function appendHistory(entry) {
@@ -152,6 +294,7 @@ function tryBuildAdjustedSalePayload(op, error) {
   };
 }
 export async function enqueueOperation(operation) {
+  await enforceRetentionLimits();
   const id = operation.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const sessionUser = getSessionSnapshot()?.user || null;
   const selectedLocationId = typeof localStorage !== 'undefined' ? localStorage.getItem('selectedLocationId') : null;
@@ -198,6 +341,7 @@ export async function enqueueOperation(operation) {
 }
 
 export async function listQueuedOperations() {
+  await enforceRetentionLimits();
   const db = await openDb();
   const tx = db.transaction(OPS_STORE, 'readonly');
   const req = tx.objectStore(OPS_STORE).getAll();
@@ -211,6 +355,7 @@ export async function listQueuedOperations() {
 }
 
 export async function listSyncHistory(limit = 200) {
+  await enforceRetentionLimits();
   const db = await openDb();
   const tx = db.transaction(HISTORY_STORE, 'readonly');
   const req = tx.objectStore(HISTORY_STORE).getAll();
