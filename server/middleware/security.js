@@ -129,19 +129,16 @@ export function validateEnvironment() {
 }
 
 export function getCorsOptions() {
-  const allowedOrigins = process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  const configuredOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
     : [];
-  
-  if (!isProductionRuntime) {
-    return {
-      origin: true,
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Location-Id', 'X-Idempotency-Key', 'X-Retry-Count', 'X-Queued-Request', 'X-Queued-Created-At', 'X-Offline-Actor-Id', 'Accept', 'Accept-Language', 'Cache-Control'],
-    };
-  }
-  
+  const allowedOrigins = configuredOrigins.length > 0
+    ? configuredOrigins
+    : ['http://localhost:3000', 'http://localhost:5000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5000', 'http://127.0.0.1:5173'];
+
+  const authRedirectHeaders = ['X-Skip-Auth-Redirect', 'Cache-Control'];
+  const browserCacheHeaders = ['Accept', 'Accept-Language', 'Cache-Control'];
+
   return {
     origin: (origin, callback) => {
       if (!origin || allowedOrigins.includes(origin)) {
@@ -152,7 +149,7 @@ export function getCorsOptions() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Location-Id', 'X-Idempotency-Key', 'X-Retry-Count', 'X-Queued-Request', 'X-Queued-Created-At', 'X-Offline-Actor-Id', 'X-Skip-Auth-Redirect', 'Cache-Control'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Location-Id', 'X-Idempotency-Key', 'X-Retry-Count', 'X-Queued-Request', 'X-Queued-Created-At', 'X-Offline-Actor-Id', ...authRedirectHeaders, ...browserCacheHeaders],
     maxAge: 86400,
     optionsSuccessStatus: 204,
   };

@@ -21,7 +21,7 @@ async function resolveEffectiveActor(tx, req, locationId) {
 
   const queuedActorId = Number(queuedActorIdHeader);
   const actorResult = await tx.query(
-    'SELECT id, username FROM users WHERE id = $1 AND (location_id = $2 OR location_id IS NULL)',
+    'SELECT id, username FROM users WHERE id = $1 AND is_active = true AND (location_id = $2 OR location_id IS NULL)',
     [queuedActorId, locationId]
   );
   if (!actorResult.rows.length || queuedActorId !== Number(req.user.id)) {

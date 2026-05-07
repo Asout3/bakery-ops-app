@@ -21,7 +21,7 @@ async function resolveEffectiveActor(tx, req, locationId) {
 
   const queuedActorId = Number(queuedActorIdHeader);
   const actorResult = await tx.query(
-    'SELECT id, username FROM users WHERE id = $1 AND (location_id = $2 OR location_id IS NULL)',
+    'SELECT id, username FROM users WHERE id = $1 AND is_active = true AND (location_id = $2 OR location_id IS NULL)',
     [queuedActorId, locationId]
   );
   if (!actorResult.rows.length || queuedActorId !== Number(req.user.id)) {
@@ -36,6 +36,12 @@ async function resolveEffectiveActor(tx, req, locationId) {
 function normalizeNumber(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function clampLimit(value, fallback = 100, max = 300) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.trunc(n), max);
 }
 
 function isWithinEditWindow(createdAt) {
@@ -87,6 +93,9 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager', 'cashier')
   try {
     const locationId = await getTargetLocationId(req, query);
     const includeCompleted = req.query.include_completed === 'true';
+    const limit = clampLimit(req.query.limit);
+    const cursorCreatedAt = req.query.cursor_created_at ? new Date(String(req.query.cursor_created_at)) : null;
+    const cursorId = Number(req.query.cursor_id || 0) || null;
 
     const params = [locationId];
     const where = ['o.location_id = $1'];
@@ -102,6 +111,12 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager', 'cashier')
       where.push(`o.status <> 'cancelled'`);
     }
 
+    if (cursorCreatedAt && !Number.isNaN(cursorCreatedAt.getTime()) && cursorId) {
+      params.push(cursorCreatedAt.toISOString(), cursorId);
+      where.push(`(o.created_at, o.id) < ($${params.length - 1}::timestamptz, $${params.length}::int)`);
+    }
+
+    params.push(limit + 1);
     const ordersResult = await query(
       `SELECT o.*, COALESCE(NULLIF(o.total_amount, 0), item_totals.items_total, 0) AS total_amount, u.username AS cashier_name,
               CASE WHEN COALESCE(NULLIF(o.total_amount, 0), item_totals.items_total, 0) > 0 AND COALESCE(o.paid_amount, 0) >= COALESCE(NULLIF(o.total_amount, 0), item_totals.items_total, 0) THEN 'verified' ELSE 'pending' END AS payment_status,
@@ -110,12 +125,21 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager', 'cashier')
        LEFT JOIN users u ON u.id = o.cashier_id
        LEFT JOIN (SELECT order_id, COALESCE(SUM(subtotal), 0) AS items_total FROM order_items GROUP BY order_id) item_totals ON item_totals.order_id = o.id
        WHERE ${where.join(' AND ')}
-       ORDER BY o.created_at DESC
-       LIMIT 300`,
+       ORDER BY o.created_at DESC, o.id DESC
+       LIMIT $${params.length}`,
       params
     );
 
-    const orderIds = ordersResult.rows.map((row) => row.id);
+    const pageRows = ordersResult.rows.slice(0, limit);
+    const nextRow = ordersResult.rows.length > limit ? pageRows[pageRows.length - 1] : null;
+    if (nextRow) {
+      res.setHeader('X-Next-Cursor-Created-At', new Date(nextRow.created_at).toISOString());
+      res.setHeader('X-Next-Cursor-Id', String(nextRow.id));
+    }
+    res.setHeader('X-Page-Limit', String(limit));
+    res.setHeader('X-Has-More', nextRow ? 'true' : 'false');
+
+    const orderIds = pageRows.map((row) => row.id);
     let itemsByOrder = new Map();
 
     if (orderIds.length) {
@@ -136,7 +160,7 @@ router.get('/', authenticateToken, authorizeRoles('admin', 'manager', 'cashier')
       }, new Map());
     }
 
-    res.json(ordersResult.rows.map((order) => ({ ...order, items: itemsByOrder.get(order.id) || [] })));
+    res.json(pageRows.map((order) => ({ ...order, items: itemsByOrder.get(order.id) || [] })));
   } catch (err) {
     console.error('Get orders error:', err);
     res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'ORDERS_FETCH_ERROR', requestId: req.requestId });
@@ -178,6 +202,18 @@ router.post('/',
 
         let totalAmount = 0;
         const normalizedItems = [];
+        const productIds = [...new Set(items.map((item) => Number(item.product_id || 0)).filter(Boolean))];
+        const productsById = new Map();
+        if (productIds.length) {
+          const productResult = await tx.query('SELECT id, name, price FROM products WHERE id = ANY($1::int[])', [productIds]);
+          productResult.rows.forEach((product) => productsById.set(Number(product.id), product));
+          const missingProductId = productIds.find((productId) => !productsById.has(productId));
+          if (missingProductId) {
+            const e = new Error(`Product ${missingProductId} not found`);
+            e.status = 404;
+            throw e;
+          }
+        }
 
         for (const rawItem of items) {
           const qty = normalizeNumber(rawItem.quantity);
@@ -191,14 +227,9 @@ router.post('/',
           }
 
           if (productId) {
-            const productResult = await tx.query('SELECT name, price FROM products WHERE id = $1 LIMIT 1', [productId]);
-            if (!productResult.rows.length) {
-              const e = new Error(`Product ${productId} not found`);
-              e.status = 404;
-              throw e;
-            }
-            itemName = productResult.rows[0].name;
-            unitPrice = normalizeNumber(productResult.rows[0].price, 0);
+            const product = productsById.get(productId);
+            itemName = product.name;
+            unitPrice = normalizeNumber(product.price, 0);
           }
 
           if (!productId && !itemName) {
@@ -232,13 +263,17 @@ router.post('/',
 
         const order = orderResult.rows[0];
 
-        for (const item of normalizedItems) {
-          await tx.query(
-            `INSERT INTO order_items (order_id, product_id, custom_item_name, quantity, unit_price, subtotal, prep_status)
-             VALUES ($1, $2, $3, $4, $5, $6, 'not_started')`,
-            [order.id, item.product_id, item.custom_item_name, item.quantity, item.unit_price, item.subtotal]
-          );
-        }
+        const itemValues = [];
+        const itemPlaceholders = normalizedItems.map((item, index) => {
+          const offset = index * 6;
+          itemValues.push(order.id, item.product_id, item.custom_item_name, item.quantity, item.unit_price, item.subtotal);
+          return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, 'not_started')`;
+        });
+        await tx.query(
+          `INSERT INTO order_items (order_id, product_id, custom_item_name, quantity, unit_price, subtotal, prep_status)
+           VALUES ${itemPlaceholders.join(', ')}`,
+          itemValues
+        );
 
         await notifyRoles(tx, locationId, ['manager', 'admin', 'cashier'], 'New Pre-Order', `Pre-order #${order.id} created by ${effectiveActor.actorName}.`, 'order_created');
 
