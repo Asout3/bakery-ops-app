@@ -13,11 +13,18 @@ async function resolveEffectiveActor(tx, req, locationId) {
   const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
   if (!isFromOfflineQueue || !queuedActorIdHeader) return req.user.id;
 
+  const queuedActorId = Number(queuedActorIdHeader);
   const actorResult = await tx.query(
     'SELECT id FROM users WHERE id = $1 AND (location_id = $2 OR location_id IS NULL)',
-    [Number(queuedActorIdHeader), locationId]
+    [queuedActorId, locationId]
   );
-  return actorResult.rows.length ? Number(actorResult.rows[0].id) : req.user.id;
+  if (!actorResult.rows.length || queuedActorId !== Number(req.user.id)) {
+    const err = new Error('Offline actor mismatch is not allowed');
+    err.status = 403;
+    throw err;
+  }
+
+  return Number(actorResult.rows[0].id);
 }
 
 router.get('/', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
@@ -121,10 +128,11 @@ router.post(
       const result = await withTransaction(async (tx) => {
         const effectiveActorId = await resolveEffectiveActor(tx, req, locationId);
         if (idempotencyKey) {
+          await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`payments:${effectiveActorId}:${idempotencyKey}`]);
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
-             WHERE user_id = $1 AND idempotency_key = $2`,
-            [effectiveActorId, idempotencyKey]
+             WHERE user_id = $1 AND idempotency_key = $2 AND endpoint = $3`,
+            [effectiveActorId, idempotencyKey, '/api/payments']
           );
           if (existing.rows.length > 0) {
             return existing.rows[0].response_payload;
@@ -156,7 +164,7 @@ router.post(
           await tx.query(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
              VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
+             ON CONFLICT (user_id, idempotency_key, endpoint) DO NOTHING`,
             [effectiveActorId, locationId, idempotencyKey, '/api/payments', JSON.stringify(payment)]
           );
         }

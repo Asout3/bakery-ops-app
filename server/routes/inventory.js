@@ -19,11 +19,17 @@ async function resolveEffectiveActor(tx, req, locationId) {
   const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
   if (!isFromOfflineQueue || !queuedActorIdHeader) return { actorId: req.user.id, actorName: req.user.username };
 
+  const queuedActorId = Number(queuedActorIdHeader);
   const actorResult = await tx.query(
     'SELECT id, username FROM users WHERE id = $1 AND (location_id = $2 OR location_id IS NULL)',
-    [Number(queuedActorIdHeader), locationId]
+    [queuedActorId, locationId]
   );
-  if (!actorResult.rows.length) return { actorId: req.user.id, actorName: req.user.username };
+  if (!actorResult.rows.length || queuedActorId !== Number(req.user.id)) {
+    const err = new Error('Offline actor mismatch is not allowed');
+    err.status = 403;
+    throw err;
+  }
+
   return { actorId: Number(actorResult.rows[0].id), actorName: actorResult.rows[0].username };
 }
 
@@ -354,8 +360,8 @@ router.post(
         if (idempotencyKey) {
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
-             WHERE user_id = $1 AND idempotency_key = $2`,
-            [effectiveCreatedBy, idempotencyKey]
+             WHERE user_id = $1 AND idempotency_key = $2 AND endpoint = $3`,
+            [effectiveCreatedBy, idempotencyKey, '/api/inventory/batches']
           );
           if (existing.rows.length > 0) {
             return existing.rows[0].response_payload;
@@ -517,7 +523,7 @@ router.post(
           await tx.query(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
              VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
+             ON CONFLICT (user_id, idempotency_key, endpoint) DO NOTHING`,
             [effectiveCreatedBy, locationId, idempotencyKey, '/api/inventory/batches', JSON.stringify(createdBatch)]
           );
         }

@@ -540,7 +540,7 @@ router.post('/refresh-token/rotate',
       `SELECT rt.id, rt.user_id, rt.expires_at, rt.revoked_at,
               u.id AS user_id_ref, u.username, u.email, u.role, u.location_id, u.full_name, u.phone_number, u.created_at, u.updated_at
        FROM auth_refresh_tokens rt
-       JOIN users u ON u.id = rt.user_id
+       JOIN users u ON u.id = rt.user_id AND u.is_active = true
        WHERE rt.token_hash = $1
        LIMIT 1`,
       [tokenHash]
@@ -589,6 +589,11 @@ router.post('/refresh-token/rotate',
 );
 
 router.post('/refresh-token', authenticateToken, asyncHandler(async (req, res) => {
+  const refreshToken = String(req.body?.refresh_token || '').trim();
+  if (!refreshToken) {
+    throw new AppError('refresh_token is required', 400, 'AUTH_REFRESH_TOKEN_REQUIRED');
+  }
+
   const result = await query(
     'SELECT id, username, email, role, location_id, full_name, phone_number, created_at, updated_at FROM users WHERE id = $1 AND is_active = true',
     [req.user.id]
@@ -599,6 +604,25 @@ router.post('/refresh-token', authenticateToken, asyncHandler(async (req, res) =
   }
 
   const user = result.rows[0];
+  const tokenHash = hashRefreshToken(refreshToken);
+  const tokenResult = await query(
+    `SELECT id, revoked_at, expires_at
+     FROM auth_refresh_tokens
+     WHERE token_hash = $1 AND user_id = $2
+     LIMIT 1`,
+    [tokenHash, user.id]
+  );
+
+  if (!tokenResult.rows.length) {
+    throw new AppError('Invalid refresh token', 401, 'AUTH_REFRESH_INVALID');
+  }
+  if (tokenResult.rows[0].revoked_at) {
+    throw new AppError('Refresh token revoked', 401, 'AUTH_REFRESH_REVOKED');
+  }
+  if (new Date(tokenResult.rows[0].expires_at).getTime() <= Date.now()) {
+    throw new AppError('Refresh token expired', 401, 'AUTH_REFRESH_EXPIRED');
+  }
+
   const token = generateToken(user);
 
   res.json({

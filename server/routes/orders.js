@@ -19,11 +19,17 @@ async function resolveEffectiveActor(tx, req, locationId) {
   const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
   if (!isFromOfflineQueue || !queuedActorIdHeader) return { actorId: req.user.id, actorName: req.user.username };
 
+  const queuedActorId = Number(queuedActorIdHeader);
   const actorResult = await tx.query(
     'SELECT id, username FROM users WHERE id = $1 AND (location_id = $2 OR location_id IS NULL)',
-    [Number(queuedActorIdHeader), locationId]
+    [queuedActorId, locationId]
   );
-  if (!actorResult.rows.length) return { actorId: req.user.id, actorName: req.user.username };
+  if (!actorResult.rows.length || queuedActorId !== Number(req.user.id)) {
+    const err = new Error('Offline actor mismatch is not allowed');
+    err.status = 403;
+    throw err;
+  }
+
   return { actorId: Number(actorResult.rows[0].id), actorName: actorResult.rows[0].username };
 }
 
@@ -160,9 +166,10 @@ router.post('/',
       const created = await withTransaction(async (tx) => {
         const effectiveActor = await resolveEffectiveActor(tx, req, locationId);
         if (idempotencyKey) {
+          await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`orders:${effectiveActor.actorId}:${idempotencyKey}`]);
           const existing = await tx.query(
-            `SELECT response_payload FROM idempotency_keys WHERE user_id = $1 AND idempotency_key = $2`,
-            [effectiveActor.actorId, idempotencyKey]
+            `SELECT response_payload FROM idempotency_keys WHERE user_id = $1 AND idempotency_key = $2 AND endpoint = $3`,
+            [effectiveActor.actorId, idempotencyKey, '/api/orders']
           );
           if (existing.rows.length > 0) {
             return typeof existing.rows[0].response_payload === 'string' ? JSON.parse(existing.rows[0].response_payload) : existing.rows[0].response_payload;
@@ -191,7 +198,7 @@ router.post('/',
               throw e;
             }
             itemName = productResult.rows[0].name;
-            if (!Number.isFinite(Number(rawItem.unit_price))) unitPrice = normalizeNumber(productResult.rows[0].price, 0);
+            unitPrice = normalizeNumber(productResult.rows[0].price, 0);
           }
 
           if (!productId && !itemName) {
@@ -239,7 +246,7 @@ router.post('/',
           await tx.query(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
              VALUES ($1, $2, $3, '/api/orders', $4)
-             ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
+             ON CONFLICT (user_id, idempotency_key, endpoint) DO NOTHING`,
             [effectiveActor.actorId, locationId, idempotencyKey, JSON.stringify(order)]
           );
         }

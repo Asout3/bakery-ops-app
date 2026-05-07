@@ -317,7 +317,7 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     endpoint VARCHAR(120) NOT NULL,
     response_payload JSONB NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(user_id, idempotency_key)
+    UNIQUE(user_id, idempotency_key, endpoint)
 );
 
 -- Inventory movement ledger
@@ -362,6 +362,7 @@ CREATE INDEX IF NOT EXISTS idx_inventory_movements_location_product ON inventory
 CREATE INDEX IF NOT EXISTS idx_kpi_events_type_created_at ON kpi_events(event_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_alert_rules_location_event ON alert_rules(location_id, event_type, enabled);
 CREATE INDEX IF NOT EXISTS idx_idempotency_user_key ON idempotency_keys(user_id, idempotency_key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_idempotency_user_key_endpoint ON idempotency_keys(user_id, idempotency_key, endpoint);
 
 -- Multi-branch user access map
 CREATE TABLE IF NOT EXISTS user_locations (
