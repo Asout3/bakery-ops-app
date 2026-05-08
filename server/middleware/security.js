@@ -175,10 +175,10 @@ export function getCorsOptions() {
       }
 
       const normalizedOrigin = normalizeOrigin(origin);
-      const isAllowedDevGithubOrigin = isDevelopment && normalizedOrigin
+      const isAllowedGithubDevOrigin = normalizedOrigin
         && (normalizedOrigin.endsWith('.app.github.dev') || normalizedOrigin.endsWith('.github.dev'));
 
-      if (normalizedOrigin && (allowedOriginSet.has(normalizedOrigin) || isGithubDevCompanionOrigin(normalizedOrigin, allowedOriginSet) || isAllowedDevGithubOrigin)) {
+      if (normalizedOrigin && (allowedOriginSet.has(normalizedOrigin) || isGithubDevCompanionOrigin(normalizedOrigin, allowedOriginSet) || isAllowedGithubDevOrigin)) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));
