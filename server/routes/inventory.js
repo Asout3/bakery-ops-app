@@ -27,6 +27,7 @@ async function resolveEffectiveActor(tx, req, locationId) {
   if (!actorResult.rows.length || queuedActorId !== Number(req.user.id)) {
     const err = new Error('Offline actor mismatch is not allowed');
     err.status = 403;
+    err.code = 'OFFLINE_ACTOR_MISMATCH';
     throw err;
   }
 

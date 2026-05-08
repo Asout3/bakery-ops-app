@@ -466,7 +466,9 @@ export async function flushQueue(api) {
       } catch (error) {
         const statusCode = error?.response?.status;
         const isClientError = Number.isInteger(statusCode) && statusCode >= 400 && statusCode < 500;
-        const isAuthOrSessionIssue = statusCode === 401 || statusCode === 403;
+        const errorCode = String(error?.response?.data?.code || '');
+        const isOfflineActorMismatch = errorCode === 'OFFLINE_ACTOR_MISMATCH' || String(error?.response?.data?.error || '').toLowerCase().includes('offline actor mismatch');
+        const isAuthOrSessionIssue = statusCode === 401 || (statusCode === 403 && !isOfflineActorMismatch);
         const isDeterministicClientError = isClientError && !isAuthOrSessionIssue;
         const isConflict = statusCode === 409;
         const retries = (op.retries || 0) + 1;
