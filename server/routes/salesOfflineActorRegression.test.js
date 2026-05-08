@@ -7,8 +7,8 @@ test('sales offline actor resolution accepts null-location cashier rows', async 
   assert.match(source, /AND \(location_id = \$2 OR location_id IS NULL\)/);
 });
 
-test('sales offline actor resolution rejects mismatched queued actor ids', async () => {
+test('sales offline actor resolution permits syncing by another authenticated user when queued actor is valid', async () => {
   const source = await readFile(new URL('./sales.js', import.meta.url), 'utf8');
-  assert.match(source, /queuedActorId !== Number\(req\.user\.id\)/);
-  assert.match(source, /Offline actor mismatch is not allowed/);
+  assert.doesNotMatch(source, /queuedActorId !== Number\(req\.user\.id\)/);
+  assert.match(source, /if \(!actorResult\.rows\.length\) \{/);
 });

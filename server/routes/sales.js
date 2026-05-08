@@ -627,7 +627,7 @@ router.post(
                AND is_active = true`,
             [queuedActorId, locationId]
           );
-          if (!actorResult.rows.length || queuedActorId !== Number(req.user.id)) {
+          if (!actorResult.rows.length) {
             const actorMismatchError = new Error('Offline actor mismatch is not allowed');
             actorMismatchError.status = 403;
             throw actorMismatchError;

@@ -26,7 +26,7 @@ async function resolveEffectiveActor(tx, req, locationId) {
     'SELECT id FROM users WHERE id = $1 AND (location_id = $2 OR location_id IS NULL)',
     [queuedActorId, locationId]
   );
-  if (!actorResult.rows.length || queuedActorId !== Number(req.user.id)) {
+  if (!actorResult.rows.length) {
     const err = new Error('Offline actor mismatch is not allowed');
     err.status = 403;
     throw err;

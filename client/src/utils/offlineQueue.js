@@ -19,6 +19,24 @@ let lastRetentionSweepAt = 0;
 let retentionSweepPromise = null;
 
 
+const DEDUPE_WINDOW_MS = 30 * 1000;
+
+function stableStringify(value) {
+  if (value === null || value === undefined) return String(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function buildOperationFingerprint(op = {}) {
+  const method = String(op.method || 'get').toLowerCase();
+  const url = String(op.url || '');
+  const locationId = String(op.headers?.['X-Location-Id'] || '');
+  return `${method}|${url}|${locationId}|${stableStringify(op.data || {})}`;
+}
+
 function tryAcquireFlushLock() {
   if (flushLockToken) return null;
   const token = Symbol('offline-queue-flush');
@@ -316,6 +334,26 @@ export async function enqueueOperation(operation) {
     ...operation,
   };
 
+  const fingerprint = buildOperationFingerprint(op);
+  const queuedOps = await listQueuedOperations();
+  const duplicate = queuedOps.find((item) => {
+    if (!item || item.status !== 'pending') return false;
+    const itemCreatedAt = new Date(item.created_at || 0).getTime();
+    if (!Number.isFinite(itemCreatedAt) || (Date.now() - itemCreatedAt) > DEDUPE_WINDOW_MS) return false;
+    return buildOperationFingerprint(item) === fingerprint;
+  });
+
+  if (duplicate) {
+    await appendHistory({
+      id: `${duplicate.id}-deduped-${Date.now()}`,
+      operation_id: duplicate.id,
+      status: 'queued',
+      message: `Skipped duplicate ${op.method?.toUpperCase() || 'REQUEST'} ${op.url}`,
+      created_at: new Date().toISOString(),
+    });
+    return duplicate.id;
+  }
+
   const db = await openDb();
   const tx = db.transaction(OPS_STORE, 'readwrite');
   tx.objectStore(OPS_STORE).put(op);
@@ -466,7 +504,9 @@ export async function flushQueue(api) {
       } catch (error) {
         const statusCode = error?.response?.status;
         const isClientError = Number.isInteger(statusCode) && statusCode >= 400 && statusCode < 500;
-        const isAuthOrSessionIssue = statusCode === 401 || statusCode === 403;
+        const errorCode = String(error?.response?.data?.code || '');
+        const isOfflineActorMismatch = errorCode === 'OFFLINE_ACTOR_MISMATCH' || String(error?.response?.data?.error || '').toLowerCase().includes('offline actor mismatch');
+        const isAuthOrSessionIssue = statusCode === 401 || (statusCode === 403 && !isOfflineActorMismatch);
         const isDeterministicClientError = isClientError && !isAuthOrSessionIssue;
         const isConflict = statusCode === 409;
         const retries = (op.retries || 0) + 1;

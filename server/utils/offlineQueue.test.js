@@ -149,7 +149,7 @@ function createApiStub(outcomes) {
         }
         const err = new Error(outcome.message || 'request failed');
         if (outcome.status) {
-          err.response = { status: outcome.status, data: { error: outcome.message || 'error' } };
+          err.response = { status: outcome.status, data: { error: outcome.message || 'error', ...(outcome.code ? { code: outcome.code } : {}) } };
         }
         throw err;
       },
@@ -182,6 +182,18 @@ test.beforeEach(async () => {
   await clearHistory();
   const queued = await listQueuedOperations();
   await Promise.all(queued.map((op) => cancelOperation(op.id)));
+});
+
+
+test('enqueueOperation deduplicates equivalent pending operations created close together', async () => {
+  const firstId = await enqueueOperation({ id: 'dup-op-1', url: '/api/inventory/batches', method: 'post', data: { items: [{ product_id: 7, quantity: 2 }] } });
+  const secondId = await enqueueOperation({ id: 'dup-op-2', url: '/api/inventory/batches', method: 'post', data: { items: [{ product_id: 7, quantity: 2 }] } });
+
+  const queued = await listQueuedOperations();
+  assert.equal(firstId, 'dup-op-1');
+  assert.equal(secondId, 'dup-op-1');
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].id, 'dup-op-1');
 });
 
 test('flushQueue dispatches offline-queue-synced event when visible operations sync', async () => {
@@ -236,6 +248,17 @@ test('flushQueue keeps processing queue even when one operation fails transientl
   assert.equal(queued.find((op) => op.id === 'op-1').status, 'pending');
 });
 
+
+test('flushQueue marks offline actor mismatch as conflict instead of endless auth retry', async () => {
+  await enqueueOperation({ id: 'actor-mismatch-op', url: '/api/inventory/batches', method: 'post', data: { items: [{ product_id: 1, quantity: 2 }] } });
+  const { api } = createApiStub([{ type: 'error', status: 403, message: 'Offline actor mismatch is not allowed', code: 'OFFLINE_ACTOR_MISMATCH' }]);
+
+  await flushQueue(api);
+  const queued = await listQueuedOperations();
+
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].status, 'conflict');
+});
 test('flushQueue marks deterministic client errors as conflict', async () => {
   await enqueueOperation({ id: 'conflict-op', url: '/api/sales', method: 'post', data: { n: 1 } });
   const { api } = createApiStub([{ type: 'error', status: 409, message: 'Duplicate request' }]);
