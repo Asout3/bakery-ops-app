@@ -184,6 +184,18 @@ test.beforeEach(async () => {
   await Promise.all(queued.map((op) => cancelOperation(op.id)));
 });
 
+
+test('enqueueOperation deduplicates equivalent pending operations created close together', async () => {
+  const firstId = await enqueueOperation({ id: 'dup-op-1', url: '/api/inventory/batches', method: 'post', data: { items: [{ product_id: 7, quantity: 2 }] } });
+  const secondId = await enqueueOperation({ id: 'dup-op-2', url: '/api/inventory/batches', method: 'post', data: { items: [{ product_id: 7, quantity: 2 }] } });
+
+  const queued = await listQueuedOperations();
+  assert.equal(firstId, 'dup-op-1');
+  assert.equal(secondId, 'dup-op-1');
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].id, 'dup-op-1');
+});
+
 test('flushQueue dispatches offline-queue-synced event when visible operations sync', async () => {
   await enqueueOperation({ id: 'sync-event-op', url: '/sales', method: 'post', data: { n: 1 } });
 
