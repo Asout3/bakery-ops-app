@@ -34,8 +34,29 @@ import ManagerExpenses from './pages/admin/Expenses';
 import CashierSales from './pages/cashier/Sales';
 import CashierHistory from './pages/cashier/History';
 import CashierOrdersPage from './pages/cashier/Orders';
+import { useEffect } from 'react';
 
 function AppInner() {
+  useEffect(() => {
+    const stopWheelNumberShift = (event) => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement && target.type === 'number' && document.activeElement === target) {
+        event.preventDefault();
+      }
+    };
+    const stopArrowNumberShift = (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || target.type !== 'number') return;
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') event.preventDefault();
+    };
+    document.addEventListener('wheel', stopWheelNumberShift, { passive: false });
+    document.addEventListener('keydown', stopArrowNumberShift);
+    return () => {
+      document.removeEventListener('wheel', stopWheelNumberShift);
+      document.removeEventListener('keydown', stopArrowNumberShift);
+    };
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>

@@ -8,6 +8,7 @@ export default function HistoryLifecycle() {
   const [confirmationPhrase, setConfirmationPhrase] = useState('');
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   const fetchData = async () => {
@@ -104,6 +105,7 @@ export default function HistoryLifecycle() {
       setMessage({ type: 'warning', text: 'Archive export requires online server connection.' });
       return;
     }
+    setDownloading(true);
     try {
       const response = await api.get('/archive/export', { responseType: 'blob', timeout: 120000 });
       const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' });
@@ -119,6 +121,8 @@ export default function HistoryLifecycle() {
       setMessage({ type: 'success', text: 'Archive export downloaded successfully.' });
     } catch (err) {
       setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to download archive export') });
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -129,6 +133,7 @@ export default function HistoryLifecycle() {
       <div className="page-header"><h2>History Lifecycle</h2></div>
       {!isOnline && <div className="alert alert-warning">You are offline. Archive actions are disabled.</div>}
       {message && <div className={`alert alert-${message.type}`}>{message.text}</div>}
+      {loading && <div className="alert alert-info">Processing archive operation. Please wait…</div>}
 
       <div className="card mb-4">
         <div className="card-header"><h4>Auto-Archive Configuration</h4></div>
@@ -145,13 +150,13 @@ export default function HistoryLifecycle() {
             <input className="input" type="number" min="6" max="60" value={settingsForm.cold_storage_after_months} onChange={(e) => setSettingsForm({ ...settingsForm, cold_storage_after_months: Number(e.target.value) })} />
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-            <button className="btn btn-primary" disabled={loading || !isOnline} onClick={saveSettings}>Save Settings</button>
+            <button className="btn btn-primary" disabled={loading || downloading || !isOnline} onClick={saveSettings}>{loading ? 'Saving…' : 'Save Settings'}</button>
           </div>
         </div>
       </div>
 
       <div className="card mb-4">
-        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}><h4>Archived Data Counts</h4><button className="btn btn-secondary btn-sm" onClick={downloadArchiveExport} disabled={loading || !isOnline}>Download Archive CSV (Excel-ready)</button></div>
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}><h4>Archived Data Counts</h4><button className="btn btn-secondary btn-sm" onClick={downloadArchiveExport} disabled={loading || downloading || !isOnline}>{downloading ? 'Downloading…' : 'Download Archive CSV (Excel-ready)'}</button></div>
         <div className="card-body" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <span className="badge badge-primary">Batches: {data?.archive_counts?.inventory_batches || 0}</span>
           <span className="badge badge-primary">Batch Items: {data?.archive_counts?.batch_items || 0}</span>

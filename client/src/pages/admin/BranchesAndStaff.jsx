@@ -34,7 +34,7 @@ export default function BranchesAndStaff() {
   const [showPasswords, setShowPasswords] = useState({
     createAccount: false,
     editAccount: false,
-    currentCredential: true,
+    currentCredential: false,
     newCredential: false,
     confirmCredential: false,
   });
@@ -187,16 +187,6 @@ toast.error(err.response?.data?.error || 'Failed to load branch/account data');
     }
   };
 
-  const deleteAccount = async (user) => {
-    if (!window.confirm(`Delete account ${user.username}? This cannot be undone.`)) return;
-    try {
-      await api.delete(`/admin/users/${user.id}`);
-      showFeedback('success', 'Account deleted.');
-      loadData();
-    } catch (err) {
-      showFeedback('danger', err.response?.data?.error || 'Could not delete account');
-    }
-  };
 
   const updateOwnCredentials = async (e) => {
     e.preventDefault();
@@ -340,7 +330,7 @@ toast.error(err.response?.data?.error || 'Failed to load branch/account data');
             </div>
             <div className="row g-2">
               <div className="col-md-6 mb-3"><label className="form-label">Username *</label><input className="form-control" required value={accountForm.username} onChange={(e)=>setAccountForm((p)=>({...p,username:e.target.value}))} placeholder="Login username" /></div>
-              <div className="col-md-6 mb-3"><label className="form-label">Password *</label><div className="input-group"><input type={showPasswords.createAccount ? "text" : "password"} minLength={8} className="form-control" required value={accountForm.password} onChange={(e)=>setAccountForm((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters, include letter/number/special" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("createAccount")}>{showPasswords.createAccount ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></div>
+              <div className="col-md-6 mb-3"><label className="form-label">Password *</label><div className="input-group"><input type={showPasswords.createAccount ? "text" : "password"} minLength={8} className="form-control" required value={accountForm.password} onChange={(e)=>setAccountForm((p)=>({...p,password:e.target.value}))} placeholder="Min 8 characters, include letter/number/special" autoComplete="new-password" name="new_staff_password" /><button type="button" className="btn btn-outline-secondary" onClick={()=>togglePasswordVisibility("createAccount")}>{showPasswords.createAccount ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></div>
             </div>
             <div className="row g-2">
               <div className="col-md-6 mb-3"><label className="form-label">Account Role *</label><input className="form-control" value={ROLE_LABELS[accountForm.role] || accountForm.role} disabled /></div>
@@ -366,10 +356,9 @@ toast.error(err.response?.data?.error || 'Failed to load branch/account data');
             <td style={{ display:'flex', gap:'0.5rem' }}>
               <button className="btn btn-sm btn-secondary" onClick={()=>editAccount(user)}>Edit</button>
               <button className={`btn btn-sm ${user.is_active ? 'btn-warning':'btn-success'}`} onClick={()=>toggleAccountStatus(user)}>{user.is_active ? 'Disable':'Enable'}</button>
-              <button className="btn btn-sm btn-danger" onClick={()=>deleteAccount(user)}>Delete</button>
             </td>
           </tr>)}
-        </tbody></table><h5 className="mt-4 mb-2">Inactive Accounts</h5><table className="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{accounts.filter((a)=>!a.is_active).map((user) => <tr key={`inactive-${user.id}`}><td>{user.full_name || user.username}</td><td>{user.username}</td><td><span className={`badge ${user.role === 'manager' ? 'badge-primary' : 'badge-info'}`}>{ROLE_LABELS[user.role] || user.role}</span></td><td><span className="badge badge-warning">Inactive</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editAccount(user)}>Edit</button><button className="btn btn-sm btn-success" onClick={()=>toggleAccountStatus(user)}>Enable</button><button className="btn btn-sm btn-danger" onClick={()=>deleteAccount(user)}>Delete</button></td></tr>)}{!accounts.filter((a)=>!a.is_active).length && <tr><td colSpan={5} className="text-muted text-center">No inactive accounts.</td></tr>}</tbody></table>
+        </tbody></table><h5 className="mt-4 mb-2">Inactive Accounts</h5><table className="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{accounts.filter((a)=>!a.is_active).map((user) => <tr key={`inactive-${user.id}`}><td>{user.full_name || user.username}</td><td>{user.username}</td><td><span className={`badge ${user.role === 'manager' ? 'badge-primary' : 'badge-info'}`}>{ROLE_LABELS[user.role] || user.role}</span></td><td><span className="badge badge-warning">Inactive</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editAccount(user)}>Edit</button><button className="btn btn-sm btn-success" onClick={()=>toggleAccountStatus(user)}>Enable</button></td></tr>)}{!accounts.filter((a)=>!a.is_active).length && <tr><td colSpan={5} className="text-muted text-center">No inactive accounts.</td></tr>}</tbody></table>
         </>
         )}
       </div></div>
