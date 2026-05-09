@@ -176,6 +176,28 @@ async function seedOrders(locationId, cashierId) {
   );
 }
 
+async function seedWaste(locationId, adminId) {
+  const hasUnitCost = await tableHasColumn('waste_records', 'unit_cost');
+  const costColumn = hasUnitCost ? 'unit_cost' : 'cost_per_unit';
+  await client.query(
+    `INSERT INTO waste_records (location_id, product_id, quantity_wasted, ${costColumn}, total_loss, reason, wasted_at, created_by)
+     SELECT
+       $1,
+       p.id,
+       (random() * 8 + 1)::int,
+       p.cost,
+       ((random() * 8 + 1)::int * p.cost)::numeric(12,2),
+       'expired',
+       NOW() - (gs || ' minutes')::interval,
+       $2
+     FROM generate_series(1, $3) gs
+     JOIN LATERAL (
+       SELECT id, cost FROM products WHERE name LIKE 'LOAD_PRODUCT_%' ORDER BY random() LIMIT 1
+     ) p ON true`,
+    [locationId, adminId, COUNTS.waste]
+  );
+}
+
 async function run() {
   await client.connect();
   const locationId = await pickLocationId();
@@ -235,23 +257,7 @@ async function run() {
       [locationId, cashierId, adminId, COUNTS.payments]
     );
 
-    await client.query(
-      `INSERT INTO waste_records (location_id, product_id, quantity_wasted, unit_cost, total_loss, reason, wasted_at, created_by)
-       SELECT
-         $1,
-         p.id,
-         (random() * 8 + 1)::int,
-         p.cost,
-         ((random() * 8 + 1)::int * p.cost)::numeric(12,2),
-         'expired',
-         NOW() - (gs || ' minutes')::interval,
-         $2
-       FROM generate_series(1, $3) gs
-       JOIN LATERAL (
-         SELECT id, cost FROM products WHERE name LIKE 'LOAD_PRODUCT_%' ORDER BY random() LIMIT 1
-       ) p ON true`,
-      [locationId, adminId, COUNTS.waste]
-    );
+    await seedWaste(locationId, adminId);
 
     await client.query('COMMIT');
     console.log('Load test seed complete.', COUNTS);
