@@ -185,7 +185,6 @@ export default function ExpensesPage() {
       <div className="stats-grid mb-4">
         <div className="stat-card card bg-light"><div className="stat-icon bg-danger text-white"><TrendingDown size={24} /></div><div className="stat-content"><h3>ETB {expenses.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0).toFixed(2)}</h3><p>Total Expenses</p></div></div>
         <div className="stat-card card bg-light"><div className="stat-icon bg-warning text-white"><DollarSign size={24} /></div><div className="stat-content"><h3>{expenses.length}</h3><p>Total Records</p></div></div>
-        <div className="stat-card card bg-light"><div className="stat-icon bg-info text-white"><Calendar size={24} /></div><div className="stat-content"><h3>ETB {expenses.length > 0 ? (expenses.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0) / expenses.length).toFixed(2) : '0.00'}</h3><p>Avg. Expense</p></div></div>
       </div>
 
       <div className="card"><div className="card-body"><div className="table-responsive"><table className="table table-hover"><thead><tr><th>Expense ID</th><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th>Created By</th><th>Edit Window</th><th>Actions</th></tr></thead><tbody>

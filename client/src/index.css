@@ -77,15 +77,15 @@
 
 /* ── Dark theme ─────────────────────────────────────────────── */
 [data-theme='dark'] {
-  --primary-bg:   #1f1712;
-  --card-bg:      #2a1f18;
-  --surface-bg:   #352820;
+  --primary-bg:   #1a1715;
+  --card-bg:      #24201d;
+  --surface-bg:   #2f2a25;
   --input-bg:     #2a1f18;
   --text-primary: #f7efe7;
-  --text-secondary:#dfc2aa;
-  --text-muted:   #c49d7d;
+  --text-secondary:#e2d2c4;
+  --text-muted:   #bea995;
   --text-error:   #ffb4a8;
-  --input-border: #7f624f;
+  --input-border: #6f6258;
   --focus-border: #f4a261;
   --focus-shadow: rgba(244,162,97,0.22);
   --error-bg:     #4b2a21;
@@ -96,7 +96,7 @@
   --info-border:  #7f624f;
   --warning-bg:   #3a2e10;
   --warning-border:#7a6020;
-  --accent-border:rgba(247,178,120,0.22);
+  --accent-border:rgba(233,205,175,0.16);
   --shadow-xs:    0 2px 8px  rgba(0,0,0,0.28);
   --shadow-sm:    0 6px 18px rgba(0,0,0,0.36);
   --shadow-md:    0 12px 28px rgba(0,0,0,0.44);
@@ -800,6 +800,8 @@ textarea, textarea.form-control, .form-note-input {
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .stat-sub {
   font-size: 0.75rem;
@@ -866,11 +868,13 @@ textarea, textarea.form-control, .form-note-input {
 
 /* Backward-compat: stat-card with h3/p inside .stat-content */
 .stat-content h3 {
-  font-size: 1.35rem;
+  font-size: clamp(1.1rem, 2vw, 1.35rem);
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
   margin-bottom: 0.15rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .stat-content p {
   font-size: 0.72rem;
