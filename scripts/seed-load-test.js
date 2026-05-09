@@ -20,6 +20,17 @@ const client = new pg.Client({
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: process.env.SSL_REJECT_UNAUTHORIZED !== 'false' } : false,
 });
 
+async function tableHasColumn(tableName, columnName) {
+  const result = await client.query(
+    `SELECT 1
+     FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2
+     LIMIT 1`,
+    [tableName, columnName]
+  );
+  return result.rows.length > 0;
+}
+
 async function pickLocationId() {
   const found = await client.query('SELECT id FROM locations WHERE is_active = true ORDER BY id ASC LIMIT 1');
   if (found.rows.length > 0) return Number(found.rows[0].id);
@@ -50,14 +61,118 @@ async function ensureActors(locationId) {
 }
 
 async function ensureLoadCategories(adminId) {
+  const hasCreatedBy = await tableHasColumn('categories', 'created_by');
   await client.query(
-    `INSERT INTO categories (name, created_by)
-     SELECT 'Load Category ' || gs, $1
-     FROM generate_series(1, 30) gs
-     WHERE NOT EXISTS (
-       SELECT 1 FROM categories existing WHERE existing.name = ('Load Category ' || gs)
-     )`,
-    [adminId]
+    hasCreatedBy
+      ? `INSERT INTO categories (name, created_by)
+         SELECT 'Load Category ' || gs, $1
+         FROM generate_series(1, 30) gs
+         WHERE NOT EXISTS (
+           SELECT 1 FROM categories existing WHERE existing.name = ('Load Category ' || gs)
+         )`
+      : `INSERT INTO categories (name)
+         SELECT 'Load Category ' || gs
+         FROM generate_series(1, 30) gs
+         WHERE NOT EXISTS (
+           SELECT 1 FROM categories existing WHERE existing.name = ('Load Category ' || gs)
+         )`,
+    hasCreatedBy ? [adminId] : []
+  );
+}
+
+async function seedInventory(locationId, adminId) {
+  const hasUpdatedBy = await tableHasColumn('inventory', 'updated_by');
+  await client.query(
+    hasUpdatedBy
+      ? `INSERT INTO inventory (product_id, location_id, quantity, source, updated_by)
+         SELECT p.id, $1, (random() * 400 + 30)::int, p.source, $2
+         FROM products p
+         WHERE p.name LIKE 'LOAD_PRODUCT_%'
+         LIMIT $3`
+      : `INSERT INTO inventory (product_id, location_id, quantity, source)
+         SELECT p.id, $1, (random() * 400 + 30)::int, p.source
+         FROM products p
+         WHERE p.name LIKE 'LOAD_PRODUCT_%'
+         LIMIT $2`,
+    hasUpdatedBy ? [locationId, adminId, COUNTS.inventoryRows] : [locationId, COUNTS.inventoryRows]
+  );
+}
+
+async function seedSales(locationId, cashierId) {
+  const hasStatus = await tableHasColumn('sales', 'status');
+  const hasCreatedAt = await tableHasColumn('sales', 'created_at');
+  if (hasStatus && hasCreatedAt) {
+    await client.query(
+      `INSERT INTO sales (location_id, cashier_id, total_amount, payment_method, sale_date, status, created_at)
+       SELECT
+         $1,
+         $2,
+         (random() * 1200 + 25)::numeric(12,2),
+         (ARRAY['cash','mobile','telebirr'])[(gs % 3) + 1],
+         NOW() - (gs || ' minutes')::interval,
+         'completed',
+         NOW() - (gs || ' minutes')::interval
+       FROM generate_series(1, $3) gs`,
+      [locationId, cashierId, COUNTS.sales]
+    );
+    return;
+  }
+  await client.query(
+    `INSERT INTO sales (location_id, cashier_id, total_amount, payment_method, sale_date)
+     SELECT
+       $1,
+       $2,
+       (random() * 1200 + 25)::numeric(12,2),
+       (ARRAY['cash','mobile','telebirr'])[(gs % 3) + 1],
+       NOW() - (gs || ' minutes')::interval
+     FROM generate_series(1, $3) gs`,
+    [locationId, cashierId, COUNTS.sales]
+  );
+}
+
+async function seedOrders(locationId, cashierId) {
+  const hasPrepStatus = await tableHasColumn('customer_orders', 'prep_status');
+  const hasCreatedAt = await tableHasColumn('customer_orders', 'created_at');
+  if (!hasPrepStatus) return;
+  if (hasCreatedAt) {
+    await client.query(
+      `INSERT INTO customer_orders (location_id, cashier_id, customer_name, customer_phone, order_details, total_amount, paid_amount, payment_method, status, prep_status, prep_progress, pickup_at, created_at)
+       SELECT
+         $1,
+         $2,
+         'Load Customer ' || gs,
+         '+2519' || lpad(((10000000 + gs) % 100000000)::text, 8, '0'),
+         'Load order ' || gs,
+         (random() * 900 + 40)::numeric(12,2),
+         (random() * 600 + 20)::numeric(12,2),
+         (ARRAY['cash','mobile','telebirr'])[(gs % 3) + 1],
+         (ARRAY['pending','in_production','ready','picked_up'])[(gs % 4) + 1],
+         (ARRAY['not_started','preparing','ready'])[(gs % 3) + 1],
+         ((gs % 10) * 10),
+         NOW() + ((gs % 180) || ' minutes')::interval,
+         NOW() - (gs || ' minutes')::interval
+       FROM generate_series(1, $3) gs`,
+      [locationId, cashierId, COUNTS.orders]
+    );
+    return;
+  }
+  await client.query(
+    `INSERT INTO customer_orders (location_id, cashier_id, customer_name, customer_phone, order_details, total_amount, paid_amount, payment_method, status, prep_status, prep_progress, pickup_at)
+     SELECT
+       $1,
+       $2,
+       'Load Customer ' || gs,
+       '+2519' || lpad(((10000000 + gs) % 100000000)::text, 8, '0'),
+       'Load order ' || gs,
+       (random() * 900 + 40)::numeric(12,2),
+       (random() * 600 + 20)::numeric(12,2),
+       (ARRAY['cash','mobile','telebirr'])[(gs % 3) + 1],
+       (ARRAY['pending','in_production','ready','picked_up'])[(gs % 4) + 1],
+       (ARRAY['not_started','preparing','ready'])[(gs % 3) + 1],
+       ((gs % 10) * 10),
+       NOW() + ((gs % 180) || ' minutes')::interval
+     FROM generate_series(1, $3) gs`,
+    [locationId, cashierId, COUNTS.orders]
   );
 }
 
@@ -87,48 +202,9 @@ async function run() {
       [COUNTS.products, adminId]
     );
 
-    await client.query(
-      `INSERT INTO inventory (product_id, location_id, quantity, source, updated_by)
-       SELECT p.id, $1, (random() * 400 + 30)::int, p.source, $2
-       FROM products p
-       WHERE p.name LIKE 'LOAD_PRODUCT_%'
-       LIMIT $3`,
-      [locationId, adminId, COUNTS.inventoryRows]
-    );
-
-    await client.query(
-      `INSERT INTO sales (location_id, cashier_id, total_amount, payment_method, sale_date, status, created_at)
-       SELECT
-         $1,
-         $2,
-         (random() * 1200 + 25)::numeric(12,2),
-         (ARRAY['cash','mobile','telebirr'])[(gs % 3) + 1],
-         NOW() - (gs || ' minutes')::interval,
-         'completed',
-         NOW() - (gs || ' minutes')::interval
-       FROM generate_series(1, $3) gs`,
-      [locationId, cashierId, COUNTS.sales]
-    );
-
-    await client.query(
-      `INSERT INTO customer_orders (location_id, cashier_id, customer_name, customer_phone, order_details, total_amount, paid_amount, payment_method, status, prep_status, prep_progress, pickup_at, created_at)
-       SELECT
-         $1,
-         $2,
-         'Load Customer ' || gs,
-         '+2519' || lpad(((10000000 + gs) % 100000000)::text, 8, '0'),
-         'Load order ' || gs,
-         (random() * 900 + 40)::numeric(12,2),
-         (random() * 600 + 20)::numeric(12,2),
-         (ARRAY['cash','mobile','telebirr'])[(gs % 3) + 1],
-         (ARRAY['pending','in_production','ready','picked_up'])[(gs % 4) + 1],
-         (ARRAY['not_started','preparing','ready'])[(gs % 3) + 1],
-         ((gs % 10) * 10),
-         NOW() + ((gs % 180) || ' minutes')::interval,
-         NOW() - (gs || ' minutes')::interval
-       FROM generate_series(1, $3) gs`,
-      [locationId, cashierId, COUNTS.orders]
-    );
+    await seedInventory(locationId, adminId);
+    await seedSales(locationId, cashierId);
+    await seedOrders(locationId, cashierId);
 
     await client.query(
       `INSERT INTO expenses (location_id, category, description, amount, expense_date, created_by, created_at)
