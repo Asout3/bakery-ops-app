@@ -49,27 +49,41 @@ async function ensureActors(locationId) {
   return { adminId: Number(admin.rows[0].id), cashierId: Number(cashier.rows[0].id) };
 }
 
+async function ensureLoadCategories(adminId) {
+  await client.query(
+    `INSERT INTO categories (name, created_by)
+     SELECT 'Load Category ' || gs, $1
+     FROM generate_series(1, 30) gs
+     WHERE NOT EXISTS (
+       SELECT 1 FROM categories existing WHERE existing.name = ('Load Category ' || gs)
+     )`,
+    [adminId]
+  );
+}
+
 async function run() {
   await client.connect();
   const locationId = await pickLocationId();
   const { adminId, cashierId } = await ensureActors(locationId);
+  await ensureLoadCategories(adminId);
 
   console.log('Seeding heavy synthetic dataset...');
   await client.query('BEGIN');
   try {
     await client.query(
-      `INSERT INTO products (name, group_name, category_name, price, cost, unit, source, is_active, created_by)
+      `INSERT INTO products (name, group_name, category_id, price, cost, unit, source, is_active, created_by)
        SELECT
          'LOAD_PRODUCT_' || gs,
          'LOAD_GROUP_' || ((gs - 1) % 150 + 1),
-         'Load Category ' || ((gs - 1) % 30 + 1),
+         c.id,
          (10 + (gs % 200))::numeric(12,2),
          (4 + (gs % 120))::numeric(12,2),
          'unit',
-         CASE WHEN gs % 2 = 0 THEN 'baked' ELSE 'procured' END,
+         CASE WHEN gs % 2 = 0 THEN 'baked' ELSE 'purchased' END,
          true,
          $2
-       FROM generate_series(1, $1) gs`,
+       FROM generate_series(1, $1) gs
+       JOIN categories c ON c.name = ('Load Category ' || ((gs - 1) % 30 + 1))`,
       [COUNTS.products, adminId]
     );
 
