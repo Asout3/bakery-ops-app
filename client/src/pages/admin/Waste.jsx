@@ -165,16 +165,18 @@ export default function WastePage() {
               <p>Any waste movement in the selected period will be listed from newest to oldest.</p>
             </div>
           ) : (
-            <div className="waste-list">
+            <div className="waste-list waste-list-table">
               {visibleWasteRows.map((row) => (
                 <div className="waste-list-item" key={row.id}>
                   <div>
                     <div className="waste-item-title">{row.group_name} / {row.product_name}</div>
-                    <div className="waste-item-meta">{new Date(row.wasted_at).toLocaleString()} • {row.created_by_name || 'System'}</div>
+                    <div className="waste-item-meta">Expired: {row.expires_at ? new Date(row.expires_at).toLocaleString() : '—'} • Logged: {new Date(row.wasted_at).toLocaleString()} • {row.created_by_name || 'System'}</div>
                   </div>
                   <div className="waste-item-values">
                     <div><strong>{Number(row.quantity_wasted || 0)}</strong> {row.unit || 'unit'}</div>
+                    <div>Unit: {formatMoney(row.unit_cost || 0)}</div>
                     <div>{formatMoney(row.total_loss)}</div>
+                    <div><span className={`badge ${Number(row.quantity_wasted || 0) > 0 ? 'badge-danger' : 'badge-secondary'}`}>{Number(row.quantity_wasted || 0) > 0 ? 'processed' : 'pending'}</span></div>
                   </div>
                 </div>
               ))}
