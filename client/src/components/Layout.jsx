@@ -279,29 +279,26 @@ export default function Layout() {
               </select>
             )}
 
-            <div className="top-bar-divider" />
-
-            {/* Language toggle */}
-            <select
-              className="form-select"
-              value={language}
-              onChange={(e) => setLang(e.target.value)}
-              aria-label="Select language"
-              style={{ maxWidth: '130px' }}
-            >
-              <option value="en">English</option>
-              <option value="am">አማርኛ</option>
-            </select>
-
-            {/* Theme toggle */}
-            <button
-              className="btn btn-secondary btn-sm btn-icon"
-              onClick={() => setTheme((p) => (p === 'light' ? 'dark' : 'light'))}
-              aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-              title={theme === 'light' ? t('dark') : t('light')}
-            >
-              {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
-            </button>
+            <div className="top-bar-controls">
+              <select
+                className="form-select"
+                value={language}
+                onChange={(e) => setLang(e.target.value)}
+                aria-label="Select language"
+                style={{ maxWidth: '130px' }}
+              >
+                <option value="en">English</option>
+                <option value="am">አማርኛ</option>
+              </select>
+              <button
+                className="btn btn-secondary btn-sm btn-icon"
+                onClick={() => setTheme((p) => (p === 'light' ? 'dark' : 'light'))}
+                aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+                title={theme === 'light' ? t('dark') : t('light')}
+              >
+                {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+              </button>
+            </div>
           </div>
         </header>
 
