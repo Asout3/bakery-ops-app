@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { BranchProvider } from './context/BranchContext';
@@ -36,6 +37,17 @@ import CashierHistory from './pages/cashier/History';
 import CashierOrdersPage from './pages/cashier/Orders';
 
 function AppInner() {
+  // Prevent wheel scrolling from changing number inputs
+  useEffect(() => {
+    const handleNumberInputWheel = (e) => {
+      if (e.target.type === 'number') {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('wheel', handleNumberInputWheel, { passive: false });
+    return () => document.removeEventListener('wheel', handleNumberInputWheel);
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>

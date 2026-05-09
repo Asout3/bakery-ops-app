@@ -170,6 +170,14 @@ input[type='number'] {
   -moz-appearance: textfield;
 }
 
+/* Prevent wheel scroll changes on number inputs */
+input[type='number']::-webkit-outer-spin-button:hover,
+input[type='number']::-webkit-outer-spin-button:active,
+input[type='number']::-webkit-inner-spin-button:hover,
+input[type='number']::-webkit-inner-spin-button:active {
+  -webkit-appearance: none;
+}
+
 /* ── Buttons ────────────────────────────────────────────────── */
 .btn {
   display: inline-flex;
