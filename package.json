@@ -19,6 +19,8 @@
     "start:dev": "NODE_ENV=development node server/index.js",
     "install-all": "npm install && cd client && npm install",
     "setup-db": "node scripts/setup-database.js",
+    "seed:load-test": "node scripts/seed-load-test.js",
+    "reset:load-test": "node scripts/reset-load-test.js",
     "test": "NODE_ENV=test node --test server/**/*.test.js",
     "test:coverage": "NODE_ENV=test node --test --experimental-test-coverage server/**/*.test.js",
     "lint": "eslint server/",
