@@ -635,6 +635,15 @@ export async function flushQueue(api) {
 
     const remainingQueue = await listQueuedOperations();
     const remaining = remainingQueue.length;
+    if (typeof console !== 'undefined' && (synced > 0 || failed > 0)) {
+      console.info('[OFFLINE_SYNC_SUMMARY]', JSON.stringify({
+        synced,
+        failed,
+        pending: remaining,
+        visibleSynced,
+        visibleFailed,
+      }));
+    }
     return { synced, failed, pending: remaining, visibleSynced, visibleFailed, visiblePending: countUserVisibleOperations(remainingQueue), completed };
   } finally {
     releaseFlushLock(lockToken);
