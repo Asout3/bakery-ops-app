@@ -1,0 +1,17 @@
+/* Products.css */
+.products-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.products-controls-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(300px, auto);
+  gap: 0.75rem;
+  align-items: end;
+}
+
+@media (max-width: 700px) {
+  .products-controls-grid { grid-template-columns: 1fr; }
+}

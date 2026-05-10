@@ -1,0 +1,844 @@
+import express from 'express';
+import { body, validationResult } from 'express-validator';
+import { query, withTransaction } from '../db.js';
+import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
+import { getTargetLocationId } from '../utils/location.js';
+import { createLowStockNotificationIfNeeded, createLowStockNotificationsForProducts } from '../services/stockAlertService.js';
+import { insertNotificationsForRecipients } from '../services/notificationDispatchService.js';
+import { processExpiredInventoryForLocation } from '../services/wasteService.js';
+import { addStockBatch, clearProductStock, replaceProductStock, syncInventoryFromStockBatches } from '../services/stockBatchService.js';
+
+const router = express.Router();
+const BATCH_EDIT_WINDOW_MINUTES = 20;
+const INVENTORY_BATCH_ALLOWED_STATUSES = ['pending', 'sent', 'received', 'edited', 'voided'];
+let inventoryBatchConstraintReady = null;
+let inventoryBatchColumnsCache = null;
+
+async function resolveEffectiveActor(tx, req, locationId) {
+  const queuedActorIdHeader = req.headers['x-offline-actor-id'];
+  const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
+  if (!isFromOfflineQueue || !queuedActorIdHeader) return { actorId: req.user.id, actorName: req.user.username };
+
+  const actorResult = await tx.query(
+    'SELECT id, username FROM users WHERE id = $1 AND (location_id = $2 OR location_id IS NULL)',
+    [Number(queuedActorIdHeader), locationId]
+  );
+  if (!actorResult.rows.length) return { actorId: req.user.id, actorName: req.user.username };
+  return { actorId: Number(actorResult.rows[0].id), actorName: actorResult.rows[0].username };
+}
+
+function clampLimit(value, fallback = 50, max = 200) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(Math.trunc(parsed), max);
+}
+
+function isValidDateFilter(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+}
+
+async function ensureInventoryBatchStatusConstraint(db) {
+  if (!inventoryBatchConstraintReady) {
+    inventoryBatchConstraintReady = (async () => {
+      const constraintResult = await db.query(
+        `SELECT pg_get_constraintdef(oid) as definition
+         FROM pg_constraint
+         WHERE conname = 'inventory_batches_status_check'
+         LIMIT 1`
+      );
+
+      const definition = constraintResult.rows[0]?.definition || '';
+      const hasAllStatuses = INVENTORY_BATCH_ALLOWED_STATUSES.every((status) => definition.includes(`'${status}'`));
+      if (hasAllStatuses) return;
+
+      await db.query('ALTER TABLE inventory_batches DROP CONSTRAINT IF EXISTS inventory_batches_status_check');
+      await db.query(
+        `ALTER TABLE inventory_batches
+         ADD CONSTRAINT inventory_batches_status_check
+         CHECK (status IN ('pending', 'sent', 'received', 'edited', 'voided'))`
+      );
+    })().catch((err) => {
+      inventoryBatchConstraintReady = null;
+      throw err;
+    });
+  }
+
+  await inventoryBatchConstraintReady;
+}
+
+async function getInventoryBatchColumns(db) {
+  if (inventoryBatchColumnsCache) return inventoryBatchColumnsCache;
+
+  const result = await db.query(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_name = 'inventory_batches'`
+  );
+
+  const columns = new Set(result.rows.map((row) => row.column_name));
+  inventoryBatchColumnsCache = {
+    hasOfflineFlag: columns.has('is_offline'),
+    hasOriginalActorId: columns.has('original_actor_id'),
+    hasOriginalActorName: columns.has('original_actor_name'),
+    hasSyncedById: columns.has('synced_by_id'),
+    hasSyncedByName: columns.has('synced_by_name'),
+    hasSyncedAt: columns.has('synced_at'),
+  };
+
+  return inventoryBatchColumnsCache;
+}
+
+async function getBatchStockRows(db, batchId) {
+  const result = await db.query(
+    `SELECT id, product_id, initial_quantity, quantity_remaining, source
+     FROM inventory_stock_batches
+     WHERE reference_type = 'batch' AND reference_id = $1
+     ORDER BY id ASC
+     FOR UPDATE`,
+    [batchId]
+  );
+  return result.rows;
+}
+
+async function assertBatchStockEditable(db, batchId) {
+  const stockRows = await getBatchStockRows(db, batchId);
+  const activeRows = stockRows.filter((row) => Number(row.quantity_remaining || 0) > 0);
+  const consumedRow = activeRows.find((row) => Number(row.quantity_remaining || 0) < Number(row.initial_quantity || 0));
+  if (consumedRow) {
+    const err = new Error('This batch has already been partially sold or adjusted and can no longer be edited or voided.');
+    err.status = 409;
+    err.code = 'BATCH_ALREADY_CONSUMED';
+    throw err;
+  }
+  return activeRows;
+}
+
+async function voidBatchStock(db, locationId, batchId) {
+  const stockRows = await assertBatchStockEditable(db, batchId);
+
+  for (const row of stockRows) {
+    await db.query(
+      `UPDATE inventory_stock_batches
+       SET quantity_remaining = 0,
+           metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+       WHERE id = $2`,
+      [JSON.stringify({ voided_batch_id: batchId, voided_at: new Date().toISOString() }), row.id]
+    );
+    await syncInventoryFromStockBatches(db, locationId, row.product_id, row.source || 'baked');
+  }
+}
+
+export async function warmInventoryRouteCaches() {
+  await ensureInventoryBatchStatusConstraint({ query });
+  await getInventoryBatchColumns({ query });
+}
+
+router.get('/', authenticateToken, async (req, res) => {
+  try {
+    const locationId = await getTargetLocationId(req, query);
+
+    await processExpiredInventoryForLocation(query, locationId, req.user.id);
+
+    const result = await query(
+      `SELECT i.*, p.name as product_name, p.price, p.cost, p.unit, p.shelf_life_days,
+              sb.next_expires_at,
+              CASE WHEN sb.next_expires_at IS NOT NULL AND sb.next_expires_at <= NOW() THEN true ELSE false END AS is_expired,
+              c.name as category_name, u.username as last_updated_by_name
+       FROM inventory i
+       JOIN products p ON i.product_id = p.id
+       LEFT JOIN categories c ON p.category_id = c.id
+       LEFT JOIN LATERAL (
+         SELECT im.created_by
+         FROM inventory_movements im
+         WHERE im.location_id = i.location_id AND im.product_id = i.product_id
+         ORDER BY im.created_at DESC
+         LIMIT 1
+       ) latest ON true
+       LEFT JOIN LATERAL (
+         SELECT MIN(stock.expires_at) FILTER (WHERE stock.quantity_remaining > 0 AND stock.expires_at > NOW()) AS next_expires_at
+         FROM inventory_stock_batches stock
+         WHERE stock.location_id = i.location_id AND stock.product_id = i.product_id
+       ) sb ON true
+       LEFT JOIN users u ON u.id = latest.created_by
+       WHERE i.location_id = $1 AND p.is_active = true
+       ORDER BY c.name, p.name`,
+      [locationId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get inventory error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
+  }
+});
+
+
+router.post(
+  '/',
+  authenticateToken,
+  authorizeRoles('admin', 'manager'),
+  body('product_id').isInt({ min: 1 }),
+  body('quantity').isInt({ min: 0 }),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
+    }
+
+    try {
+      const locationId = await getTargetLocationId(req, query);
+      const { product_id, quantity } = req.body;
+      const productRes = await query('SELECT source FROM products WHERE id = $1', [product_id]);
+      if (!productRes.rows.length) {
+        return res.status(404).json({ error: 'Product not found', code: 'PRODUCT_NOT_FOUND', requestId: req.requestId });
+      }
+      const source = productRes.rows[0].source || 'baked';
+
+      const result = await withTransaction(async (tx) => {
+        await replaceProductStock(tx, {
+          productId: Number(product_id),
+          locationId,
+          quantity: Number(quantity),
+          source,
+          createdBy: req.user.id,
+          metadata: { created_from_inventory_route: true, synced_by_user_id: req.user.id },
+        });
+        return tx.query(
+          `SELECT *
+           FROM inventory
+           WHERE product_id = $1 AND location_id = $2`,
+          [product_id, locationId]
+        );
+      });
+
+      await createLowStockNotificationIfNeeded({ query }, locationId, product_id);
+
+      res.status(201).json(result.rows[0]);
+    } catch (err) {
+      console.error('Create inventory row error:', err);
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
+    }
+  }
+);
+
+router.put(
+  '/:productId',
+  authenticateToken,
+  authorizeRoles('admin', 'manager'),
+  body('quantity').isInt({ min: 0 }),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
+    }
+
+    const { productId } = req.params;
+    const { quantity } = req.body;
+
+    try {
+      const locationId = await getTargetLocationId(req, query);
+      const productRes = await query('SELECT source FROM products WHERE id = $1', [productId]);
+      if (!productRes.rows.length) {
+        return res.status(404).json({ error: 'Product not found', code: 'PRODUCT_NOT_FOUND', requestId: req.requestId });
+      }
+      const source = productRes.rows[0].source || 'baked';
+      const effectiveActor = await resolveEffectiveActor({ query }, req, locationId);
+      const result = await withTransaction(async (tx) => {
+        const updatedInventory = await replaceProductStock(tx, {
+          productId: Number(productId),
+          locationId,
+          quantity: Number(quantity),
+          source,
+          createdBy: effectiveActor.actorId,
+          metadata: { absolute_quantity: Number(quantity), synced_by_user_id: req.user.id },
+        });
+
+        await tx.query(
+          `INSERT INTO inventory_movements
+           (location_id, product_id, movement_type, quantity_change, source, reference_type, created_by, metadata)
+           VALUES ($1, $2, 'manual_adjustment', $3, $4, 'manual', $5, $6)`,
+          [locationId, productId, Number(quantity), source, effectiveActor.actorId, JSON.stringify({ absolute_quantity: Number(quantity), synced_by_user_id: req.user.id })]
+        );
+
+        await tx.query(
+          `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            effectiveActor.actorId,
+            locationId,
+            'inventory_updated',
+            `Updated inventory for product ${productId}`,
+            JSON.stringify({ product_id: productId, quantity: Number(quantity), source }),
+          ]
+        );
+
+        return updatedInventory;
+      });
+
+      await createLowStockNotificationIfNeeded({ query }, locationId, Number(productId));
+
+      res.json(result);
+    } catch (err) {
+      console.error('Update inventory error:', err);
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
+    }
+  }
+);
+
+
+router.delete('/:id', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
+  try {
+    const locationId = await getTargetLocationId(req, query);
+    const target = await query(
+      `SELECT * FROM inventory WHERE location_id = $1 AND (id = $2 OR product_id = $2) LIMIT 1`,
+      [locationId, req.params.id]
+    );
+
+    if (target.rows.length === 0) {
+      return res.status(404).json({ error: 'Inventory item not found', code: 'NOT_FOUND', requestId: req.requestId });
+    }
+
+    const item = target.rows[0];
+    const effectiveActor = await resolveEffectiveActor({ query }, req, locationId);
+
+    await withTransaction(async (tx) => {
+      await clearProductStock(tx, {
+        productId: Number(item.product_id),
+        locationId,
+        source: item.source || 'baked',
+        metadata: { deleted_inventory_row: true, synced_by_user_id: req.user.id },
+      });
+      await tx.query(`DELETE FROM inventory WHERE id = $1`, [item.id]);
+
+      await tx.query(
+        `INSERT INTO inventory_movements
+         (location_id, product_id, movement_type, quantity_change, source, reference_type, created_by, metadata)
+         VALUES ($1, $2, 'manual_adjustment', $3, $4, 'manual', $5, $6)`,
+        [locationId, item.product_id, -Number(item.quantity || 0), item.source || 'baked', effectiveActor.actorId, JSON.stringify({ deleted_inventory_row: true, synced_by_user_id: req.user.id })]
+      );
+    });
+
+    return res.json({ message: 'Inventory item deleted successfully', deleted: item });
+  } catch (err) {
+    console.error('Delete inventory error:', err);
+    return res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
+  }
+});
+
+router.post(
+  '/batches',
+  authenticateToken,
+  authorizeRoles('admin', 'manager'),
+  body('items').isArray({ min: 1 }),
+  body('items.*.product_id').isInt({ min: 1 }),
+  body('items.*.quantity').isInt({ min: 1 }),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
+    }
+
+    const { items, notes } = req.body;
+    const retryCount = Number(req.headers['x-retry-count'] || 0);
+    const idempotencyKey = req.headers['x-idempotency-key'];
+    const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
+    const queuedCreatedAtHeader = req.headers['x-queued-created-at'];
+
+    try {
+      const locationId = await getTargetLocationId(req, query);
+      const batch = await withTransaction(async (tx) => {
+        const effectiveActor = await resolveEffectiveActor(tx, req, locationId);
+        const effectiveCreatedBy = effectiveActor.actorId;
+        const originalActorName = effectiveActor.actorName;
+
+        if (idempotencyKey) {
+          const existing = await tx.query(
+            `SELECT response_payload FROM idempotency_keys
+             WHERE user_id = $1 AND idempotency_key = $2`,
+            [effectiveCreatedBy, idempotencyKey]
+          );
+          if (existing.rows.length > 0) {
+            return existing.rows[0].response_payload;
+          }
+        }
+
+        const queuedCreatedAt = queuedCreatedAtHeader ? new Date(queuedCreatedAtHeader) : null;
+        const hasValidQueuedCreatedAt = queuedCreatedAt instanceof Date && !Number.isNaN(queuedCreatedAt.getTime()) && queuedCreatedAt.getTime() <= Date.now();
+        const effectiveCreatedAt = hasValidQueuedCreatedAt ? queuedCreatedAt.toISOString() : new Date().toISOString();
+
+        const batchColumns = await getInventoryBatchColumns(tx);
+
+        const insertColumns = ['location_id', 'created_by', 'batch_date', 'status', 'notes', 'created_at'];
+        const insertValues = ['$1', '$2', "($3::timestamptz AT TIME ZONE 'UTC')::date", "'sent'", '$4', "($3::timestamptz AT TIME ZONE 'UTC')"];
+        const params = [locationId, effectiveCreatedBy, effectiveCreatedAt, notes || null];
+
+        if (batchColumns.hasOfflineFlag) {
+          insertColumns.push('is_offline');
+          insertValues.push(`$${params.length + 1}`);
+          params.push(isFromOfflineQueue);
+        }
+
+        if (batchColumns.hasOriginalActorId) {
+          insertColumns.push('original_actor_id');
+          insertValues.push(`$${params.length + 1}`);
+          params.push(effectiveCreatedBy);
+        }
+
+        if (batchColumns.hasOriginalActorName) {
+          insertColumns.push('original_actor_name');
+          insertValues.push(`$${params.length + 1}`);
+          params.push(originalActorName);
+        }
+
+        if (batchColumns.hasSyncedById) {
+          insertColumns.push('synced_by_id');
+          insertValues.push(`$${params.length + 1}`);
+          params.push(isFromOfflineQueue ? req.user.id : null);
+        }
+
+        if (batchColumns.hasSyncedByName) {
+          insertColumns.push('synced_by_name');
+          insertValues.push(`$${params.length + 1}`);
+          params.push(isFromOfflineQueue ? req.user.username : null);
+        }
+
+        if (batchColumns.hasSyncedAt) {
+          insertColumns.push('synced_at');
+          insertValues.push(`$${params.length + 1}`);
+          params.push(isFromOfflineQueue ? new Date().toISOString() : null);
+        }
+
+        const batchResult = await tx.query(
+          `INSERT INTO inventory_batches (${insertColumns.join(', ')})
+           VALUES (${insertValues.join(', ')})
+           RETURNING *`,
+          params
+        );
+
+        const createdBatch = batchResult.rows[0];
+        const uniqueProductIds = [...new Set(items.map((item) => Number(item.product_id)))];
+        const productSources = await tx.query(
+          'SELECT id, source FROM products WHERE id = ANY($1::int[])',
+          [uniqueProductIds]
+        );
+        const sourceByProductId = new Map(productSources.rows.map((row) => [Number(row.id), row.source || 'baked']));
+
+        for (const productId of uniqueProductIds) {
+          if (!sourceByProductId.has(productId)) {
+            const sourceErr = new Error(`Product ${productId} not found`);
+            sourceErr.status = 404;
+            throw sourceErr;
+          }
+        }
+
+        for (const item of items) {
+          const itemSource = sourceByProductId.get(Number(item.product_id));
+          if (item.source && item.source !== itemSource) {
+            const sourceErr = new Error(`Product ${item.product_id} must be batched as ${itemSource}`);
+            sourceErr.status = 400;
+            throw sourceErr;
+          }
+
+          await tx.query(
+            `INSERT INTO batch_items (batch_id, product_id, quantity, source)
+             VALUES ($1, $2, $3, $4)`,
+            [createdBatch.id, item.product_id, item.quantity, itemSource]
+          );
+
+          const stockBatch = await addStockBatch(tx, {
+            productId: Number(item.product_id),
+            locationId,
+            quantity: Number(item.quantity),
+            source: itemSource,
+            referenceType: 'batch',
+            referenceId: createdBatch.id,
+            createdBy: effectiveCreatedBy,
+            createdAt: effectiveCreatedAt,
+            metadata: { notes: notes || null, synced_by_user_id: req.user.id },
+          });
+
+          await tx.query(
+            `INSERT INTO inventory_movements
+             (location_id, product_id, movement_type, quantity_change, source, reference_type, reference_id, created_by, metadata)
+             VALUES ($1, $2, 'batch_in', $3, $4, 'batch', $5, $6, $7)`,
+            [locationId, item.product_id, item.quantity, itemSource, createdBatch.id, effectiveCreatedBy, JSON.stringify({ notes: notes || null, stock_batch_id: stockBatch?.id || null, synced_by_user_id: req.user.id })]
+          );
+        }
+
+        await tx.query(
+          `INSERT INTO kpi_events (location_id, user_id, event_type, event_value, metric_key, metadata)
+           VALUES ($1, $2, 'batch_sent', $3, $4, $5)`,
+          [locationId, effectiveCreatedBy, items.length, 'batch_retry_count', JSON.stringify({ batch_id: createdBatch.id, retry_count: retryCount, synced_by_user_id: req.user.id })]
+        );
+
+        await tx.query(
+          `INSERT INTO activity_log (user_id, location_id, activity_type, description, metadata)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            effectiveCreatedBy,
+            locationId,
+            'batch_sent',
+            `Sent inventory batch #${createdBatch.id}`,
+            JSON.stringify({ batch_id: createdBatch.id, items_count: items.length }),
+          ]
+        );
+
+        const batchValueResult = await tx.query(
+          `SELECT COALESCE(SUM(bi.quantity * COALESCE(p.cost, 0)), 0) as total_value
+           FROM batch_items bi
+           JOIN products p ON p.id = bi.product_id
+           WHERE bi.batch_id = $1`,
+          [createdBatch.id]
+        );
+        const totalBatchValue = Number(batchValueResult.rows[0]?.total_value || 0);
+
+        if (!isFromOfflineQueue) {
+          await insertNotificationsForRecipients(tx, {
+            locationId,
+            title: `📦 New Batch Sent #${createdBatch.id}`,
+            message: `${originalActorName} sent a batch with ${items.length} items (Total: ETB ${totalBatchValue.toFixed(2)})`,
+            notificationType: 'batch',
+            includeAdmins: true,
+            includeManagers: true,
+          });
+        } else {
+          await insertNotificationsForRecipients(tx, {
+            locationId,
+            title: `Offline Batch Synced #${createdBatch.id}`,
+            message: `${originalActorName} synced an offline batch with ${items.length} item rows.`,
+            notificationType: 'offline_synced',
+            includeAdmins: true,
+          });
+        }
+
+        await createLowStockNotificationsForProducts(tx, locationId, items.map((item) => item.product_id));
+
+        if (idempotencyKey) {
+          await tx.query(
+            `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
+            [effectiveCreatedBy, locationId, idempotencyKey, '/api/inventory/batches', JSON.stringify(createdBatch)]
+          );
+        }
+
+        return createdBatch;
+      });
+
+      res.status(201).json(batch);
+    } catch (err) {
+      console.error('Create batch error:', err);
+      res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
+    }
+  }
+);
+
+router.get('/batches', authenticateToken, async (req, res) => {
+  try {
+    const locationId = await getTargetLocationId(req, query);
+    const limit = clampLimit(req.query.limit, 50, 200);
+    const startDate = req.query.start_date;
+    const endDate = req.query.end_date;
+    const includeSummary = req.query.include_summary === 'true';
+
+    if ((startDate && !isValidDateFilter(startDate)) || (endDate && !isValidDateFilter(endDate))) {
+      return res.status(400).json({
+        error: 'Invalid date filter format. Use YYYY-MM-DD.',
+        code: 'VALIDATION_ERROR',
+        requestId: req.requestId,
+      });
+    }
+    const batchColumns = await getInventoryBatchColumns({ query });
+
+    const displayCreatorExpr = batchColumns.hasOriginalActorName
+      ? 'COALESCE(b.original_actor_name, u.username)'
+      : 'u.username';
+    const syncedByNameExpr = batchColumns.hasSyncedByName ? 'b.synced_by_name' : 'NULL';
+    const wasSyncedExpr = batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false';
+    const isOfflineExpr = batchColumns.hasOfflineFlag
+      ? (batchColumns.hasSyncedById ? '(COALESCE(b.is_offline, false) OR b.synced_by_id IS NOT NULL)' : 'COALESCE(b.is_offline, false)')
+      : (batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false');
+
+    let whereClause = 'b.location_id = $1';
+    const whereParams = [locationId];
+
+    if (startDate) {
+      whereParams.push(startDate);
+      whereClause += ` AND DATE(b.created_at) >= $${whereParams.length}`;
+    }
+
+    if (endDate) {
+      whereParams.push(endDate);
+      whereClause += ` AND DATE(b.created_at) <= $${whereParams.length}`;
+    }
+
+    const editWindowParamIndex = whereParams.length + 1;
+
+    let queryText = `SELECT b.*, u.username as created_by_name,
+              ${displayCreatorExpr} as display_creator_name,
+              ${syncedByNameExpr} as synced_by_name,
+              ${wasSyncedExpr} as was_synced,
+              ${isOfflineExpr} as is_offline,
+              (SELECT COUNT(*) FROM batch_items WHERE batch_id = b.id) as items_count,
+              COALESCE((SELECT SUM(bi.quantity * COALESCE(p.cost, 0))
+                        FROM batch_items bi
+                        JOIN products p ON p.id = bi.product_id
+                        WHERE bi.batch_id = b.id), 0) as total_cost,
+              ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (b.created_at + make_interval(mins => $${editWindowParamIndex}::int))) as can_edit,
+              EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - b.created_at)) / 60 as age_minutes
+       FROM inventory_batches b
+       JOIN users u ON b.created_by = u.id
+       WHERE ${whereClause}`;
+
+    const params = [...whereParams, BATCH_EDIT_WINDOW_MINUTES];
+
+    queryText += ` ORDER BY b.created_at DESC, b.id DESC LIMIT $${params.length + 1}`;
+    params.push(limit);
+
+    const result = await query(queryText, params);
+    let summary = null;
+
+    if (includeSummary) {
+      const summaryResult = await query(
+        `SELECT COUNT(*) as total,
+                COUNT(*) FILTER (WHERE COALESCE(b.status, 'sent') = 'sent') as sent,
+                COUNT(*) FILTER (WHERE COALESCE(b.status, 'sent') = 'voided') as voided,
+                COUNT(*) FILTER (WHERE COALESCE(b.status, 'sent') = 'edited') as edited,
+                COUNT(*) FILTER (WHERE ${isOfflineExpr}) as offline,
+                COUNT(*) FILTER (WHERE ${wasSyncedExpr}) as synced
+         FROM inventory_batches b
+         WHERE ${whereClause}`,
+        whereParams
+      );
+      summary = summaryResult.rows[0] || { total: 0, sent: 0, voided: 0, edited: 0, offline: 0, synced: 0 };
+    }
+
+    res.json({
+      batches: result.rows,
+      summary,
+      applied_limit: limit,
+    });
+  } catch (err) {
+    console.error('Get batches error:', err);
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
+  }
+});
+
+router.get('/batches/:id', authenticateToken, async (req, res) => {
+  try {
+    const locationId = await getTargetLocationId(req, query);
+    const batchColumns = await getInventoryBatchColumns({ query });
+    const displayCreatorExpr = batchColumns.hasOriginalActorName
+      ? 'COALESCE(b.original_actor_name, u.username)'
+      : 'u.username';
+    const syncedByNameExpr = batchColumns.hasSyncedByName ? 'b.synced_by_name' : 'NULL';
+    const wasSyncedExpr = batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false';
+    const isOfflineExpr = batchColumns.hasOfflineFlag
+      ? (batchColumns.hasSyncedById ? '(COALESCE(b.is_offline, false) OR b.synced_by_id IS NOT NULL)' : 'COALESCE(b.is_offline, false)')
+      : (batchColumns.hasSyncedById ? '(b.synced_by_id IS NOT NULL)' : 'false');
+
+    const batchResult = await query(
+      `SELECT b.*, u.username as created_by_name,
+              ${displayCreatorExpr} as display_creator_name,
+              ${syncedByNameExpr} as synced_by_name,
+              ${wasSyncedExpr} as was_synced,
+              ${isOfflineExpr} as is_offline,
+              ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (b.created_at + make_interval(mins => $3::int))) as can_edit,
+              EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - b.created_at)) / 60 as age_minutes
+       FROM inventory_batches b
+       JOIN users u ON b.created_by = u.id
+       WHERE b.id = $1 AND b.location_id = $2`,
+      [req.params.id, locationId, BATCH_EDIT_WINDOW_MINUTES]
+    );
+
+    if (batchResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Batch not found', code: 'NOT_FOUND', requestId: req.requestId });
+    }
+
+    const itemsResult = await query(
+      `SELECT bi.*, p.name as product_name, p.unit, p.shelf_life_days, COALESCE(p.cost, 0) as unit_cost,
+              (bi.quantity * COALESCE(p.cost, 0)) as line_cost,
+              sb.expires_at
+       FROM batch_items bi
+       JOIN products p ON bi.product_id = p.id
+       LEFT JOIN LATERAL (
+         SELECT MIN(expires_at) AS expires_at
+         FROM inventory_stock_batches stock
+         WHERE stock.reference_type = 'batch'
+           AND stock.reference_id = bi.batch_id
+           AND stock.product_id = bi.product_id
+       ) sb ON true
+       WHERE bi.batch_id = $1`,
+      [req.params.id]
+    );
+
+    const batch = batchResult.rows[0];
+    batch.items = itemsResult.rows;
+    batch.total_cost = itemsResult.rows.reduce((sum, item) => sum + Number(item.line_cost || 0), 0);
+
+    res.json(batch);
+  } catch (err) {
+    console.error('Get batch details error:', err);
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
+  }
+});
+
+
+router.put('/batches/:id', authenticateToken, authorizeRoles('admin', 'manager'), body('items').isArray({ min: 1 }), async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors.array(), requestId: req.requestId });
+  }
+
+  try {
+    const locationId = await getTargetLocationId(req, query);
+    const { items, notes } = req.body;
+
+    const updatedBatch = await withTransaction(async (tx) => {
+      const batchRes = await tx.query(
+        `SELECT *,
+                ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (created_at + make_interval(mins => $3::int))) as can_edit,
+                EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - created_at)) / 60 as age_minutes
+         FROM inventory_batches
+         WHERE id = $1 AND location_id = $2
+         FOR UPDATE`,
+        [req.params.id, locationId, BATCH_EDIT_WINDOW_MINUTES]
+      );
+      if (!batchRes.rows.length) {
+        const err = new Error('Batch not found');
+        err.status = 404;
+        throw err;
+      }
+
+      const batch = batchRes.rows[0];
+      if (!batch.can_edit) {
+        const err = new Error(`Batches can only be edited or voided within ${BATCH_EDIT_WINDOW_MINUTES} minutes. This batch is ${Math.floor(Number(batch.age_minutes || 0))} minutes old.`);
+        err.status = 403;
+        err.code = 'BATCH_EDIT_WINDOW_EXPIRED';
+        throw err;
+      }
+      if (batch.status === 'voided') {
+        const err = new Error('Voided batches cannot be edited');
+        err.status = 400;
+        throw err;
+      }
+
+      await voidBatchStock(tx, locationId, req.params.id);
+      await tx.query('DELETE FROM batch_items WHERE batch_id = $1', [req.params.id]);
+
+      const uniqueProductIds = [...new Set(items.map((item) => Number(item.product_id)))];
+      const productSources = await tx.query(
+        'SELECT id, source FROM products WHERE id = ANY($1::int[])',
+        [uniqueProductIds]
+      );
+      const sourceByProductId = new Map(productSources.rows.map((row) => [Number(row.id), row.source || 'baked']));
+
+      for (const productId of uniqueProductIds) {
+        if (!sourceByProductId.has(productId)) {
+          const err = new Error(`Product ${productId} not found`);
+          err.status = 404;
+          throw err;
+        }
+      }
+
+      for (const item of items) {
+        const itemSource = sourceByProductId.get(Number(item.product_id));
+        if (item.source && item.source !== itemSource) {
+          const err = new Error(`Product ${item.product_id} must be batched as ${itemSource}`);
+          err.status = 400;
+          throw err;
+        }
+
+        await tx.query(`INSERT INTO batch_items (batch_id, product_id, quantity, source) VALUES ($1, $2, $3, $4)`, [req.params.id, item.product_id, item.quantity, itemSource]);
+        await addStockBatch(tx, {
+          productId: Number(item.product_id),
+          locationId,
+          quantity: Number(item.quantity),
+          source: itemSource,
+          referenceType: 'batch',
+          referenceId: Number(req.params.id),
+          createdBy: req.user.id,
+          metadata: { edited_batch_id: Number(req.params.id) },
+        });
+      }
+
+      await insertNotificationsForRecipients(tx, {
+        locationId,
+        title: `Batch Updated #${req.params.id}`,
+        message: `${req.user.username} edited batch #${req.params.id} with ${items.length} item rows.`,
+        notificationType: 'batch_updated',
+        includeAdmins: true,
+        includeManagers: true,
+      });
+
+      await createLowStockNotificationsForProducts(tx, locationId, uniqueProductIds);
+
+      const updated = await tx.query(`UPDATE inventory_batches SET status = 'edited', notes = COALESCE($1, notes) WHERE id = $2 RETURNING *`, [notes || null, req.params.id]);
+      return updated.rows[0];
+    });
+
+    return res.json(updatedBatch);
+  } catch (err) {
+    console.error('Edit batch error:', err);
+    return res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
+  }
+});
+
+router.post('/batches/:id/void', authenticateToken, authorizeRoles('admin', 'manager'), async (req, res) => {
+  try {
+    const locationId = await getTargetLocationId(req, query);
+
+    const voided = await withTransaction(async (tx) => {
+      const batchRes = await tx.query(
+        `SELECT *,
+                ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') < (created_at + make_interval(mins => $3::int))) as can_edit,
+                EXTRACT(EPOCH FROM ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - created_at)) / 60 as age_minutes
+         FROM inventory_batches
+         WHERE id = $1 AND location_id = $2
+         FOR UPDATE`,
+        [req.params.id, locationId, BATCH_EDIT_WINDOW_MINUTES]
+      );
+      if (!batchRes.rows.length) {
+        const err = new Error('Batch not found');
+        err.status = 404;
+        throw err;
+      }
+      const batch = batchRes.rows[0];
+      if (!batch.can_edit) {
+        const err = new Error(`Batches can only be edited or voided within ${BATCH_EDIT_WINDOW_MINUTES} minutes. This batch is ${Math.floor(Number(batch.age_minutes || 0))} minutes old.`);
+        err.status = 403;
+        err.code = 'BATCH_EDIT_WINDOW_EXPIRED';
+        throw err;
+      }
+      if (batch.status === 'voided') {
+        return batch;
+      }
+
+      const batchItemsResult = await tx.query('SELECT product_id, quantity FROM batch_items WHERE batch_id = $1', [req.params.id]);
+      await voidBatchStock(tx, locationId, req.params.id);
+      const affectedProductIds = [...new Set(batchItemsResult.rows.map((row) => Number(row.product_id)).filter((value) => Number.isInteger(value) && value > 0))];
+
+      await insertNotificationsForRecipients(tx, {
+        locationId,
+        title: `Batch Voided #${req.params.id}`,
+        message: `${req.user.username} voided batch #${req.params.id}.`,
+        notificationType: 'batch_updated',
+        includeAdmins: true,
+        includeManagers: true,
+      });
+      if (affectedProductIds.length) {
+        await createLowStockNotificationsForProducts(tx, locationId, affectedProductIds);
+      }
+
+      const updated = await tx.query(`UPDATE inventory_batches SET status = 'voided' WHERE id = $1 RETURNING *`, [req.params.id]);
+      return updated.rows[0];
+    });
+
+    return res.json(voided);
+  } catch (err) {
+    console.error('Void batch error:', err);
+    return res.status(err.status || 500).json({ error: err.message || 'Internal server error', code: 'INTERNAL_ERROR', requestId: req.requestId });
+  }
+});
+
+export default router;

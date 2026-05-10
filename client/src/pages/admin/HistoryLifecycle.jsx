@@ -1,0 +1,184 @@
+import { useEffect, useMemo, useState } from 'react';
+import api, { getErrorMessage } from '../../api/axios';
+import { AlertTriangle } from 'lucide-react';
+
+export default function HistoryLifecycle() {
+  const [data, setData] = useState(null);
+  const [settingsForm, setSettingsForm] = useState({ enabled: false, retention_months: 6, cold_storage_after_months: 24 });
+  const [confirmationPhrase, setConfirmationPhrase] = useState('');
+  const [message, setMessage] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  const fetchData = async () => {
+    try {
+      const response = await api.get('/archive/settings', { timeout: 30000 });
+      setData(response.data);
+      setSettingsForm({
+        enabled: Boolean(response.data?.settings?.enabled),
+        retention_months: Number(response.data?.settings?.retention_months || 6),
+        cold_storage_after_months: Number(response.data?.settings?.cold_storage_after_months || 24),
+      });
+    } catch (err) {
+      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to load archive settings') });
+    }
+  };
+
+  useEffect(() => {
+    const onOnline = () => {
+      setIsOnline(true);
+      fetchData();
+    };
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    fetchData();
+    const refreshTimer = setInterval(() => {
+      if (navigator.onLine) {
+        fetchData();
+      }
+    }, 15000);
+
+    return () => {
+      clearInterval(refreshTimer);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
+
+  const saveSettings = async () => {
+    setLoading(true);
+    try {
+      await api.put('/archive/settings', settingsForm, { timeout: 30000 });
+      setMessage({ type: 'success', text: 'Archive settings updated.' });
+      fetchData();
+    } catch (err) {
+      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to save settings') });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const runArchive = async () => {
+    if (!navigator.onLine) {
+      setMessage({ type: 'warning', text: 'Archive run requires online server connection.' });
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await api.post('/archive/run', { confirmation_phrase: confirmationPhrase, full_wipe: true }, { timeout: 120000 });
+      const details = response.data?.details || {};
+      const movedTotal = Number(details.inventory_batches || 0)
+        + Number(details.batch_items || 0)
+        + Number(details.sales || 0)
+        + Number(details.customer_orders || 0)
+        + Number(details.order_items || 0)
+        + Number(details.inventory_movements || 0)
+        + Number(details.activity_log || 0)
+        + Number(details.expenses || 0)
+        + Number(details.waste_records || 0)
+        + Number(details.staff_payments || 0);
+
+      if (movedTotal === 0) {
+        setMessage({
+          type: 'warning',
+          text: `Archive run completed but no rows were available to move as of (${new Date(response.data?.cutoffAt || Date.now()).toLocaleDateString()}).`,
+        });
+      } else {
+        setMessage({
+          type: 'success',
+          text: `History cleanup completed. Moved ${movedTotal} records (Batches: ${Number(details.inventory_batches || 0)}, Batch Items: ${Number(details.batch_items || 0)}, Sales: ${Number(details.sales || 0)}, Pre-Orders: ${Number(details.customer_orders || 0)}, Order Items: ${Number(details.order_items || 0)}, Expenses: ${Number(details.expenses || 0)}, Staff Payments: ${Number(details.staff_payments || 0)}, Waste: ${Number(details.waste_records || 0)}, Inventory Logs: ${Number(details.inventory_movements || 0)}, Activity Logs: ${Number(details.activity_log || 0)}).`,
+        });
+      }
+      setConfirmationPhrase('');
+      fetchData();
+    } catch (err) {
+      setMessage({ type: 'danger', text: getErrorMessage(err, 'Archive run failed') });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const downloadArchiveExport = async () => {
+    if (!navigator.onLine) {
+      setMessage({ type: 'warning', text: 'Archive export requires online server connection.' });
+      return;
+    }
+    try {
+      const response = await api.get('/archive/export', { responseType: 'blob', timeout: 120000 });
+      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const datePart = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `archive-export-${datePart}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setMessage({ type: 'success', text: 'Archive export downloaded successfully.' });
+    } catch (err) {
+      setMessage({ type: 'danger', text: getErrorMessage(err, 'Failed to download archive export') });
+    }
+  };
+
+  const expectedPhrase = useMemo(() => data?.confirmation_phrase || 'I CONFIRM TO ARCHIVE THE LAST 6 MONTH HISTORY', [data]);
+
+  return (
+    <div>
+      <div className="page-header"><h2>History Lifecycle</h2></div>
+      {!isOnline && <div className="alert alert-warning">You are offline. Archive actions are disabled.</div>}
+      {message && <div className={`alert alert-${message.type}`}>{message.text}</div>}
+
+      <div className="card mb-4">
+        <div className="card-header"><h4>Auto-Archive Configuration</h4></div>
+        <div className="card-body" style={{ display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))' }}>
+          <label className="label">
+            <input type="checkbox" checked={settingsForm.enabled} onChange={(e) => setSettingsForm({ ...settingsForm, enabled: e.target.checked })} /> Enable archive every 6 months policy
+          </label>
+          <div>
+            <label className="label">Retention months in active DB</label>
+            <input className="input" type="number" min="1" max="24" value={settingsForm.retention_months} onChange={(e) => setSettingsForm({ ...settingsForm, retention_months: Number(e.target.value) })} />
+          </div>
+          <div>
+            <label className="label">Cold storage threshold (months)</label>
+            <input className="input" type="number" min="6" max="60" value={settingsForm.cold_storage_after_months} onChange={(e) => setSettingsForm({ ...settingsForm, cold_storage_after_months: Number(e.target.value) })} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+            <button className="btn btn-primary" disabled={loading || !isOnline} onClick={saveSettings}>Save Settings</button>
+          </div>
+        </div>
+      </div>
+
+      <div className="card mb-4">
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}><h4>Archived Data Counts</h4><button className="btn btn-secondary btn-sm" onClick={downloadArchiveExport} disabled={loading || !isOnline}>Download Archive CSV (Excel-ready)</button></div>
+        <div className="card-body" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <span className="badge badge-primary">Batches: {data?.archive_counts?.inventory_batches || 0}</span>
+          <span className="badge badge-primary">Batch Items: {data?.archive_counts?.batch_items || 0}</span>
+          <span className="badge badge-primary">Sales: {data?.archive_counts?.sales || 0}</span>
+          <span className="badge badge-primary">Inventory Logs: {data?.archive_counts?.inventory_movements || 0}</span>
+          <span className="badge badge-primary">Activity Logs: {data?.archive_counts?.activity_log || 0}</span>
+          <span className="badge badge-primary">Expenses: {data?.archive_counts?.expenses || 0}</span>
+          <span className="badge badge-primary">Waste Records: {data?.archive_counts?.waste_records || 0}</span>
+          <span className="badge badge-primary">Staff Payments: {data?.archive_counts?.staff_payments || 0}</span>
+          <span className="badge badge-primary">Pre-Orders: {data?.archive_counts?.customer_orders || 0}</span>
+          <span className="badge badge-primary">Pre-Order Items: {data?.archive_counts?.order_items || 0}</span>
+        </div>
+      </div>
+
+      <div className="card" style={{ borderColor: 'rgba(239,68,68,0.4)' }}>
+        <div className="card-header" style={{ background: 'rgba(239,68,68,0.08)' }}>
+          <h4 style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', color: 'var(--danger)' }}><AlertTriangle size={18}/> Danger Zone</h4>
+        </div>
+        <div className="card-body">
+          <p>To run archive now, type the exact confirmation phrase:</p>
+          <code>{expectedPhrase}</code>
+          <input className="input" style={{ marginTop: '0.75rem' }} value={confirmationPhrase} onChange={(e) => setConfirmationPhrase(e.target.value)} placeholder="Type confirmation phrase" />
+          <button className="btn btn-danger" style={{ marginTop: '0.75rem' }} disabled={confirmationPhrase !== expectedPhrase || loading || !isOnline} onClick={runArchive}>
+            Confirm and archive available history now
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

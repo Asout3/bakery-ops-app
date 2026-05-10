@@ -1,0 +1,53 @@
+.segmented-control {
+  width: 100%;
+  max-width: 360px;
+}
+
+.segmented-control-track {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--input-border);
+  background: color-mix(in srgb, var(--surface-bg) 90%, #fff 10%);
+  padding: 0.25rem;
+}
+
+.segmented-option {
+  border-radius: calc(var(--r-sm) - 2px);
+  border: 0;
+  min-height: 2.15rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.segmented-option:focus-visible {
+  outline: 2px solid var(--focus-border);
+  outline-offset: 1px;
+}
+
+.segmented-option-active {
+  background: linear-gradient(135deg, var(--btn-start), var(--btn-mid));
+  box-shadow: 0 6px 14px rgba(244, 162, 97, 0.28);
+}
+
+.segmented-option-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: capitalize;
+  letter-spacing: 0.01em;
+}
+
+.segmented-option-label-active {
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .segmented-control {
+    max-width: none;
+  }
+}

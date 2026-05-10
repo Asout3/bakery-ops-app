@@ -1,0 +1,236 @@
+import { useEffect, useState } from 'react';
+import api from '../../api/axios';
+import { flushQueue, getSyncStats, listQueuedOperations, listSyncHistory, retryOperation, resolveOperation, ignoreOperation } from '../../utils/offlineQueue';
+
+const getStatusLabel = (status) => {
+  if (status === 'needs_review') return 'Needs Review';
+  if (status === 'conflict') return 'Conflict';
+  if (status === 'failed') return 'Failed';
+  if (status === 'synced') return 'Synced';
+  if (status === 'resolved') return 'Resolved';
+  if (status === 'ignored') return 'Ignored';
+  if (status === 'pending') return 'Pending';
+  return status;
+};
+
+
+const OPERATION_LABELS = {
+  'POST /sales': 'Create Sale',
+  'POST /orders': 'Create Pre-Order',
+  'POST /expenses': 'Record Expense',
+  'POST /payments': 'Record Staff Payment',
+  'POST /inventory': 'Create Inventory Item',
+  'PUT /inventory': 'Update Inventory Item',
+  'DELETE /inventory': 'Delete Inventory Item',
+  'POST /inventory/batches': 'Create Inventory Batch',
+};
+
+function describeOperation(method, endpoint) {
+  const cleanMethod = String(method || '').toUpperCase();
+  const cleanEndpoint = String(endpoint || '');
+  const normalizedEndpoint = cleanEndpoint
+    .replace(/\/\d+(?=\/|$)/g, '/:id')
+    .replace(/\/\d+-(?=\/|$)/g, '/:id')
+    .replace(/\/\d+[a-zA-Z0-9-]*/g, '/:id');
+  const direct = OPERATION_LABELS[`${cleanMethod} ${cleanEndpoint}`] || OPERATION_LABELS[`${cleanMethod} ${normalizedEndpoint}`];
+  if (direct) return direct;
+  if (cleanMethod === 'POST') return 'Create Record';
+  if (cleanMethod === 'PUT' || cleanMethod === 'PATCH') return 'Update Record';
+  if (cleanMethod === 'DELETE') return 'Delete Record';
+  return 'Queued Operation';
+}
+
+const getStatusBadgeClass = (status) => {
+  if (status === 'needs_review') return 'badge-warning';
+  if (status === 'conflict') return 'badge-danger';
+  if (status === 'failed') return 'badge-danger';
+  if (status === 'synced') return 'badge-success';
+  if (status === 'resolved') return 'badge-success';
+  if (status === 'ignored') return 'badge-secondary';
+  if (status === 'pending') return 'badge-primary';
+  return 'badge-secondary';
+};
+
+export default function SyncQueuePage() {
+  const [queued, setQueued] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [serverHistory, setServerHistory] = useState([]);
+  const [serverStats, setServerStats] = useState({ total: 0, synced: 0, unresolved: 0, resolved: 0 });
+  const [stats, setStats] = useState({ total: 0, pending: 0, conflict: 0, needsReview: 0, failed: 0 });
+  const [loading, setLoading] = useState(true);
+  const [syncResult, setSyncResult] = useState(null);
+  const [adminNotes, setAdminNotes] = useState({});
+
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const [q, h, s, remote] = await Promise.all([
+        listQueuedOperations(),
+        listSyncHistory(200),
+        getSyncStats(),
+        api.get('/sync/audit?limit=200').catch(() => ({ data: [] })),
+      ]);
+      setQueued(q);
+      setHistory(h);
+      setStats(s);
+      const remoteRows = remote.data || [];
+      setServerHistory(remoteRows);
+      setServerStats({
+        total: remoteRows.length,
+        synced: remoteRows.filter((row) => row.status === 'synced').length,
+        unresolved: remoteRows.filter((row) => row.status === 'failed' || row.status === 'conflict' || row.status === 'needs_review').length,
+        resolved: remoteRows.filter((row) => row.status === 'resolved' || row.status === 'ignored').length,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const handleSyncNow = async () => {
+    const result = await flushQueue(api);
+    setSyncResult(result);
+    if (Array.isArray(result.completed) && result.completed.length > 0) {
+      await api.post('/sync/audit/bulk', { events: result.completed }).catch(() => null);
+    }
+    await refresh();
+  };
+
+  const handleRetry = async (operationId) => {
+    await retryOperation(operationId);
+    await refresh();
+  };
+
+  const handleResolve = async (operationId) => {
+    await resolveOperation(operationId, adminNotes[operationId] || '');
+    await api.patch(`/sync/audit/${operationId}`, { status: 'resolved', note: adminNotes[operationId] || '' }).catch(() => null);
+    setAdminNotes((prev) => ({ ...prev, [operationId]: '' }));
+    await refresh();
+  };
+
+  const handleIgnore = async (operationId) => {
+    await ignoreOperation(operationId, adminNotes[operationId] || '');
+    await api.patch(`/sync/audit/${operationId}`, { status: 'ignored', note: adminNotes[operationId] || '' }).catch(() => null);
+    setAdminNotes((prev) => ({ ...prev, [operationId]: '' }));
+    await refresh();
+  };
+
+  if (loading) {
+    return <div className="loading-container"><div className="spinner"></div></div>;
+  }
+
+  return (
+    <div className="reports-page">
+      <div className="page-header">
+        <h2>Sync Audit Log</h2>
+        <button className="btn btn-primary" onClick={handleSyncNow} disabled={loading}>{loading ? 'Syncing...' : 'Force Sync'}</button>
+      </div>
+
+      {syncResult && (
+        <div className="alert alert-info mb-3">
+          Last sync: {syncResult.synced || 0} synced, {syncResult.failed || 0} failed.
+        </div>
+      )}
+
+      <div className="stats-grid mb-4">
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{stats.total}</h3><p>Total Queued (Device)</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{stats.pending}</h3><p>Pending (Device)</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{serverStats.total}</h3><p>Total Audit Logs</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{serverStats.synced}</h3><p>Synced Logs</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{serverStats.unresolved}</h3><p>Open Issues</p></div></div>
+        <div className="stat-card card bg-light"><div className="stat-content"><h3>{serverStats.resolved}</h3><p>Resolved / Ignored</p></div></div>
+      </div>
+
+      <div className="card mb-4">
+        <div className="card-header"><h3>Queued Operations ({queued.length})</h3></div>
+        <div className="card-body">
+          {queued.length === 0 ? <p className="text-muted">No queued operations.</p> : (
+            <div className="table-responsive">
+              <table className="table table-hover">
+                <thead><tr><th>Operation</th><th>Status</th><th>Retries</th><th>Last Error</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {queued.map((op) => (
+                    <tr key={op.id}>
+                      <td>{describeOperation(op.method, op.url)}</td>
+                      <td><span className={`badge ${getStatusBadgeClass(op.status)}`}>{getStatusLabel(op.status)}</span></td>
+                      <td>{op.retries || 0}</td>
+                      <td>{op.lastError || '—'}</td>
+                      <td>
+                        {(op.status === 'conflict' || op.status === 'failed' || op.status === 'needs_review') ? (
+                          <div style={{ display: 'grid', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <button className="btn btn-sm btn-primary" onClick={() => handleRetry(op.id)}>Retry</button>
+                              <button className="btn btn-sm btn-success" onClick={() => handleResolve(op.id)}>Mark Resolved</button>
+                              <button className="btn btn-sm btn-secondary" onClick={() => handleIgnore(op.id)}>Ignore</button>
+                            </div>
+                            <input
+                              className="form-control form-control-sm"
+                              type="text"
+                              placeholder="Optional resolution note"
+                              value={adminNotes[op.id] || ''}
+                              onChange={(e) => setAdminNotes((prev) => ({ ...prev, [op.id]: e.target.value }))}
+                            />
+                          </div>
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card mb-4">
+        <div className="card-header"><h3>Cross-Device Sync Audit</h3></div>
+        <div className="card-body">
+          {serverHistory.length === 0 ? <p className="text-muted">No sync audit records yet.</p> : (
+            <div className="table-responsive">
+              <table className="table table-hover">
+                <thead><tr><th>Time</th><th>Status</th><th>User</th><th>Operation</th><th>Reason</th></tr></thead>
+                <tbody>
+                  {serverHistory.map((item) => (
+                    <tr key={item.id}>
+                      <td>{new Date(item.created_at).toLocaleString()}</td>
+                      <td><span className={`badge ${getStatusBadgeClass(item.status)}`}>{getStatusLabel(item.status)}</span></td>
+                      <td>{item.actor_username || item.actor_user_id || '—'}</td>
+                      <td>{describeOperation(item.method, item.endpoint || '')}</td>
+                      <td>{item.reason || item.resolution_note || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header"><h3>Local Device Sync History</h3></div>
+        <div className="card-body">
+          {history.length === 0 ? <p className="text-muted">No sync history yet.</p> : (
+            <div className="table-responsive">
+              <table className="table table-hover">
+                <thead><tr><th>Time</th><th>Status</th><th>Operation</th><th>Message</th></tr></thead>
+                <tbody>
+                  {history.filter((item) => item.status !== 'queued' && item.status !== 'pending').map((item) => (
+                    <tr key={item.id}>
+                      <td>{new Date(item.created_at).toLocaleString()}</td>
+                      <td><span className={`badge ${getStatusBadgeClass(item.status)}`}>{getStatusLabel(item.status)}</span></td>
+                      <td>{item.operation_id}</td>
+                      <td>{item.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

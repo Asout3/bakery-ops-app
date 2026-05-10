@@ -1,0 +1,100 @@
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { BranchProvider } from './context/BranchContext';
+import { LanguageProvider } from './context/LanguageContext';
+import { NotificationProvider } from './context/NotificationContext';
+import { ToastProvider } from './context/ToastContext';
+import { ConfirmProvider } from './context/ConfirmContext';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import Layout from './components/Layout';
+import AppErrorBoundary from './components/AppErrorBoundary';
+
+import Login from './pages/Login';
+import NotFound from './pages/NotFound';
+import AdminDashboard from './pages/admin/Dashboard';
+import ProductsPage from './pages/admin/Products';
+import AdminInventory from './pages/admin/Inventory';
+import SalesPage from './pages/admin/Sales';
+import ExpensesPage from './pages/admin/Expenses';
+import StaffPaymentsPage from './pages/admin/StaffPayments';
+import ReportsPage from './pages/admin/Reports';
+import NotificationsPage from './pages/admin/Notifications';
+import WastePage from './pages/admin/Waste';
+import SyncQueuePage from './pages/admin/SyncQueue';
+import BranchesAndStaffPage from './pages/admin/BranchesAndStaff';
+import StaffManagementPage from './pages/admin/StaffManagement';
+import HistoryLifecyclePage from './pages/admin/HistoryLifecycle';
+import AdminOrdersPage from './pages/admin/Orders';
+import ReceiptSettingsPage from './pages/admin/ReceiptSettings';
+import ManagerInventory from './pages/manager/Inventory';
+import ManagerBatches from './pages/manager/Batches';
+import ManagerNotifications from './pages/admin/Notifications';
+import ManagerOrdersPage from './pages/manager/Orders';
+import ManagerExpenses from './pages/admin/Expenses';
+import CashierSales from './pages/cashier/Sales';
+import CashierHistory from './pages/cashier/History';
+import CashierOrdersPage from './pages/cashier/Orders';
+
+function AppInner() {
+  return (
+    <BrowserRouter>
+      <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/admin" element={<ProtectedRoute roles={['admin']}><Layout /></ProtectedRoute>}>
+            <Route path="dashboard" element={<AdminDashboard />} />
+            <Route path="products" element={<ProductsPage />} />
+            <Route path="inventory" element={<AdminInventory />} />
+            <Route path="sales" element={<SalesPage />} />
+            <Route path="expenses" element={<ExpensesPage />} />
+            <Route path="staff-payments" element={<StaffPaymentsPage />} />
+            <Route path="reports" element={<ReportsPage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="waste" element={<WastePage />} />
+            <Route path="sync" element={<SyncQueuePage />} />
+            <Route path="team" element={<BranchesAndStaffPage />} />
+            <Route path="staff" element={<StaffManagementPage />} />
+            <Route path="history-lifecycle" element={<HistoryLifecyclePage />} />
+            <Route path="orders" element={<AdminOrdersPage />} />
+            <Route path="receipt-settings" element={<ReceiptSettingsPage />} />
+          </Route>
+          <Route path="/manager" element={<ProtectedRoute roles={['manager', 'admin']}><Layout /></ProtectedRoute>}>
+            <Route path="inventory" element={<ManagerInventory />} />
+            <Route path="batches" element={<ManagerBatches />} />
+            <Route path="orders" element={<ManagerOrdersPage />} />
+            <Route path="expenses" element={<ManagerExpenses />} />
+            <Route path="notifications" element={<ManagerNotifications />} />
+          </Route>
+          <Route path="/cashier" element={<ProtectedRoute roles={['cashier', 'admin']}><Layout /></ProtectedRoute>}>
+            <Route path="sales" element={<CashierSales />} />
+            <Route path="orders" element={<CashierOrdersPage />} />
+            <Route path="history" element={<CashierHistory />} />
+          </Route>
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/unauthorized" element={<div style={{ padding: '2rem', textAlign: 'center' }}><h1>Unauthorized</h1><p>You don't have permission to access this page.</p></div>} />
+          <Route path="*" element={<NotFound />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+function App() {
+  return (
+    <LanguageProvider>
+      <AuthProvider>
+        <BranchProvider>
+          <ToastProvider>
+            <NotificationProvider>
+              <ConfirmProvider>
+                <AppErrorBoundary>
+                  <AppInner />
+                </AppErrorBoundary>
+              </ConfirmProvider>
+            </NotificationProvider>
+          </ToastProvider>
+        </BranchProvider>
+      </AuthProvider>
+    </LanguageProvider>
+  );
+}
+
+export default App;
