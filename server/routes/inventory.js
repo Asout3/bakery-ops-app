@@ -7,6 +7,7 @@ import { createLowStockNotificationIfNeeded, createLowStockNotificationsForProdu
 import { insertNotificationsForRecipients } from '../services/notificationDispatchService.js';
 import { processExpiredInventoryForLocation } from '../services/wasteService.js';
 import { addStockBatch, clearProductStock, replaceProductStock, syncInventoryFromStockBatches } from '../services/stockBatchService.js';
+import { buildBatchReplaySignature } from '../utils/offlineReplay.js';
 
 const router = express.Router();
 const BATCH_EDIT_WINDOW_MINUTES = 20;
@@ -42,6 +43,43 @@ function clampLimit(value, fallback = 50, max = 200) {
 
 function isValidDateFilter(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+}
+
+async function findSemanticallyDuplicateBatch(tx, { locationId, actorId, effectiveCreatedAt, items, notes }) {
+  const signature = buildBatchReplaySignature({ locationId, actorId, effectiveCreatedAt, items, notes });
+  const existing = await tx.query(
+    `SELECT id, location_id, created_by, created_at, notes
+     FROM inventory_batches
+     WHERE location_id = $1
+       AND created_by = $2
+       AND ABS(EXTRACT(EPOCH FROM (created_at - $3::timestamptz))) <= 2
+     ORDER BY id DESC
+     LIMIT 5`,
+    [locationId, actorId, effectiveCreatedAt]
+  );
+
+  for (const row of existing.rows) {
+    const batchItemsResult = await tx.query(
+      `SELECT product_id, SUM(quantity) AS quantity
+       FROM batch_items
+       WHERE batch_id = $1
+       GROUP BY product_id
+       ORDER BY product_id ASC`,
+      [row.id]
+    );
+    const rowSignature = buildBatchReplaySignature({
+      locationId: row.location_id,
+      actorId: row.created_by,
+      effectiveCreatedAt: new Date(row.created_at).toISOString(),
+      items: batchItemsResult.rows,
+      notes: row.notes,
+    });
+    if (rowSignature === signature) {
+      const batchResult = await tx.query('SELECT * FROM inventory_batches WHERE id = $1 LIMIT 1', [row.id]);
+      return batchResult.rows[0] || null;
+    }
+  }
+  return null;
 }
 
 async function ensureInventoryBatchStatusConstraint(db) {
@@ -386,6 +424,19 @@ router.post(
         const queuedCreatedAt = queuedCreatedAtHeader ? new Date(queuedCreatedAtHeader) : null;
         const hasValidQueuedCreatedAt = queuedCreatedAt instanceof Date && !Number.isNaN(queuedCreatedAt.getTime()) && queuedCreatedAt.getTime() <= Date.now();
         const effectiveCreatedAt = hasValidQueuedCreatedAt ? queuedCreatedAt.toISOString() : new Date().toISOString();
+
+        if (isFromOfflineQueue) {
+          const semanticDuplicate = await findSemanticallyDuplicateBatch(tx, {
+            locationId,
+            actorId: effectiveCreatedBy,
+            effectiveCreatedAt,
+            items,
+            notes,
+          });
+          if (semanticDuplicate) {
+            return semanticDuplicate;
+          }
+        }
 
         const batchColumns = await getInventoryBatchColumns(tx);
 
