@@ -220,7 +220,8 @@ async function run() {
          true,
          $2
        FROM generate_series(1, $1) gs
-       JOIN categories c ON c.name = ('Load Category ' || ((gs - 1) % 30 + 1))`,
+       JOIN categories c ON c.name = ('Load Category ' || ((gs - 1) % 30 + 1))
+       ON CONFLICT DO NOTHING`,
       [COUNTS.products, adminId]
     );
 

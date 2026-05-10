@@ -12,7 +12,34 @@ async function run() {
   await client.connect();
   await client.query('BEGIN');
   try {
-    await client.query('TRUNCATE TABLE activity_log, notifications, waste_records, order_items, customer_orders, sale_items, sales, staff_payments, expenses, inventory, stock_batches RESTART IDENTITY CASCADE');
+    const knownTables = [
+      'activity_log',
+      'notifications',
+      'waste_records',
+      'order_items',
+      'customer_orders',
+      'sale_items',
+      'sales',
+      'staff_payments',
+      'expenses',
+      'inventory',
+      'stock_batches',
+      'inventory_stock_batches',
+      'inventory_batches',
+      'batch_items',
+      'inventory_movements',
+    ];
+    const existing = await client.query(
+      `SELECT tablename
+       FROM pg_tables
+       WHERE schemaname = 'public'
+         AND tablename = ANY($1::text[])`,
+      [knownTables]
+    );
+    const tables = existing.rows.map((row) => row.tablename);
+    if (tables.length > 0) {
+      await client.query(`TRUNCATE TABLE ${tables.map((name) => `"${name}"`).join(', ')} RESTART IDENTITY CASCADE`);
+    }
     await client.query("DELETE FROM products WHERE name LIKE 'LOAD_PRODUCT_%'");
     await client.query("DELETE FROM users WHERE username IN ('load_admin', 'load_cashier')");
     await client.query("DELETE FROM locations WHERE name = 'Load Test Branch'");
