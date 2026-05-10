@@ -22,6 +22,13 @@ export async function getTargetLocationId(req, dbQuery) {
   }
 
   if (!requestedLocationId) {
+    const bootstrapLocationId = await ensureBootstrapLocationId(dbQuery);
+    if (bootstrapLocationId) {
+      requestedLocationId = bootstrapLocationId;
+    }
+  }
+
+  if (!requestedLocationId) {
     const noLocationError = new Error('Location context is required');
     noLocationError.status = 400;
     throw noLocationError;
@@ -100,4 +107,24 @@ async function resolveSingleActiveLocationId(dbQuery) {
   }
 
   return null;
+}
+
+async function ensureBootstrapLocationId(dbQuery) {
+  const existing = await dbQuery(
+    `SELECT id
+     FROM locations
+     ORDER BY id ASC
+     LIMIT 1`
+  );
+  if (existing.rows.length > 0) {
+    return Number(existing.rows[0].id);
+  }
+
+  const created = await dbQuery(
+    `INSERT INTO locations (name, address, is_active)
+     VALUES ($1, $2, true)
+     RETURNING id`,
+    ['Main Branch', 'Default Location']
+  );
+  return Number(created.rows[0]?.id || 0) || null;
 }

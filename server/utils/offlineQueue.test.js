@@ -196,6 +196,18 @@ test('enqueueOperation deduplicates equivalent pending operations created close 
   assert.equal(queued[0].id, 'dup-op-1');
 });
 
+test('enqueueOperation reuses idempotency key as operation id to avoid duplicate queued retries', async () => {
+  const idempotencyKey = 'sale-offline-abc-123';
+  const firstId = await enqueueOperation({ url: '/api/sales', method: 'post', data: { items: [{ product_id: 3, quantity: 1 }] }, idempotencyKey });
+  const secondId = await enqueueOperation({ url: '/api/sales', method: 'post', data: { items: [{ product_id: 3, quantity: 1 }] }, idempotencyKey });
+
+  const queued = await listQueuedOperations();
+  assert.equal(firstId, idempotencyKey);
+  assert.equal(secondId, idempotencyKey);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].id, idempotencyKey);
+});
+
 test('flushQueue dispatches offline-queue-synced event when visible operations sync', async () => {
   await enqueueOperation({ id: 'sync-event-op', url: '/sales', method: 'post', data: { n: 1 } });
 

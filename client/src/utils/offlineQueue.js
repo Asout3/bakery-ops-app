@@ -20,6 +20,7 @@ let retentionSweepPromise = null;
 
 
 const DEDUPE_WINDOW_MS = 30 * 1000;
+const IDEMPOTENCY_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
 
 function stableStringify(value) {
   if (value === null || value === undefined) return String(value);
@@ -313,7 +314,8 @@ function tryBuildAdjustedSalePayload(op, error) {
 }
 export async function enqueueOperation(operation) {
   await enforceRetentionLimits();
-  const id = operation.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const normalizedIdempotencyKey = String(operation?.idempotencyKey || '').trim();
+  const id = operation.id || normalizedIdempotencyKey || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const sessionUser = getSessionSnapshot()?.user || null;
   const selectedLocationId = typeof localStorage !== 'undefined' ? localStorage.getItem('selectedLocationId') : null;
 
@@ -337,6 +339,13 @@ export async function enqueueOperation(operation) {
   const fingerprint = buildOperationFingerprint(op);
   const queuedOps = await listQueuedOperations();
   const duplicate = queuedOps.find((item) => {
+    if (!item) return false;
+    const incomingIdempotencyKey = normalizedIdempotencyKey;
+    const queuedIdempotencyKey = String(item.idempotencyKey || '').trim();
+    if (incomingIdempotencyKey && queuedIdempotencyKey && incomingIdempotencyKey === queuedIdempotencyKey && item.url === op.url) {
+      const itemCreatedAt = new Date(item.created_at || 0).getTime();
+      return Number.isFinite(itemCreatedAt) && (Date.now() - itemCreatedAt) <= IDEMPOTENCY_DEDUPE_WINDOW_MS;
+    }
     if (!item || item.status !== 'pending') return false;
     const itemCreatedAt = new Date(item.created_at || 0).getTime();
     if (!Number.isFinite(itemCreatedAt) || (Date.now() - itemCreatedAt) > DEDUPE_WINDOW_MS) return false;
@@ -626,6 +635,15 @@ export async function flushQueue(api) {
 
     const remainingQueue = await listQueuedOperations();
     const remaining = remainingQueue.length;
+    if (typeof console !== 'undefined' && (synced > 0 || failed > 0)) {
+      console.info('[OFFLINE_SYNC_SUMMARY]', JSON.stringify({
+        synced,
+        failed,
+        pending: remaining,
+        visibleSynced,
+        visibleFailed,
+      }));
+    }
     return { synced, failed, pending: remaining, visibleSynced, visibleFailed, visiblePending: countUserVisibleOperations(remainingQueue), completed };
   } finally {
     releaseFlushLock(lockToken);

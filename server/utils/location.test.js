@@ -76,20 +76,21 @@ test('admin forbidden location throws 403 when assignments exist', async () => {
   });
 });
 
-test('throws 400 when no location is supplied', async () => {
+test('resolves first location when no explicit location is supplied', async () => {
   const req = {
     headers: {},
     query: {},
     user: { id: 1, role: 'admin', location_id: null },
   };
 
-  await assert.rejects(() => getTargetLocationId(req, async () => ({ rows: [] })), (err) => {
-    assert.equal(err.status, 400);
-    return true;
+  const locationId = await getTargetLocationId(req, async (sql) => {
+    if (sql.includes('FROM locations') && sql.includes('is_active = true')) return { rows: [{ id: 7 }] };
+    return { rows: [] };
   });
+  assert.equal(locationId, 7);
 });
 
-test('does not auto-create default location when no location is supplied', async () => {
+test('auto-creates default location when no location is supplied and table is empty', async () => {
   const req = {
     headers: {},
     query: {},
@@ -97,12 +98,15 @@ test('does not auto-create default location when no location is supplied', async
   };
 
   let insertCalled = false;
-  await assert.rejects(() => getTargetLocationId(req, async (sql) => {
-    if (sql.includes('INSERT INTO locations')) insertCalled = true;
+  const locationId = await getTargetLocationId(req, async (sql) => {
+    if (sql.includes('is_active = true')) return { rows: [] };
+    if (sql.includes('FROM locations') && sql.includes('LIMIT 1')) return { rows: [] };
+    if (sql.includes('INSERT INTO locations')) {
+      insertCalled = true;
+      return { rows: [{ id: 1 }] };
+    }
     return { rows: [] };
-  }), (err) => {
-    assert.equal(err.status, 400);
-    return true;
   });
-  assert.equal(insertCalled, false);
+  assert.equal(locationId, 1);
+  assert.equal(insertCalled, true);
 });
