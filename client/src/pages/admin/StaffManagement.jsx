@@ -5,6 +5,13 @@ import { formatCurrencyETB } from '../../utils/currency';
 import { useToast } from '../../context/ToastContext';
 
 
+const moneyInputGuards = {
+  onWheel: (e) => e.currentTarget.blur(),
+  onKeyDown: (e) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+  },
+};
+
 const ETHIOPIA_PHONE_REGEX = /^\+251(9|7)\d{8}$/;
 
 function normalizeEthiopianPhone(input) {
@@ -177,7 +184,7 @@ export default function StaffManagement() {
           <div className="row g-2">
             <div className="col-md-4 mb-3"><label className="form-label">National ID (optional)</label><input className="form-control" value={staffForm.national_id} onChange={(e)=>setStaffForm((p)=>({...p,national_id:e.target.value}))} /></div>
             <div className="col-md-4 mb-3"><label className="form-label">Age</label><input type="number" min="17" className="form-control" value={staffForm.age} onChange={(e)=>setStaffForm((p)=>({...p,age:e.target.value}))} /></div>
-            <div className="col-md-4 mb-3"><label className="form-label">Monthly Salary</label><input type="number" step="0.01" className="form-control" value={staffForm.monthly_salary} onChange={(e)=>setStaffForm((p)=>({...p,monthly_salary:e.target.value}))} /></div>
+            <div className="col-md-4 mb-3"><label className="form-label">Monthly Salary</label><input type="number" step="0.01" className="form-control" value={staffForm.monthly_salary} onChange={(e)=>setStaffForm((p)=>({...p,monthly_salary:e.target.value}))}  inputMode="decimal" {...moneyInputGuards} /></div>
           </div>
           <div className="row g-2">
             <div className="col-md-4 mb-3"><label className="form-label">Role</label><select className="form-select" value={staffForm.role_preference} onChange={(e)=>setStaffForm((p)=>({...p,role_preference:e.target.value}))}><option value="cashier">Cashier</option><option value="manager">Ground Manager</option><option value="other">Other</option></select></div>
@@ -205,10 +212,10 @@ export default function StaffManagement() {
               <div className="row g-2">
                 <div className="col-md-4 mb-3"><label className="form-label">National ID</label><input className="form-control" value={profile.national_id || ''} onChange={(e)=>setProfile((p)=>({...p,national_id:e.target.value}))} /></div>
                 <div className="col-md-4 mb-3"><label className="form-label">Age</label><input type="number" min="17" className="form-control" value={profile.age || ''} onChange={(e)=>setProfile((p)=>({...p,age:e.target.value}))} /></div>
-                <div className="col-md-4 mb-3"><label className="form-label">Monthly Salary</label><input type="number" className="form-control" value={profile.monthly_salary || ''} onChange={(e)=>setProfile((p)=>({...p,monthly_salary:e.target.value}))} /></div>
+                <div className="col-md-4 mb-3"><label className="form-label">Monthly Salary</label><input type="number" className="form-control" value={profile.monthly_salary || ''} onChange={(e)=>setProfile((p)=>({...p,monthly_salary:e.target.value}))}  inputMode="decimal" {...moneyInputGuards} /></div>
               </div>
               <div className="row g-2">
-                <div className="col-md-9 mb-3"><label className="form-label">Salary Growth (ETB)</label><input type="number" min="0" step="0.01" className="form-control form-control-lg" style={{ minHeight: "56px", fontSize: "1.05rem" }} value={profile.salary_growth || ''} onChange={(e)=>setProfile((p)=>({...p,salary_growth:e.target.value}))} placeholder="Increase amount" /></div>
+                <div className="col-md-9 mb-3"><label className="form-label">Salary Growth (ETB)</label><input type="number" min="0" step="0.01" className="form-control form-control-lg" style={{ minHeight: "56px", fontSize: "1.05rem" }} value={profile.salary_growth || ''} onChange={(e)=>setProfile((p)=>({...p,salary_growth:e.target.value}))} placeholder="Increase amount"  inputMode="decimal" {...moneyInputGuards} /></div>
                 <div className="col-md-3 mb-3 d-flex align-items-end"><button className="btn btn-outline-primary btn-lg w-100" type="button" onClick={() => setProfile((p) => ({ ...p, monthly_salary: String(Number(p.monthly_salary || 0) + Number(p.salary_growth || 0)), salary_growth: '' }))}>Apply Growth</button></div>
               </div>
 

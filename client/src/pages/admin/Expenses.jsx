@@ -3,6 +3,13 @@ import './Expenses.css';
 import api, { getErrorMessage } from '../../api/axios';
 import { useBranch } from '../../context/BranchContext';
 import { useAuth } from '../../context/AuthContext';
+
+const moneyInputGuards = {
+  onWheel: (e) => e.currentTarget.blur(),
+  onKeyDown: (e) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+  },
+};
 import { Plus, Edit, Trash2, TrendingDown, DollarSign, Calendar, Clock, Eye } from 'lucide-react';
 import { enqueueOperation } from '../../utils/offlineQueue';
 import { useToast } from '../../context/ToastContext';
@@ -226,7 +233,7 @@ export default function ExpensesPage() {
               </div>
             )}
             <div className="mb-3"><label className="form-label">Description</label><textarea className="form-control" rows="3" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} /></div>
-            <div className="mb-3"><label className="form-label">Amount *</label><input type="number" className="form-control" min="0" step="0.01" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required /></div>
+            <div className="mb-3"><label className="form-label">Amount *</label><input type="number" className="form-control" min="0" step="0.01" inputMode="decimal" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required {...moneyInputGuards} /></div>
             {isAdmin ? <div className="mb-3"><label className="form-label">Date *</label><input type="date" className="form-control" value={formData.expense_date} onChange={(e) => setFormData({ ...formData, expense_date: e.target.value })} required /></div> : null}
             <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForm} disabled={isSubmittingExpense}>Cancel</button><button type="submit" className="btn btn-primary" disabled={isSubmittingExpense}>{isSubmittingExpense ? 'Saving…' : (editingExpense ? 'Update Expense' : 'Add Expense')}</button></div>
           </form>

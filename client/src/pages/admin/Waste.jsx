@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useToast } from '../../context/ToastContext';
 import { AlertTriangle, Clock3, RefreshCw, Trash2 } from 'lucide-react';
 import api, { getErrorMessage } from '../../api/axios';
 import './Waste.css';
@@ -60,6 +61,7 @@ export default function WastePage() {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const toast = useToast();
 
   const loadWasteData = async (selectedPeriod = period, selectedAnchorDate = anchorDate) => {
     setError('');
@@ -86,10 +88,20 @@ export default function WastePage() {
     loadWasteData(period, normalizeAnchorDate(anchorDate));
   }, [period, anchorDate]);
 
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadWasteData(period, normalizeAnchorDate(anchorDate));
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [period, anchorDate]);
+
   const handleProcessExpired = async () => {
     setProcessing(true);
     try {
-      await api.post('/waste/process-expired');
+      const res = await api.post('/waste/process-expired');
+      const processed = Number(res?.data?.processed_count || res?.data?.count || 0);
+      if (processed > 0) toast.warning(`Expired stock processed: ${processed} batch entries moved to waste.`);
       await loadWasteData(period, anchorDate);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to process expired inventory.'));
@@ -110,6 +122,8 @@ export default function WastePage() {
   const expiringStats = useMemo(() => ({
     batches: expiringRows.length,
     itemsLeft: expiringRows.reduce((sum, row) => sum + Number(row.quantity_remaining || 0), 0),
+    estimatedExpiryLoss: expiringRows.reduce((sum, row) => sum + (Number(row.quantity_remaining || 0) * Number(row.unit_cost || 0)), 0),
+    alreadyExpired: expiringRows.filter((row) => Number(row.seconds_until_expiry || 0) <= 0).length,
   }), [expiringRows]);
 
   if (loading) {
@@ -210,11 +224,11 @@ export default function WastePage() {
           <h3 className="mb-0">Sell first: nearest to expiry</h3>
           <span className="text-muted small d-inline-flex align-items-center gap-1">
             <Clock3 size={14} />
-            {expiringStats.batches} batches about to expire | {expiringStats.itemsLeft} items left
+            {expiringStats.batches} batches about to expire | {expiringStats.itemsLeft} items left | {expiringStats.alreadyExpired} already expired
           </span>
         </div>
         <div className="card-body pt-2">
-          <p className="text-muted mb-3">Each row is a separate stock batch, even when product names are the same.</p>
+          <p className="text-muted mb-3">Each row is a separate stock batch, even when product names are the same. Estimated value at risk: {formatMoney(expiringStats.estimatedExpiryLoss)}.</p>
         </div>
         <div className="card-body">
           {!expiringRows.length ? (

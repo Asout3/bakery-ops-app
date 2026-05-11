@@ -40,6 +40,16 @@ const normalizeStaffTarget = (staff) => {
   return { staffProfileId, userId };
 };
 
+
+const moneyInputGuards = {
+  onWheel: (e) => e.currentTarget.blur(),
+  onKeyDown: (e) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+  },
+};
+
+const toMoney2 = (value) => Number(Number(value || 0).toFixed(2));
+
 const getStaffRoleLabel = (staff) => {
   if (!staff) return 'Staff';
   if (staff.job_title) return staff.job_title;
@@ -148,8 +158,8 @@ export default function StaffPaymentsPage() {
     const targetDate = new Date();
     const workedDays = lastPaymentDate ? Math.max(1, Math.ceil((targetDate - lastPaymentDate) / (1000 * 60 * 60 * 24))) : 30;
     const monthlySalary = Number(selected.monthly_salary || 0);
-    const dailyRate = monthlySalary > 0 ? (monthlySalary / 30) : 0;
-    const recommendedAmount = Number(Math.max(0, dailyRate * workedDays).toFixed(2));
+    const dailyRate = toMoney2(monthlySalary > 0 ? (monthlySalary / 30) : 0);
+    const recommendedAmount = toMoney2(Math.max(0, dailyRate * workedDays));
 
     setSuggestedPayment({
       staffName: selected.full_name || 'Unknown',
@@ -165,7 +175,7 @@ export default function StaffPaymentsPage() {
     setFormData((prev) => ({
       ...prev,
       staff_profile_id: staffId,
-      amount: recommendedAmount > 0 ? String(recommendedAmount) : (selected.monthly_salary ? String(selected.monthly_salary) : prev.amount),
+      amount: recommendedAmount > 0 ? String(recommendedAmount) : (selected.monthly_salary ? String(toMoney2(selected.monthly_salary)) : prev.amount),
     }));
   };
 
@@ -463,7 +473,7 @@ export default function StaffPaymentsPage() {
                 ) : null}
 
                 <div className="col-md-6"><label className="form-label">Staff *</label><select className="form-select" value={formData.staff_profile_id} onChange={(e) => handleStaffSelect(e.target.value)} required><option value="">Select staff</option>{staffMembers.map((staff) => <option key={staff.id} value={staff.id}>{staff.full_name} - {getStaffRoleLabel(staff)}</option>)}</select></div>
-                <div className="col-md-6"><label className="form-label">Amount *</label><input type="number" min="0" step="0.01" className="form-control" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required /></div>
+                <div className="col-md-6"><label className="form-label">Amount *</label><input type="number" min="0" step="0.01" inputMode="decimal" className="form-control" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required {...moneyInputGuards} /></div>
 
                 {selectedStaffProfile ? (
                   <div className="col-12">
