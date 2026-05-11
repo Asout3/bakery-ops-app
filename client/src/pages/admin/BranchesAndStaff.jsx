@@ -187,16 +187,6 @@ toast.error(err.response?.data?.error || 'Failed to load branch/account data');
     }
   };
 
-  const deleteAccount = async (user) => {
-    if (!window.confirm(`Delete account ${user.username}? This cannot be undone.`)) return;
-    try {
-      await api.delete(`/admin/users/${user.id}`);
-      showFeedback('success', 'Account deleted.');
-      loadData();
-    } catch (err) {
-      showFeedback('danger', err.response?.data?.error || 'Could not delete account');
-    }
-  };
 
   const updateOwnCredentials = async (e) => {
     e.preventDefault();
@@ -366,10 +356,10 @@ toast.error(err.response?.data?.error || 'Failed to load branch/account data');
             <td style={{ display:'flex', gap:'0.5rem' }}>
               <button className="btn btn-sm btn-secondary" onClick={()=>editAccount(user)}>Edit</button>
               <button className={`btn btn-sm ${user.is_active ? 'btn-warning':'btn-success'}`} onClick={()=>toggleAccountStatus(user)}>{user.is_active ? 'Disable':'Enable'}</button>
-              <button className="btn btn-sm btn-danger" onClick={()=>deleteAccount(user)}>Delete</button>
+              
             </td>
           </tr>)}
-        </tbody></table><h5 className="mt-4 mb-2">Inactive Accounts</h5><table className="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{accounts.filter((a)=>!a.is_active).map((user) => <tr key={`inactive-${user.id}`}><td>{user.full_name || user.username}</td><td>{user.username}</td><td><span className={`badge ${user.role === 'manager' ? 'badge-primary' : 'badge-info'}`}>{ROLE_LABELS[user.role] || user.role}</span></td><td><span className="badge badge-warning">Inactive</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editAccount(user)}>Edit</button><button className="btn btn-sm btn-success" onClick={()=>toggleAccountStatus(user)}>Enable</button><button className="btn btn-sm btn-danger" onClick={()=>deleteAccount(user)}>Delete</button></td></tr>)}{!accounts.filter((a)=>!a.is_active).length && <tr><td colSpan={5} className="text-muted text-center">No inactive accounts.</td></tr>}</tbody></table>
+        </tbody></table><h5 className="mt-4 mb-2">Inactive Accounts</h5><table className="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{accounts.filter((a)=>!a.is_active).map((user) => <tr key={`inactive-${user.id}`}><td>{user.full_name || user.username}</td><td>{user.username}</td><td><span className={`badge ${user.role === 'manager' ? 'badge-primary' : 'badge-info'}`}>{ROLE_LABELS[user.role] || user.role}</span></td><td><span className="badge badge-warning">Inactive</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>editAccount(user)}>Edit</button><button className="btn btn-sm btn-success" onClick={()=>toggleAccountStatus(user)}>Enable</button></td></tr>)}{!accounts.filter((a)=>!a.is_active).length && <tr><td colSpan={5} className="text-muted text-center">No inactive accounts.</td></tr>}</tbody></table>
         </>
         )}
       </div></div>

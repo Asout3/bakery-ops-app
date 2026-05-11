@@ -345,15 +345,17 @@ export async function flushQueue(api) {
             lastAttempt: new Date().toISOString(),
           };
           tx.objectStore(OPS_STORE).put(updatedOp);
-          const payloadTx = db.transaction(PAYLOAD_STORE, 'readwrite');
+          await txPromise(tx);
+          db.close();
+          const payloadDb = await openDb();
+          const payloadTx = payloadDb.transaction(PAYLOAD_STORE, 'readwrite');
           payloadTx.objectStore(PAYLOAD_STORE).put({
             operation_id: op.id,
             payload: adjustedSale.payload,
             created_at: new Date().toISOString(),
           });
           await txPromise(payloadTx);
-          await txPromise(tx);
-          db.close();
+          payloadDb.close();
           failed += 1;
           if (!isAuxiliaryOperation(op)) visibleFailed += 1;
           await appendHistory({

@@ -97,16 +97,17 @@ export default function SaleReceiptDetail({ sale, settings, currentRole = 'cashi
                 <button className="btn btn-outline-primary" onClick={handleReprint} disabled={!reprintState.allowed || printing}>
                   {printing ? <RefreshCw size={14} className="spin" /> : <Printer size={14} />} Reprint Receipt
                 </button>
-                {sale.status !== 'voided' ? <button className="btn btn-outline-secondary" onClick={handleSaveSaleEdit} disabled={savingEdit}>{savingEdit ? 'Saving...' : 'Save Item Changes'}</button> : null}
+                {currentRole === 'cashier' && sale.status !== 'voided' ? <button className="btn btn-outline-secondary" onClick={handleSaveSaleEdit} disabled={savingEdit}>{savingEdit ? 'Saving...' : 'Save Item Changes'}</button> : null}
                 {!reprintState.allowed ? <span className="text-muted small align-self-center">Reprints are restricted by window or count policy.</span> : null}
               </div>
               <div className="mt-3">
-                <h6>Edit Item Quantities</h6>
+                {currentRole === 'cashier' ? <h6>Edit Item Quantities</h6> : <h6>Item Quantities</h6>}
                 {(sale.items || []).map((item) => (
                   <div key={item.product_id} className="d-flex align-items-center justify-content-between mb-2 gap-2">
                     <span>{item.product_name}</span>
                     <input
                       type="number"
+                      readOnly={currentRole !== 'cashier'}
                       min="1"
                       className="form-control"
                       style={{ maxWidth: '110px' }}
