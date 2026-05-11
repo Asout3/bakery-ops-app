@@ -239,7 +239,7 @@ router.post('/',
           await tx.query(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
              VALUES ($1, $2, $3, '/api/orders', $4)
-             ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
+             ON CONFLICT DO NOTHING`,
             [effectiveActor.actorId, locationId, idempotencyKey, JSON.stringify(order)]
           );
         }

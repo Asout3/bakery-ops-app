@@ -816,7 +816,7 @@ router.post(
           await tx.query(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
              VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (user_id, idempotency_key) DO NOTHING`,
+             ON CONFLICT DO NOTHING`,
             [effectiveCashierId, locationId, idempotencyKey, '/api/sales', JSON.stringify(responsePayload)]
           );
         }
