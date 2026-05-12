@@ -630,8 +630,8 @@ router.post(
           await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`sales:${effectiveCashierId}:${idempotencyKey}`]);
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
-             WHERE user_id = $1 AND idempotency_key = $2`,
-            [effectiveCashierId, idempotencyKey]
+             WHERE user_id = $1 AND idempotency_key = $2 AND endpoint = $3`,
+            [effectiveCashierId, idempotencyKey, '/api/sales']
           );
           if (existing.rows.length > 0) {
             const existingPayload = existing.rows[0].response_payload;

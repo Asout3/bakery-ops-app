@@ -280,8 +280,8 @@ router.post('/',
         if (idempotencyKey) {
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
-             WHERE user_id = $1 AND idempotency_key = $2`,
-            [effectiveActorId, idempotencyKey]
+             WHERE user_id = $1 AND idempotency_key = $2 AND endpoint = $3`,
+            [effectiveActorId, idempotencyKey, '/api/expenses']
           );
 
           if (existing.rows.length > 0) {

@@ -354,8 +354,8 @@ router.post(
         if (idempotencyKey) {
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
-             WHERE user_id = $1 AND idempotency_key = $2`,
-            [effectiveCreatedBy, idempotencyKey]
+             WHERE user_id = $1 AND idempotency_key = $2 AND endpoint = $3`,
+            [effectiveCreatedBy, idempotencyKey, '/api/inventory/batches']
           );
           if (existing.rows.length > 0) {
             return existing.rows[0].response_payload;

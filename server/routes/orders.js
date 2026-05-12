@@ -161,8 +161,8 @@ router.post('/',
         const effectiveActor = await resolveEffectiveActor(tx, req, locationId);
         if (idempotencyKey) {
           const existing = await tx.query(
-            `SELECT response_payload FROM idempotency_keys WHERE user_id = $1 AND idempotency_key = $2`,
-            [effectiveActor.actorId, idempotencyKey]
+            `SELECT response_payload FROM idempotency_keys WHERE user_id = $1 AND idempotency_key = $2 AND endpoint = $3`,
+            [effectiveActor.actorId, idempotencyKey, '/api/orders']
           );
           if (existing.rows.length > 0) {
             return typeof existing.rows[0].response_payload === 'string' ? JSON.parse(existing.rows[0].response_payload) : existing.rows[0].response_payload;
@@ -191,7 +191,7 @@ router.post('/',
               throw e;
             }
             itemName = productResult.rows[0].name;
-            if (!Number.isFinite(Number(rawItem.unit_price))) unitPrice = normalizeNumber(productResult.rows[0].price, 0);
+            unitPrice = normalizeNumber(productResult.rows[0].price, 0);
           }
 
           if (!productId && !itemName) {
@@ -236,6 +236,7 @@ router.post('/',
         await notifyRoles(tx, locationId, ['manager', 'admin', 'cashier'], 'New Pre-Order', `Pre-order #${order.id} created by ${effectiveActor.actorName}.`, 'order_created');
 
         if (idempotencyKey) {
+          await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`orders:${effectiveActor.actorId}:${idempotencyKey}`]);
           await tx.query(
             `INSERT INTO idempotency_keys (user_id, location_id, idempotency_key, endpoint, response_payload)
              VALUES ($1, $2, $3, '/api/orders', $4)

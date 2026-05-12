@@ -538,7 +538,7 @@ router.post('/refresh-token/rotate',
 
     const tokenResult = await query(
       `SELECT rt.id, rt.user_id, rt.expires_at, rt.revoked_at,
-              u.id AS user_id_ref, u.username, u.email, u.role, u.location_id, u.full_name, u.phone_number, u.created_at, u.updated_at
+              u.id AS user_id_ref, u.username, u.email, u.role, u.location_id, u.full_name, u.phone_number, u.created_at, u.updated_at, u.is_active
        FROM auth_refresh_tokens rt
        JOIN users u ON u.id = rt.user_id
        WHERE rt.token_hash = $1
@@ -557,6 +557,10 @@ router.post('/refresh-token/rotate',
 
     if (new Date(record.expires_at).getTime() <= Date.now()) {
       throw new AppError('Refresh token expired', 401, 'AUTH_REFRESH_EXPIRED');
+    }
+
+    if (!record.is_active) {
+      throw new AppError('User account is inactive', 401, 'AUTH_USER_INACTIVE');
     }
 
     const user = {
@@ -588,23 +592,11 @@ router.post('/refresh-token/rotate',
   })
 );
 
-router.post('/refresh-token', authenticateToken, asyncHandler(async (req, res) => {
-  const result = await query(
-    'SELECT id, username, email, role, location_id, full_name, phone_number, created_at, updated_at FROM users WHERE id = $1 AND is_active = true',
-    [req.user.id]
-  );
-
-  if (result.rows.length === 0) {
-    throw new AppError('User not found or inactive', 401, 'USER_NOT_FOUND');
-  }
-
-  const user = result.rows[0];
-  const token = generateToken(user);
-
-  res.json({
-    user,
-    token,
-    code: 'TOKEN_REFRESHED',
+router.post('/refresh-token', asyncHandler(async (req, res) => {
+  res.status(410).json({
+    error: 'Deprecated endpoint. Use /api/auth/refresh-token/rotate with refresh token rotation.',
+    code: 'AUTH_REFRESH_DEPRECATED',
+    requestId: req.requestId,
   });
 }));
 
