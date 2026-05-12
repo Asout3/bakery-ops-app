@@ -21,9 +21,15 @@ async function resolveEffectiveActor(tx, req, locationId) {
   const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
   if (!isFromOfflineQueue || !queuedActorIdHeader) return req.user.id;
 
+  const requestedActorId = Number(queuedActorIdHeader);
+  const canReplayForOtherActor = req.user.role === 'admin' || req.user.role === 'manager';
+  if (!Number.isFinite(requestedActorId) || (!canReplayForOtherActor && requestedActorId !== Number(req.user.id))) {
+    return req.user.id;
+  }
+
   const actorResult = await tx.query(
     'SELECT id FROM users WHERE id = $1 AND (location_id = $2 OR location_id IS NULL)',
-    [Number(queuedActorIdHeader), locationId]
+    [requestedActorId, locationId]
   );
   return actorResult.rows.length ? Number(actorResult.rows[0].id) : req.user.id;
 }

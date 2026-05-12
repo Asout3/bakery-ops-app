@@ -613,16 +613,20 @@ router.post(
         let effectiveCashierId = req.user.id;
 
         if (isFromOfflineQueue && queuedActorIdHeader) {
-          const actorResult = await tx.query(
-            `SELECT id
-             FROM users
-             WHERE id = $1
-               AND (location_id = $2 OR location_id IS NULL)
-               AND is_active = true`,
-            [queuedActorIdHeader, locationId]
-          );
-          if (actorResult.rows.length > 0) {
-            effectiveCashierId = Number(actorResult.rows[0].id);
+          const requestedActorId = Number(queuedActorIdHeader);
+          const canReplayForOtherActor = req.user.role === 'admin' || req.user.role === 'manager';
+          if (Number.isFinite(requestedActorId) && (canReplayForOtherActor || requestedActorId === Number(req.user.id))) {
+            const actorResult = await tx.query(
+              `SELECT id
+               FROM users
+               WHERE id = $1
+                 AND (location_id = $2 OR location_id IS NULL)
+                 AND is_active = true`,
+              [requestedActorId, locationId]
+            );
+            if (actorResult.rows.length > 0) {
+              effectiveCashierId = Number(actorResult.rows[0].id);
+            }
           }
         }
 
