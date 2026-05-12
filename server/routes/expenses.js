@@ -284,6 +284,7 @@ router.post('/',
         const effectiveActorId = await resolveEffectiveActor(tx, req, locationId);
 
         if (idempotencyKey) {
+          await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`expenses:${effectiveActorId}:${idempotencyKey}`]);
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
              WHERE user_id = $1 AND idempotency_key = $2 AND endpoint = $3`,

@@ -19,6 +19,12 @@ async function resolveEffectiveActor(tx, req, locationId) {
   const isFromOfflineQueue = req.headers['x-queued-request'] === 'true';
   if (!isFromOfflineQueue || !queuedActorIdHeader) return { actorId: req.user.id, actorName: req.user.username };
 
+  const requestedActorId = Number(queuedActorIdHeader);
+  const canReplayForOtherActor = req.user.role === 'admin' || req.user.role === 'manager';
+  if (!Number.isFinite(requestedActorId) || (!canReplayForOtherActor && requestedActorId !== Number(req.user.id))) {
+    return { actorId: req.user.id, actorName: req.user.username };
+  }
+
   const actorResult = await tx.query(
     'SELECT id, username FROM users WHERE id = $1 AND (location_id = $2 OR location_id IS NULL)',
     [requestedActorId, locationId]
@@ -352,6 +358,7 @@ router.post(
         const originalActorName = effectiveActor.actorName;
 
         if (idempotencyKey) {
+          await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`inventory-batches:${effectiveCreatedBy}:${idempotencyKey}`]);
           const existing = await tx.query(
             `SELECT response_payload FROM idempotency_keys
              WHERE user_id = $1 AND idempotency_key = $2 AND endpoint = $3`,
