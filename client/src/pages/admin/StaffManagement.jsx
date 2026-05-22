@@ -143,17 +143,6 @@ export default function StaffManagement() {
     }
   };
 
-  const deleteStaff = async (row) => {
-    if (!window.confirm(`Delete staff profile ${row.full_name}?`)) return;
-    try {
-      await api.delete(`/admin/staff/${row.id}`);
-      setFeedback({ type: 'success', message: 'Staff profile deleted.' });
-      load();
-    } catch (err) {
-      setFeedback({ type: 'danger', message: err.response?.data?.error || 'Could not delete staff profile' });
-    }
-  };
-
   if (loading) return <div className="loading-container"><div className="spinner"></div></div>;
 
   return (
@@ -197,7 +186,7 @@ export default function StaffManagement() {
       </div></div>
 
       <div className="card"><div className="card-header"><h4>Staff Directory</h4></div><div className="card-body table-container">
-        <h5 className="mb-2">Active Staff</h5><table className="table"><thead><tr><th>Name</th><th>Role</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>{activeStaff.map((row) => <tr key={row.id}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{formatCurrencyETB(row.monthly_salary || 0)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className="badge badge-success">Active</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-danger" onClick={()=>toggleStatus(row)}>Disable</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}{!activeStaff.length && <tr><td colSpan={6} className="text-center text-muted">No active staff.</td></tr>}</tbody></table><h5 className="mt-4 mb-2">Inactive Staff</h5><table className="table"><thead><tr><th>Name</th><th>Role</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>{inactiveStaff.map((row) => <tr key={`inactive-${row.id}`}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{formatCurrencyETB(row.monthly_salary || 0)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className="badge badge-warning">Inactive</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-success" onClick={()=>toggleStatus(row)}>Enable</button><button className="btn btn-sm btn-danger" onClick={()=>deleteStaff(row)}>Delete</button></td></tr>)}{!inactiveStaff.length && <tr><td colSpan={6} className="text-center text-muted">No inactive staff.</td></tr>}</tbody></table>
+        <h5 className="mb-2">Active Staff</h5><table className="table"><thead><tr><th>Name</th><th>Role</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>{activeStaff.map((row) => <tr key={row.id}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{formatCurrencyETB(row.monthly_salary || 0)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className="badge badge-success">Active</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-danger" onClick={()=>toggleStatus(row)}>Disable</button></td></tr>)}{!activeStaff.length && <tr><td colSpan={6} className="text-center text-muted">No active staff.</td></tr>}</tbody></table><h5 className="mt-4 mb-2">Inactive Staff</h5><table className="table"><thead><tr><th>Name</th><th>Role</th><th>Salary</th><th>Account</th><th>Status</th><th>Actions</th></tr></thead><tbody>{inactiveStaff.map((row) => <tr key={`inactive-${row.id}`}><td>{row.full_name}</td><td>{row.job_title || row.role_preference}</td><td>{formatCurrencyETB(row.monthly_salary || 0)}</td><td>{row.account_username ? row.account_username : 'No account yet'}</td><td><span className="badge badge-warning">Inactive</span></td><td style={{ display:'flex', gap:'0.5rem' }}><button className="btn btn-sm btn-secondary" onClick={()=>setProfile({ ...row })}>View/Edit</button><button className="btn btn-sm btn-success" onClick={()=>toggleStatus(row)}>Enable</button></td></tr>)}{!inactiveStaff.length && <tr><td colSpan={6} className="text-center text-muted">No inactive staff.</td></tr>}</tbody></table>
       </div></div>
 
       {profile && (
