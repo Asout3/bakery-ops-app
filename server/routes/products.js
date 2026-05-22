@@ -278,6 +278,9 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'manager'), body('
     }
     const { hasGroupName } = await getProductSchemaSupport();
     const effectiveGroup = group_name || name || '';
+    if (Object.prototype.hasOwnProperty.call(req.body, 'category_id') && !Number.isInteger(normalizedCategoryId)) {
+      return res.status(400).json({ error: 'A valid category is required', code: 'VALIDATION_ERROR', requestId: req.requestId });
+    }
 
     if (name) {
       const duplicate = hasGroupName
@@ -399,6 +402,3 @@ router.delete('/:id', authenticateToken, authorizeRoles('admin', 'manager'), asy
 });
 
 export default router;
-    if (Object.prototype.hasOwnProperty.call(req.body, 'category_id') && !Number.isInteger(normalizedCategoryId)) {
-      return res.status(400).json({ error: 'A valid category is required', code: 'VALIDATION_ERROR', requestId: req.requestId });
-    }
