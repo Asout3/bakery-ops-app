@@ -63,8 +63,32 @@ async function hasStaffGuarantorColumns() {
 
 router.get('/staff', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
+    const supportsGuarantorColumns = await hasStaffGuarantorColumns();
     const result = await query(
-      `SELECT sp.*, l.name AS location_name, u.username AS account_username, u.role AS account_role, u.is_active AS account_active
+      `SELECT
+         sp.id,
+         COALESCE(NULLIF(sp.full_name, ''), u.full_name, u.username) AS full_name,
+         sp.role_preference,
+         sp.job_title,
+         COALESCE(sp.national_id, u.national_id) AS national_id,
+         COALESCE(sp.phone_number, u.phone_number) AS phone_number,
+         COALESCE(sp.age, u.age) AS age,
+         COALESCE(sp.monthly_salary, u.monthly_salary, 0) AS monthly_salary,
+         sp.location_id,
+         sp.hire_date,
+         sp.termination_date,
+         sp.payment_due_date,
+         sp.is_active,
+         sp.linked_user_id,
+         sp.created_at,
+         sp.updated_at,
+         ${supportsGuarantorColumns ? 'sp.guarantor_name' : 'NULL::text AS guarantor_name'},
+         ${supportsGuarantorColumns ? 'sp.guarantor_phone_number' : 'NULL::text AS guarantor_phone_number'},
+         ${supportsGuarantorColumns ? 'sp.guarantor_national_id' : 'NULL::text AS guarantor_national_id'},
+         l.name AS location_name,
+         u.username AS account_username,
+         u.role AS account_role,
+         u.is_active AS account_active
        FROM staff_profiles sp
        LEFT JOIN locations l ON l.id = sp.location_id
        LEFT JOIN users u ON u.id = sp.linked_user_id
