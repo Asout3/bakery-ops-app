@@ -51,6 +51,16 @@ async function notifyAdmins(locationId, title, message, type = 'admin_event') {
   );
 }
 
+async function hasStaffGuarantorColumns() {
+  const result = await query(
+    `SELECT COUNT(*)::int AS count
+     FROM information_schema.columns
+     WHERE table_name = 'staff_profiles'
+       AND column_name IN ('guarantor_name', 'guarantor_phone_number', 'guarantor_national_id')`
+  );
+  return Number(result.rows[0]?.count || 0) === 3;
+}
+
 router.get('/staff', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
     const result = await query(
@@ -132,17 +142,19 @@ router.post(
           payment_due_date || 25,
         ]
       );
-      await query(
-        `UPDATE staff_profiles
-         SET guarantor_name = $1,
-             guarantor_phone_number = $2,
-             guarantor_national_id = $3
-         WHERE id = $4`,
-        [String(guarantor_name || '').trim(), String(guarantor_phone_number || '').trim(), guarantor_national_id || null, inserted.rows[0].id]
-      );
-      inserted.rows[0].guarantor_name = String(guarantor_name || '').trim();
-      inserted.rows[0].guarantor_phone_number = String(guarantor_phone_number || '').trim();
-      inserted.rows[0].guarantor_national_id = guarantor_national_id || null;
+      if (supportsGuarantorColumns) {
+        await query(
+          `UPDATE staff_profiles
+           SET guarantor_name = $1,
+               guarantor_phone_number = $2,
+               guarantor_national_id = $3
+           WHERE id = $4`,
+          [String(guarantor_name || '').trim(), String(guarantor_phone_number || '').trim(), guarantor_national_id || null, inserted.rows[0].id]
+        );
+        inserted.rows[0].guarantor_name = String(guarantor_name || '').trim();
+        inserted.rows[0].guarantor_phone_number = String(guarantor_phone_number || '').trim();
+        inserted.rows[0].guarantor_national_id = guarantor_national_id || null;
+      }
 
       await notifyAdmins(inserted.rows[0].location_id, 'Staff Profile Created', `${inserted.rows[0].full_name} was added as ${inserted.rows[0].job_title || inserted.rows[0].role_preference}.`, 'staff_profile_created');
 
@@ -170,6 +182,7 @@ router.put(
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
+      const supportsGuarantorColumns = await hasStaffGuarantorColumns();
       const id = Number(req.params.id);
       if (!Number.isInteger(id)) {
         return res.status(400).json({ error: 'Invalid staff id', code: 'INVALID_STAFF_ID', requestId: req.requestId });
@@ -222,35 +235,59 @@ router.put(
         }
       }
 
-      const updated = await query(
-        `UPDATE staff_profiles
-         SET full_name = COALESCE($1, full_name),
-             national_id = $2,
-             phone_number = $3,
-             age = $4,
-             monthly_salary = $5,
-             role_preference = $6,
-             job_title = $7,
-             guarantor_name = $8,
-             guarantor_phone_number = $9,
-             guarantor_national_id = $10,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $11
-         RETURNING *`,
-        [
-          req.body.full_name || null,
-          nextNationalId,
-          nextPhoneNumber,
-          nextAge,
-          nextSalary,
-          nextRolePreference,
-          nextJobTitle,
-          nextGuarantorName,
-          nextGuarantorPhone,
-          nextGuarantorNationalId,
-          id,
-        ]
-      );
+      const updated = supportsGuarantorColumns
+        ? await query(
+          `UPDATE staff_profiles
+           SET full_name = COALESCE($1, full_name),
+               national_id = $2,
+               phone_number = $3,
+               age = $4,
+               monthly_salary = $5,
+               role_preference = $6,
+               job_title = $7,
+               guarantor_name = $8,
+               guarantor_phone_number = $9,
+               guarantor_national_id = $10,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $11
+           RETURNING *`,
+          [
+            req.body.full_name || null,
+            nextNationalId,
+            nextPhoneNumber,
+            nextAge,
+            nextSalary,
+            nextRolePreference,
+            nextJobTitle,
+            nextGuarantorName,
+            nextGuarantorPhone,
+            nextGuarantorNationalId,
+            id,
+          ]
+        )
+        : await query(
+          `UPDATE staff_profiles
+           SET full_name = COALESCE($1, full_name),
+               national_id = $2,
+               phone_number = $3,
+               age = $4,
+               monthly_salary = $5,
+               role_preference = $6,
+               job_title = $7,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $8
+           RETURNING *`,
+          [
+            req.body.full_name || null,
+            nextNationalId,
+            nextPhoneNumber,
+            nextAge,
+            nextSalary,
+            nextRolePreference,
+            nextJobTitle,
+            id,
+          ]
+        );
 
       if (staff.user_id) {
         await query(
@@ -814,3 +851,4 @@ router.delete('/users/:id', authenticateToken, authorizeRoles('admin'), async (r
 });
 
 export default router;
+      const supportsGuarantorColumns = await hasStaffGuarantorColumns();

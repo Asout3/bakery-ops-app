@@ -40,6 +40,14 @@ const normalizeStaffTarget = (staff) => {
   return { staffProfileId, userId };
 };
 
+const getStaffOptionValue = (staff) => {
+  const staffProfileId = Number(staff?.staff_profile_id || 0);
+  if (staffProfileId > 0) return `sp:${staffProfileId}`;
+  const userId = Number(staff?.user_id || staff?.id || 0);
+  if (userId > 0) return `u:${userId}`;
+  return '';
+};
+
 
 const moneyInputGuards = {
   onWheel: (e) => e.currentTarget.blur(),
@@ -138,22 +146,22 @@ export default function StaffPaymentsPage() {
     }
   };
 
-  const handleStaffSelect = (staffId) => {
-    if (!staffId) {
+  const handleStaffSelect = (staffOptionValue) => {
+    if (!staffOptionValue) {
       setSuggestedPayment(null);
       setFormData((prev) => ({ ...prev, staff_profile_id: '' }));
       return;
     }
 
-    const selected = staffMembers.find((s) => Number(s.id) === Number(staffId));
+    const selected = staffMembers.find((s) => getStaffOptionValue(s) === staffOptionValue);
     if (!selected) {
       setSuggestedPayment(null);
-      setFormData((prev) => ({ ...prev, staff_profile_id: staffId }));
+      setFormData((prev) => ({ ...prev, staff_profile_id: staffOptionValue }));
       return;
     }
 
     const staffPayments = payments
-      .filter((payment) => Number(payment.staff_profile_id) === Number(staffId))
+      .filter((payment) => Number(payment.staff_profile_id) === Number(selected.staff_profile_id))
       .sort((a, b) => {
         const aDate = new Date(a.payment_date || a.created_at || 0).getTime();
         const bDate = new Date(b.payment_date || b.created_at || 0).getTime();
@@ -184,7 +192,7 @@ export default function StaffPaymentsPage() {
 
     setFormData((prev) => ({
       ...prev,
-      staff_profile_id: staffId,
+      staff_profile_id: staffOptionValue,
       amount: recommendedAmount > 0 ? String(recommendedAmount) : (selected.monthly_salary ? String(toMoney2(selected.monthly_salary)) : prev.amount),
     }));
   };
@@ -250,7 +258,7 @@ export default function StaffPaymentsPage() {
     setSuggestedPayment(null);
     setEditingPayment(payment);
     setFormData({
-      staff_profile_id: payment.staff_profile_id ? String(payment.staff_profile_id) : '',
+      staff_profile_id: payment.staff_profile_id ? `sp:${payment.staff_profile_id}` : '',
       amount: String(payment.amount),
       payment_type: payment.payment_type || 'salary',
       notes: getReadableNote(payment.notes),
@@ -261,7 +269,7 @@ export default function StaffPaymentsPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
-    const selectedStaff = staffMembers.find((staff) => Number(staff.id) === Number(formData.staff_profile_id));
+    const selectedStaff = staffMembers.find((staff) => getStaffOptionValue(staff) === formData.staff_profile_id);
     const { staffProfileId, userId } = normalizeStaffTarget(selectedStaff);
     const payload = {
       staff_profile_id: staffProfileId || undefined,
@@ -344,7 +352,7 @@ export default function StaffPaymentsPage() {
   }, [filteredPayments, payments, selectedMonth]);
 
   const selectedStaffProfile = useMemo(
-    () => staffMembers.find((staff) => Number(staff.id) === Number(formData.staff_profile_id)) || null,
+    () => staffMembers.find((staff) => getStaffOptionValue(staff) === formData.staff_profile_id) || null,
     [staffMembers, formData.staff_profile_id],
   );
 
@@ -484,7 +492,7 @@ export default function StaffPaymentsPage() {
                   </div>
                 ) : null}
 
-                <div className="col-md-6"><label className="form-label">Staff *</label><select className="form-select" value={formData.staff_profile_id} onChange={(e) => handleStaffSelect(e.target.value)} required><option value="">Select staff</option>{staffMembers.map((staff) => <option key={staff.id} value={staff.id}>{staff.full_name} - {getStaffRoleLabel(staff)}</option>)}</select></div>
+                <div className="col-md-6"><label className="form-label">Staff *</label><select className="form-select" value={formData.staff_profile_id} onChange={(e) => handleStaffSelect(e.target.value)} required><option value="">Select staff</option>{staffMembers.map((staff) => <option key={getStaffOptionValue(staff)} value={getStaffOptionValue(staff)}>{staff.full_name} - {getStaffRoleLabel(staff)}</option>)}</select></div>
                 <div className="col-md-6"><label className="form-label">Amount *</label><input type="number" min="0" step="0.01" inputMode="decimal" className="form-control" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required {...moneyInputGuards} /></div>
 
                 {selectedStaffProfile ? (
