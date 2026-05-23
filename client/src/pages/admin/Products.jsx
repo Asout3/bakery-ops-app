@@ -21,13 +21,6 @@ const formatProductDisplayId = (product) => {
 
 const productsControlsCardStyle = { border: '1px solid var(--border-light)' };
 
-const productsControlsRowStyle = {
-  display: 'grid',
-  gridTemplateColumns: 'minmax(280px, 1fr) minmax(320px, auto)',
-  gap: '0.75rem',
-  alignItems: 'center',
-};
-
 export default function ProductsPage() {
   const { t } = useLanguage();
   const toast = useToast();
@@ -286,7 +279,7 @@ export default function ProductsPage() {
       </div>
 
       <div className="card mb-3" style={productsControlsCardStyle}>
-        <div className="card-body" style={productsControlsRowStyle}>
+        <div className="card-body products-controls-grid">
           <div>
             <label className="form-label mb-1">{t('searchProducts')}</label>
             <div className="search-bar" style={{ maxWidth: '100%' }}>
@@ -296,7 +289,7 @@ export default function ProductsPage() {
           </div>
           <div>
             <label className="form-label mb-1">{t('addCategory')}</label>
-            <div className="d-flex gap-2" style={{ minWidth: '320px' }}>
+            <div className="products-category-add-row d-flex gap-2">
               <input className="form-control" placeholder="New category" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
               <button className="btn btn-outline-primary" onClick={handleCreateCategory}>{t('addCategory')}</button>
             </div>

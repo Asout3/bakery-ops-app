@@ -48,6 +48,11 @@
   color: #fff;
   margin-bottom: 0.5rem;
 }
+.login-logo-image {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
 .login-panel-heading {
   font-size: 2rem;
   font-weight: 800;

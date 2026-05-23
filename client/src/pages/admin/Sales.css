@@ -172,6 +172,13 @@
   font-size: 0.82rem;
   vertical-align: middle;
 }
+.sales-row-voided td {
+  background: color-mix(in srgb, #8b1e1e 11%, var(--card-bg));
+  color: color-mix(in srgb, var(--text-primary) 86%, #4a1d1d);
+}
+[data-theme="dark"] .sales-row-voided td {
+  background: color-mix(in srgb, #9a3a3a 18%, var(--card-bg));
+}
 
 @media (max-width: 900px) {
   .sales-filter-field-wide {

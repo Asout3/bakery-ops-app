@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
 import { flushQueue, getSyncStats, listQueuedOperations, listSyncHistory, retryOperation, resolveOperation, ignoreOperation } from '../../utils/offlineQueue';
+import { formatAddisDateTime } from '../../utils/time';
 
 const getStatusLabel = (status) => {
   if (status === 'needs_review') return 'Needs Review';
@@ -128,6 +129,9 @@ export default function SyncQueuePage() {
         <h2>Sync Audit Log</h2>
         <button className="btn btn-primary" onClick={handleSyncNow} disabled={loading}>{loading ? 'Syncing...' : 'Force Sync'}</button>
       </div>
+      <p className="text-muted mb-3">
+        Queued Operations shows this device&apos;s offline queue. Cross-Device Sync Audit shows server-side sync events across users/devices.
+      </p>
 
       {syncResult && (
         <div className="alert alert-info mb-3">
@@ -195,7 +199,7 @@ export default function SyncQueuePage() {
                 <tbody>
                   {serverHistory.map((item) => (
                     <tr key={item.id}>
-                      <td>{new Date(item.created_at).toLocaleString()}</td>
+                      <td>{formatAddisDateTime(item.created_at, { hour12: true })}</td>
                       <td><span className={`badge ${getStatusBadgeClass(item.status)}`}>{getStatusLabel(item.status)}</span></td>
                       <td>{item.actor_username || item.actor_user_id || '—'}</td>
                       <td>{describeOperation(item.method, item.endpoint || '')}</td>
@@ -219,7 +223,7 @@ export default function SyncQueuePage() {
                 <tbody>
                   {history.filter((item) => item.status !== 'queued' && item.status !== 'pending').map((item) => (
                     <tr key={item.id}>
-                      <td>{new Date(item.created_at).toLocaleString()}</td>
+                      <td>{formatAddisDateTime(item.created_at, { hour12: true })}</td>
                       <td><span className={`badge ${getStatusBadgeClass(item.status)}`}>{getStatusLabel(item.status)}</span></td>
                       <td>{item.operation_id}</td>
                       <td>{item.message}</td>

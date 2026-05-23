@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, ShoppingCart, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -115,7 +115,7 @@ export default function Login() {
       >
         <div className="login-panel-content">
           <div className="login-panel-icon">
-            <ShoppingCart size={36} />
+            <img src="/sina-logo.svg" alt="Sina Sweet logo" className="login-logo-image" />
           </div>
           <h2 className="login-panel-heading">{t('appTitle')}</h2>
           <p className="login-panel-sub">Bakery Operations System</p>

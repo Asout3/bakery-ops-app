@@ -26,6 +26,8 @@
 
 .receipt-settings-section {
   overflow: hidden;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--accent-border, #d5d7da);
 }
 
 .receipt-settings-section__header {
@@ -160,6 +162,22 @@
   border-radius: 18px;
   background: linear-gradient(180deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.015));
   overflow-x: auto;
+}
+[data-theme="dark"] .receipt-settings-page,
+[data-theme="dark"] .receipt-settings-shell {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .receipt-template-card,
+[data-theme="dark"] .receipt-toggle-field {
+  background: color-mix(in srgb, var(--card-bg) 92%, #000);
+  border-color: var(--accent-border);
+}
+[data-theme="dark"] .receipt-settings-testing-note {
+  background: color-mix(in srgb, var(--btn-mid) 20%, transparent);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .receipt-settings-preview-wrap {
+  background: color-mix(in srgb, var(--card-bg) 88%, #000);
 }
 
 @media (max-width: 992px) {

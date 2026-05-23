@@ -208,9 +208,7 @@ export default function Layout() {
       <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`} aria-label="Sidebar navigation">
         <div className="sidebar-header">
           <div className="sidebar-brand">
-            <div className="sidebar-brand-icon">
-              <ShoppingCart size={14} />
-            </div>
+            <img className="sidebar-brand-logo" src="/sina-logo.svg" alt="Sina Sweet logo" />
             <span className="sidebar-brand-name">{t('appTitle')}</span>
           </div>
           <button className="sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close sidebar">
