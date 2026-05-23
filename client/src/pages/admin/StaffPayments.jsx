@@ -49,6 +49,12 @@ const moneyInputGuards = {
 };
 
 const toMoney2 = (value) => Number(Number(value || 0).toFixed(2));
+const formatDateDMY = (value) => {
+  if (!value) return 'N/A';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'N/A';
+  return date.toLocaleDateString('en-GB');
+};
 
 const getStaffRoleLabel = (staff) => {
   if (!staff) return 'Staff';
@@ -156,7 +162,9 @@ export default function StaffPaymentsPage() {
 
     const lastPaymentDate = staffPayments[0]?.payment_date ? new Date(staffPayments[0].payment_date) : null;
     const targetDate = new Date();
+    const hireDate = selected.hire_date ? new Date(selected.hire_date) : null;
     const workedDays = lastPaymentDate ? Math.max(1, Math.ceil((targetDate - lastPaymentDate) / (1000 * 60 * 60 * 24))) : 30;
+    const employmentDays = hireDate && !Number.isNaN(hireDate.getTime()) ? Math.max(1, Math.ceil((targetDate - hireDate) / (1000 * 60 * 60 * 24))) : null;
     const monthlySalary = Number(selected.monthly_salary || 0);
     const dailyRate = toMoney2(monthlySalary > 0 ? (monthlySalary / 30) : 0);
     const recommendedAmount = toMoney2(Math.max(0, dailyRate * workedDays));
@@ -170,6 +178,8 @@ export default function StaffPaymentsPage() {
       recommendedAmount,
       lastPaymentDate,
       account: selected.account_username || null,
+      hireDate: selected.hire_date || null,
+      employmentDays,
     });
 
     setFormData((prev) => ({
@@ -446,6 +456,8 @@ export default function StaffPaymentsPage() {
                       </div>
 
                       <div className="staff-payment-calculation-grid">
+                        <div className="staff-payment-kpi"><span>Hire Date</span><strong>{formatDateDMY(suggestedPayment.hireDate)}</strong></div>
+                        <div className="staff-payment-kpi"><span>Employment Days</span><strong>{suggestedPayment.employmentDays || 'N/A'}</strong></div>
                         <div className="staff-payment-kpi"><span>Worked Days</span><strong>{suggestedPayment.workedDays}</strong></div>
                         <div className="staff-payment-kpi"><span>Daily Rate</span><strong>ETB {suggestedPayment.dailyRate.toFixed(2)}</strong></div>
                         <div className="staff-payment-kpi"><span>Suggested Amount</span><strong>ETB {suggestedPayment.recommendedAmount.toFixed(2)}</strong></div>
@@ -458,7 +470,7 @@ export default function StaffPaymentsPage() {
                       </div>
 
                       <div className="staff-payment-formula">
-                        Calculation: ETB {suggestedPayment.dailyRate.toFixed(2)} x {suggestedPayment.workedDays} day(s) = ETB {suggestedPayment.recommendedAmount.toFixed(2)}
+                        Formula: (Monthly Salary ÷ 30) x Worked Days = ETB {suggestedPayment.recommendedAmount.toFixed(2)}
                       </div>
 
                       <button
@@ -480,6 +492,7 @@ export default function StaffPaymentsPage() {
                     <div className="staff-selected-profile-row">
                       <div><span className="label">Profile</span><strong>{selectedStaffProfile.full_name || 'Unknown'}</strong></div>
                       <div><span className="label">Role</span><strong>{getStaffRoleLabel(selectedStaffProfile)}</strong></div>
+                      <div><span className="label">Hire Date</span><strong>{formatDateDMY(selectedStaffProfile.hire_date)}</strong></div>
                       <div><span className="label">Monthly Salary</span><strong>ETB {Number(selectedStaffProfile.monthly_salary || 0).toFixed(2)}</strong></div>
                     </div>
                   </div>

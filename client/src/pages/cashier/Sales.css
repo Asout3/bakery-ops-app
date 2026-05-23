@@ -542,8 +542,8 @@
 .payment-method-btn {
   min-height: 2.35rem;
   border-radius: var(--r-sm);
-  border: 1px solid color-mix(in srgb, var(--input-border) 88%, transparent);
-  background: color-mix(in srgb, var(--surface-bg) 90%, var(--card-bg));
+  border: 1px solid color-mix(in srgb, var(--input-border) 92%, transparent);
+  background: color-mix(in srgb, var(--surface-bg) 86%, var(--card-bg));
   color: var(--text-secondary);
   font-size: 0.78rem;
   font-weight: 700;
@@ -560,41 +560,16 @@
   flex-shrink: 0;
 }
 
-.payment-method-btn-cash {
-  border-color: rgba(63, 143, 79, 0.45);
-  background: color-mix(in srgb, #3f8f4f 16%, var(--card-bg));
-  color: #2f7f3f;
-}
-
-.payment-method-btn-telebirr {
-  border-color: rgba(47, 111, 198, 0.5);
-  background: color-mix(in srgb, #2f6fc6 16%, var(--card-bg));
-  color: #2f6fc6;
-}
-
 .payment-method-btn:hover {
   border-color: color-mix(in srgb, var(--btn-mid) 45%, transparent);
+  background: color-mix(in srgb, var(--surface-bg) 72%, var(--card-bg));
 }
 
 .payment-method-btn-active {
-  border-color: color-mix(in srgb, var(--btn-mid) 58%, transparent);
-  background: linear-gradient(140deg, color-mix(in srgb, var(--btn-mid) 28%, var(--card-bg)), color-mix(in srgb, var(--btn-end) 16%, var(--card-bg)));
+  border-color: color-mix(in srgb, var(--btn-mid) 60%, transparent);
+  background: linear-gradient(140deg, color-mix(in srgb, var(--btn-mid) 20%, var(--card-bg)), color-mix(in srgb, var(--btn-end) 12%, var(--surface-bg)));
   color: var(--text-primary);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--btn-mid) 36%, transparent);
-}
-
-.payment-method-btn-cash.payment-method-btn-active {
-  border-color: rgba(63, 143, 79, 0.65);
-  background: linear-gradient(140deg, color-mix(in srgb, #3f8f4f 28%, var(--card-bg)), color-mix(in srgb, #3f8f4f 16%, var(--surface-bg)));
-  color: #245f31;
-  box-shadow: inset 0 0 0 1px rgba(63, 143, 79, 0.38);
-}
-
-.payment-method-btn-telebirr.payment-method-btn-active {
-  border-color: rgba(47, 111, 198, 0.68);
-  background: linear-gradient(140deg, color-mix(in srgb, #2f6fc6 30%, var(--card-bg)), color-mix(in srgb, #2f6fc6 16%, var(--surface-bg)));
-  color: #1f4f93;
-  box-shadow: inset 0 0 0 1px rgba(47, 111, 198, 0.4);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--btn-mid) 34%, transparent), 0 0 0 2px color-mix(in srgb, var(--btn-mid) 20%, transparent);
 }
 
 .cart-total {

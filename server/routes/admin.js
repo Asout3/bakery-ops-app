@@ -78,6 +78,8 @@ router.post(
   body('age').optional().isInt({ min: 17, max: 100 }),
   body('monthly_salary').optional().isFloat({ min: 0 }),
   body('payment_due_date').optional().isInt({ min: 1, max: 28 }),
+  body('guarantor_name').trim().isLength({ min: 2 }).withMessage('Guarantor name is required'),
+  body('guarantor_phone_number').trim().isLength({ min: 5 }).withMessage('Guarantor phone number is required'),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -94,6 +96,9 @@ router.post(
         other_role_title,
         hire_date,
         payment_due_date,
+        guarantor_name,
+        guarantor_phone_number,
+        guarantor_national_id,
       } = req.body;
 
       if (!isEthiopianMobilePhone(phone_number)) {
@@ -127,6 +132,17 @@ router.post(
           payment_due_date || 25,
         ]
       );
+      await query(
+        `UPDATE staff_profiles
+         SET guarantor_name = $1,
+             guarantor_phone_number = $2,
+             guarantor_national_id = $3
+         WHERE id = $4`,
+        [String(guarantor_name || '').trim(), String(guarantor_phone_number || '').trim(), guarantor_national_id || null, inserted.rows[0].id]
+      );
+      inserted.rows[0].guarantor_name = String(guarantor_name || '').trim();
+      inserted.rows[0].guarantor_phone_number = String(guarantor_phone_number || '').trim();
+      inserted.rows[0].guarantor_national_id = guarantor_national_id || null;
 
       await notifyAdmins(inserted.rows[0].location_id, 'Staff Profile Created', `${inserted.rows[0].full_name} was added as ${inserted.rows[0].job_title || inserted.rows[0].role_preference}.`, 'staff_profile_created');
 
@@ -147,6 +163,8 @@ router.put(
   body('role_preference').optional().isIn(['cashier', 'manager', 'other']),
   body('age').optional({ nullable: true }).isInt({ min: 17, max: 100 }),
   body('monthly_salary').optional({ nullable: true }).isFloat({ min: 0 }),
+  body('guarantor_name').optional().trim().isLength({ min: 2 }),
+  body('guarantor_phone_number').optional().trim().isLength({ min: 5 }),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -179,6 +197,9 @@ router.put(
       const nextSalary = req.body.monthly_salary === undefined || req.body.monthly_salary === null || req.body.monthly_salary === ''
         ? Number(staff.monthly_salary || 0)
         : Number(req.body.monthly_salary);
+      const nextGuarantorName = req.body.guarantor_name === undefined ? staff.guarantor_name : String(req.body.guarantor_name || '').trim();
+      const nextGuarantorPhone = req.body.guarantor_phone_number === undefined ? staff.guarantor_phone_number : String(req.body.guarantor_phone_number || '').trim();
+      const nextGuarantorNationalId = req.body.guarantor_national_id === undefined ? staff.guarantor_national_id : (req.body.guarantor_national_id || null);
 
       if (!isEthiopianMobilePhone(nextPhoneNumber)) {
         return res.status(400).json({ error: 'Phone number must be +2519XXXXXXXX or +2517XXXXXXXX', code: 'INVALID_PHONE_NUMBER', requestId: req.requestId });
@@ -186,6 +207,9 @@ router.put(
 
       if (nextAge !== null && nextAge < 17) {
         return res.status(400).json({ error: 'Age must be greater than 16', code: 'INVALID_AGE', requestId: req.requestId });
+      }
+      if (!nextGuarantorName || !nextGuarantorPhone) {
+        return res.status(400).json({ error: 'Guarantor name and phone number are required', code: 'MISSING_GUARANTOR_INFO', requestId: req.requestId });
       }
 
       if (nextNationalId) {
@@ -207,8 +231,11 @@ router.put(
              monthly_salary = $5,
              role_preference = $6,
              job_title = $7,
+             guarantor_name = $8,
+             guarantor_phone_number = $9,
+             guarantor_national_id = $10,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $8
+         WHERE id = $11
          RETURNING *`,
         [
           req.body.full_name || null,
@@ -218,6 +245,9 @@ router.put(
           nextSalary,
           nextRolePreference,
           nextJobTitle,
+          nextGuarantorName,
+          nextGuarantorPhone,
+          nextGuarantorNationalId,
           id,
         ]
       );
