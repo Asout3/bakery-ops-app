@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <rect width="256" height="256" fill="#f3f1ec"/>
-  <ellipse cx="128" cy="95" rx="96" ry="64" fill="none" stroke="#1b2a08" stroke-width="10"/>
-  <path d="M70 145c2-35 29-54 62-53-13 18-8 35 7 42l-69 26z" fill="#ef8b1e"/>
-  <path d="M168 60c-23 13-31 38-16 58 14 20 40 22 57 11l-13 40" fill="#ef8b1e"/>
-  <text x="65" y="198" font-size="34" font-family="Arial" font-weight="700" fill="#1b2a08">SINA</text>
-  <text x="84" y="226" font-size="18" font-family="Arial" fill="#ef8b1e">SWEETS</text>
-</svg>
