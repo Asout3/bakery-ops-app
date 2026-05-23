@@ -312,26 +312,48 @@
   }
 
   .top-bar {
-    height: auto;
     min-height: 58px;
-    flex-wrap: wrap;
-    row-gap: 0.55rem;
     padding: 0.55rem 0.9rem;
   }
 
   .top-bar-right {
-    width: 100%;
+    flex: 1;
     justify-content: flex-end;
-    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .top-bar-location-wrap {
+    flex-shrink: 1;
+    min-width: 0;
+  }
+
+  .top-bar-location-wrap .form-select {
+    max-width: 140px;
+  }
+
+  .top-bar-preferences {
+    flex-shrink: 0;
+    min-width: 0;
   }
 }
 @media (max-width: 640px) {
   .content { padding: 0.9rem; }
 
+  .top-bar {
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .top-bar-right {
+    gap: 0.45rem;
+    flex-wrap: nowrap;
+  }
+
   .top-bar-location-wrap {
     border-right: 0;
     padding-right: 0;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
   }
 
   .top-bar-location-wrap .form-select {
@@ -340,19 +362,27 @@
   }
 
   .top-bar-preferences {
-    margin-left: auto;
-    width: 100%;
+    margin-left: 0;
+    width: auto;
     justify-content: flex-end;
-    gap: 0.4rem;
-  }
-  .language-control {
-    flex: 1;
-    min-width: 0;
-    justify-content: flex-end;
-  }
-  .language-control .form-select {
-    max-width: 100%;
-    min-width: 0;
+    gap: 0.35rem;
+    flex-wrap: nowrap;
   }
 
+  .language-control {
+    flex: 0 1 auto;
+    min-width: 0;
+    justify-content: flex-end;
+  }
+
+  .language-control .form-select {
+    max-width: 96px;
+    min-width: 0;
+    padding-right: 1.1rem;
+  }
+
+  .top-bar-theme-btn {
+    width: 2.1rem;
+    height: 2.1rem;
+  }
 }
