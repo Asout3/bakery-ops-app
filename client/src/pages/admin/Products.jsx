@@ -113,12 +113,16 @@ export default function ProductsPage() {
     try {
       const validVariants = groupData.variants.filter((variant) => variant.name && variant.price !== '');
       if (!validVariants.length) {
-        setMessage({ type: 'warning', text: 'Add at least one variant.' });
+        const warningMessage = 'Add at least one variant.';
+        setMessage({ type: 'warning', text: warningMessage });
+        toast.warning(warningMessage);
         setSaving(false);
         return;
       }
       if (!validVariants.every(hasMandatoryFields)) {
-        setMessage({ type: 'warning', text: 'Category, low stock threshold, and shelf life (>=1 day) are required for every variant.' });
+        const warningMessage = 'Please select a category and complete low stock threshold and shelf life (>=1 day) for every variant.';
+        setMessage({ type: 'warning', text: warningMessage });
+        toast.warning(warningMessage);
         setSaving(false);
         return;
       }
@@ -153,7 +157,9 @@ export default function ProductsPage() {
     setSaving(true);
     try {
       if (!hasMandatoryFields(variantData)) {
-        setMessage({ type: 'warning', text: 'Category, low stock threshold, and shelf life (>=1 day) are required.' });
+        const warningMessage = 'Please select a category and complete low stock threshold and shelf life (>=1 day).';
+        setMessage({ type: 'warning', text: warningMessage });
+        toast.warning(warningMessage);
         setSaving(false);
         return;
       }
@@ -186,7 +192,9 @@ export default function ProductsPage() {
     setSaving(true);
     try {
       if (!formData.category_id) {
-        setMessage({ type: 'warning', text: 'Category is required.' });
+        const warningMessage = 'Please select a category before updating this variant.';
+        setMessage({ type: 'warning', text: warningMessage });
+        toast.warning(warningMessage);
         setSaving(false);
         return;
       }
