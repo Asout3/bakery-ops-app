@@ -56,6 +56,7 @@ async function hasStaffGuarantorColumns() {
     `SELECT COUNT(*)::int AS count
      FROM information_schema.columns
      WHERE table_name = 'staff_profiles'
+       AND table_schema = ANY(current_schemas(false))
        AND column_name IN ('guarantor_name', 'guarantor_phone_number', 'guarantor_national_id')`
   );
   return Number(result.rows[0]?.count || 0) === 3;
@@ -167,17 +168,21 @@ router.post(
         ]
       );
       if (supportsGuarantorColumns) {
-        await query(
-          `UPDATE staff_profiles
-           SET guarantor_name = $1,
-               guarantor_phone_number = $2,
-               guarantor_national_id = $3
-           WHERE id = $4`,
-          [String(guarantor_name || '').trim(), String(guarantor_phone_number || '').trim(), guarantor_national_id || null, inserted.rows[0].id]
-        );
-        inserted.rows[0].guarantor_name = String(guarantor_name || '').trim();
-        inserted.rows[0].guarantor_phone_number = String(guarantor_phone_number || '').trim();
-        inserted.rows[0].guarantor_national_id = guarantor_national_id || null;
+        try {
+          await query(
+            `UPDATE staff_profiles
+             SET guarantor_name = $1,
+                 guarantor_phone_number = $2,
+                 guarantor_national_id = $3
+             WHERE id = $4`,
+            [String(guarantor_name || '').trim(), String(guarantor_phone_number || '').trim(), guarantor_national_id || null, inserted.rows[0].id]
+          );
+          inserted.rows[0].guarantor_name = String(guarantor_name || '').trim();
+          inserted.rows[0].guarantor_phone_number = String(guarantor_phone_number || '').trim();
+          inserted.rows[0].guarantor_national_id = guarantor_national_id || null;
+        } catch (writeErr) {
+          if (writeErr?.code !== '42703') throw writeErr;
+        }
       }
 
       await notifyAdmins(inserted.rows[0].location_id, 'Staff Profile Created', `${inserted.rows[0].full_name} was added as ${inserted.rows[0].job_title || inserted.rows[0].role_preference}.`, 'staff_profile_created');
