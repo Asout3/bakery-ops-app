@@ -40,6 +40,12 @@ export default function CashierOrders() {
     settings: normalizeReceiptSettings({}),
     activeTemplate: { id: 'default', name: 'Classic thermal', schema: normalizeReceiptTemplate({}) },
   });
+  const moneyInputGuards = {
+    onWheel: (e) => e.currentTarget.blur(),
+    onKeyDown: (e) => {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+    },
+  };
 
   const activeProducts = useMemo(() => products.filter((p) => p.is_active !== false), [products]);
   const productById = useMemo(() => {
@@ -268,7 +274,7 @@ export default function CashierOrders() {
             <div className="col-md-4"><label className="form-label">Phone *</label><input className="form-control" value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} required /></div>
             <div className="col-md-4"><label className="form-label">Pickup Time</label><input type="datetime-local" className="form-control" value={form.pickup_at} onChange={(e) => setForm({ ...form, pickup_at: e.target.value })} /></div>
             <div className="col-md-4"><label className="form-label">Payment Method</label><select className="form-select" value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value })}><option value="cash">Cash</option><option value="mobile">Mobile Banking</option><option value="telebirr">Telebirr</option></select></div>
-            <div className="col-md-4"><label className="form-label">Amount Paid Now</label><input type="number" step="0.01" min="0" className="form-control" value={form.paid_amount} onChange={(e) => setForm({ ...form, paid_amount: e.target.value })} /></div>
+            <div className="col-md-4"><label className="form-label">Amount Paid Now</label><input type="number" step="0.01" min="0" className="form-control" value={form.paid_amount} onChange={(e) => setForm({ ...form, paid_amount: e.target.value })} inputMode="decimal" {...moneyInputGuards} /></div>
             <div className="col-md-12"><label className="form-label">Customer Note</label><textarea className="form-control form-note-input" rows="4" placeholder="Special requests, allergy notes, delivery clues..." value={form.customer_note} onChange={(e) => setForm({ ...form, customer_note: e.target.value })} /></div>
           </div>
 
@@ -279,7 +285,7 @@ export default function CashierOrders() {
               <div className="col-md-4"><label className="form-label">Product</label><select className="form-select" value={item.product_id} onChange={(e) => updateItem(idx, 'product_id', e.target.value)}><option value="">Custom item</option>{activeProducts.map((p) => <option key={p.id} value={p.id}>{p.group_name || p.name} / {p.name}</option>)}</select></div>
               <div className="col-md-3"><label className="form-label">Custom item name</label><input className="form-control" placeholder="Use for non-product items" value={item.custom_item_name} onChange={(e) => updateItem(idx, 'custom_item_name', e.target.value)} disabled={!!item.product_id} /></div>
               <div className="col-md-2"><label className="form-label">Qty</label><input type="number" min="1" className="form-control" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} /></div>
-              <div className="col-md-2"><label className="form-label">Unit price</label><input type="number" min="0" step="0.01" className="form-control" placeholder="0.00" value={item.unit_price} onChange={(e) => updateItem(idx, 'unit_price', e.target.value)} /></div>
+              <div className="col-md-2"><label className="form-label">Unit price</label><input type="number" min="0" step="0.01" className="form-control" placeholder="0.00" value={item.unit_price} onChange={(e) => updateItem(idx, 'unit_price', e.target.value)} inputMode="decimal" {...moneyInputGuards} /></div>
               <div className="col-md-1 d-grid"><button type="button" className="btn btn-outline-danger" onClick={() => removeRow(idx)} disabled={form.items.length === 1}>×</button></div>
             </div>
           ))}

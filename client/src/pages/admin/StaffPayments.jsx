@@ -40,6 +40,14 @@ const normalizeStaffTarget = (staff) => {
   return { staffProfileId, userId };
 };
 
+const getStaffOptionValue = (staff) => {
+  const staffProfileId = Number(staff?.staff_profile_id || 0);
+  if (staffProfileId > 0) return `sp:${staffProfileId}`;
+  const userId = Number(staff?.user_id || staff?.id || 0);
+  if (userId > 0) return `u:${userId}`;
+  return '';
+};
+
 
 const moneyInputGuards = {
   onWheel: (e) => e.currentTarget.blur(),
@@ -49,6 +57,12 @@ const moneyInputGuards = {
 };
 
 const toMoney2 = (value) => Number(Number(value || 0).toFixed(2));
+const formatDateDMY = (value) => {
+  if (!value) return 'N/A';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'N/A';
+  return date.toLocaleDateString('en-GB');
+};
 
 const getStaffRoleLabel = (staff) => {
   if (!staff) return 'Staff';
@@ -132,22 +146,22 @@ export default function StaffPaymentsPage() {
     }
   };
 
-  const handleStaffSelect = (staffId) => {
-    if (!staffId) {
+  const handleStaffSelect = (staffOptionValue) => {
+    if (!staffOptionValue) {
       setSuggestedPayment(null);
       setFormData((prev) => ({ ...prev, staff_profile_id: '' }));
       return;
     }
 
-    const selected = staffMembers.find((s) => Number(s.id) === Number(staffId));
+    const selected = staffMembers.find((s) => getStaffOptionValue(s) === staffOptionValue);
     if (!selected) {
       setSuggestedPayment(null);
-      setFormData((prev) => ({ ...prev, staff_profile_id: staffId }));
+      setFormData((prev) => ({ ...prev, staff_profile_id: staffOptionValue }));
       return;
     }
 
     const staffPayments = payments
-      .filter((payment) => Number(payment.staff_profile_id) === Number(staffId))
+      .filter((payment) => Number(payment.staff_profile_id) === Number(selected.staff_profile_id))
       .sort((a, b) => {
         const aDate = new Date(a.payment_date || a.created_at || 0).getTime();
         const bDate = new Date(b.payment_date || b.created_at || 0).getTime();
@@ -156,7 +170,9 @@ export default function StaffPaymentsPage() {
 
     const lastPaymentDate = staffPayments[0]?.payment_date ? new Date(staffPayments[0].payment_date) : null;
     const targetDate = new Date();
+    const hireDate = selected.hire_date ? new Date(selected.hire_date) : null;
     const workedDays = lastPaymentDate ? Math.max(1, Math.ceil((targetDate - lastPaymentDate) / (1000 * 60 * 60 * 24))) : 30;
+    const employmentDays = hireDate && !Number.isNaN(hireDate.getTime()) ? Math.max(1, Math.ceil((targetDate - hireDate) / (1000 * 60 * 60 * 24))) : null;
     const monthlySalary = Number(selected.monthly_salary || 0);
     const dailyRate = toMoney2(monthlySalary > 0 ? (monthlySalary / 30) : 0);
     const recommendedAmount = toMoney2(Math.max(0, dailyRate * workedDays));
@@ -170,11 +186,13 @@ export default function StaffPaymentsPage() {
       recommendedAmount,
       lastPaymentDate,
       account: selected.account_username || null,
+      hireDate: selected.hire_date || null,
+      employmentDays,
     });
 
     setFormData((prev) => ({
       ...prev,
-      staff_profile_id: staffId,
+      staff_profile_id: staffOptionValue,
       amount: recommendedAmount > 0 ? String(recommendedAmount) : (selected.monthly_salary ? String(toMoney2(selected.monthly_salary)) : prev.amount),
     }));
   };
@@ -240,7 +258,7 @@ export default function StaffPaymentsPage() {
     setSuggestedPayment(null);
     setEditingPayment(payment);
     setFormData({
-      staff_profile_id: payment.staff_profile_id ? String(payment.staff_profile_id) : '',
+      staff_profile_id: payment.staff_profile_id ? `sp:${payment.staff_profile_id}` : '',
       amount: String(payment.amount),
       payment_type: payment.payment_type || 'salary',
       notes: getReadableNote(payment.notes),
@@ -251,7 +269,7 @@ export default function StaffPaymentsPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
-    const selectedStaff = staffMembers.find((staff) => Number(staff.id) === Number(formData.staff_profile_id));
+    const selectedStaff = staffMembers.find((staff) => getStaffOptionValue(staff) === formData.staff_profile_id);
     const { staffProfileId, userId } = normalizeStaffTarget(selectedStaff);
     const payload = {
       staff_profile_id: staffProfileId || undefined,
@@ -334,7 +352,7 @@ export default function StaffPaymentsPage() {
   }, [filteredPayments, payments, selectedMonth]);
 
   const selectedStaffProfile = useMemo(
-    () => staffMembers.find((staff) => Number(staff.id) === Number(formData.staff_profile_id)) || null,
+    () => staffMembers.find((staff) => getStaffOptionValue(staff) === formData.staff_profile_id) || null,
     [staffMembers, formData.staff_profile_id],
   );
 
@@ -446,6 +464,8 @@ export default function StaffPaymentsPage() {
                       </div>
 
                       <div className="staff-payment-calculation-grid">
+                        <div className="staff-payment-kpi"><span>Hire Date</span><strong>{formatDateDMY(suggestedPayment.hireDate)}</strong></div>
+                        <div className="staff-payment-kpi"><span>Employment Days</span><strong>{suggestedPayment.employmentDays || 'N/A'}</strong></div>
                         <div className="staff-payment-kpi"><span>Worked Days</span><strong>{suggestedPayment.workedDays}</strong></div>
                         <div className="staff-payment-kpi"><span>Daily Rate</span><strong>ETB {suggestedPayment.dailyRate.toFixed(2)}</strong></div>
                         <div className="staff-payment-kpi"><span>Suggested Amount</span><strong>ETB {suggestedPayment.recommendedAmount.toFixed(2)}</strong></div>
@@ -458,7 +478,7 @@ export default function StaffPaymentsPage() {
                       </div>
 
                       <div className="staff-payment-formula">
-                        Calculation: ETB {suggestedPayment.dailyRate.toFixed(2)} x {suggestedPayment.workedDays} day(s) = ETB {suggestedPayment.recommendedAmount.toFixed(2)}
+                        Formula: (Monthly Salary ÷ 30) x Worked Days = ETB {suggestedPayment.recommendedAmount.toFixed(2)}
                       </div>
 
                       <button
@@ -472,7 +492,7 @@ export default function StaffPaymentsPage() {
                   </div>
                 ) : null}
 
-                <div className="col-md-6"><label className="form-label">Staff *</label><select className="form-select" value={formData.staff_profile_id} onChange={(e) => handleStaffSelect(e.target.value)} required><option value="">Select staff</option>{staffMembers.map((staff) => <option key={staff.id} value={staff.id}>{staff.full_name} - {getStaffRoleLabel(staff)}</option>)}</select></div>
+                <div className="col-md-6"><label className="form-label">Staff *</label><select className="form-select" value={formData.staff_profile_id} onChange={(e) => handleStaffSelect(e.target.value)} required><option value="">Select staff</option>{staffMembers.map((staff) => <option key={getStaffOptionValue(staff)} value={getStaffOptionValue(staff)}>{staff.full_name} - {getStaffRoleLabel(staff)}</option>)}</select></div>
                 <div className="col-md-6"><label className="form-label">Amount *</label><input type="number" min="0" step="0.01" inputMode="decimal" className="form-control" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required {...moneyInputGuards} /></div>
 
                 {selectedStaffProfile ? (
@@ -480,6 +500,7 @@ export default function StaffPaymentsPage() {
                     <div className="staff-selected-profile-row">
                       <div><span className="label">Profile</span><strong>{selectedStaffProfile.full_name || 'Unknown'}</strong></div>
                       <div><span className="label">Role</span><strong>{getStaffRoleLabel(selectedStaffProfile)}</strong></div>
+                      <div><span className="label">Hire Date</span><strong>{formatDateDMY(selectedStaffProfile.hire_date)}</strong></div>
                       <div><span className="label">Monthly Salary</span><strong>ETB {Number(selectedStaffProfile.monthly_salary || 0).toFixed(2)}</strong></div>
                     </div>
                   </div>

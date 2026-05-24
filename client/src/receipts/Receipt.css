@@ -127,3 +127,8 @@
 .thermal-receipt__note {
   white-space: pre-wrap;
 }
+
+[data-theme='dark'] .thermal-receipt,
+[data-theme='dark'] .thermal-receipt * {
+  color: #111 !important;
+}

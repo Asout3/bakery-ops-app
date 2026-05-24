@@ -33,6 +33,10 @@ const emptyStaff = {
   role_preference: 'cashier',
   other_role_title: '',
   payment_due_date: '25',
+  guarantor_name: '',
+  guarantor_phone_number: '',
+  guarantor_national_id: '',
+  hire_date: new Date().toISOString().slice(0, 10),
 };
 
 export default function StaffManagement() {
@@ -84,6 +88,14 @@ export default function StaffManagement() {
       setFeedback({ type: 'danger', message: 'Age must be greater than 16.' });
       return;
     }
+    if (!String(staffForm.guarantor_name || '').trim()) {
+      setFeedback({ type: 'danger', message: 'Guarantor name is required.' });
+      return;
+    }
+    if (!String(staffForm.guarantor_phone_number || '').trim()) {
+      setFeedback({ type: 'danger', message: 'Guarantor phone number is required.' });
+      return;
+    }
     setSaving(true);
     try {
       await api.post('/admin/staff', {
@@ -92,6 +104,10 @@ export default function StaffManagement() {
         age: staffForm.age ? Number(staffForm.age) : undefined,
         monthly_salary: staffForm.monthly_salary ? Number(staffForm.monthly_salary) : 0,
         payment_due_date: staffForm.payment_due_date ? Number(staffForm.payment_due_date) : 25,
+        guarantor_name: staffForm.guarantor_name,
+        guarantor_phone_number: staffForm.guarantor_phone_number,
+        guarantor_national_id: staffForm.guarantor_national_id || null,
+        hire_date: staffForm.hire_date,
       });
       setFeedback({ type: 'success', message: 'Staff profile created.' });
       setStaffForm({ ...emptyStaff });
@@ -126,6 +142,10 @@ export default function StaffManagement() {
       return;
     }
     const role_preference = row.role_preference || 'cashier';
+    if (!String(row.guarantor_name || '').trim() || !String(row.guarantor_phone_number || '').trim()) {
+      setFeedback({ type: 'danger', message: 'Guarantor name and phone number are required.' });
+      return;
+    }
     try {
       await api.put(`/admin/staff/${row.id}`, {
         full_name,
@@ -134,6 +154,9 @@ export default function StaffManagement() {
         role_preference,
         national_id: row.national_id || null,
         age: row.age || null,
+        guarantor_name: row.guarantor_name || '',
+        guarantor_phone_number: row.guarantor_phone_number || '',
+        guarantor_national_id: row.guarantor_national_id || null,
         other_role_title: role_preference === 'other' ? (row.job_title || 'Other Staff') : undefined,
       });
       setFeedback({ type: 'success', message: 'Staff profile updated.' });
@@ -177,9 +200,14 @@ export default function StaffManagement() {
           </div>
           <div className="row g-2">
             <div className="col-md-4 mb-3"><label className="form-label">Role</label><select className="form-select" value={staffForm.role_preference} onChange={(e)=>setStaffForm((p)=>({...p,role_preference:e.target.value}))}><option value="cashier">Cashier</option><option value="manager">Ground Manager</option><option value="other">Other</option></select></div>
-            
+            <div className="col-md-4 mb-3"><label className="form-label">Hire Date</label><input type="date" className="form-control" required value={staffForm.hire_date} onChange={(e)=>setStaffForm((p)=>({...p,hire_date:e.target.value}))} /></div>
             <div className="col-md-4 mb-3"><label className="form-label">Salary Due Day (1-28)</label><input type="number" min="1" max="28" className="form-control" value={staffForm.payment_due_date} onChange={(e)=>setStaffForm((p)=>({...p,payment_due_date:e.target.value}))} placeholder="25" /><small className="text-muted">Day of month to pay salary</small></div>
             {staffForm.role_preference === 'other' && <div className="col-md-4 mb-3"><label className="form-label">Other Role Title</label><input className="form-control" required value={staffForm.other_role_title} onChange={(e)=>setStaffForm((p)=>({...p,other_role_title:e.target.value}))} /></div>}
+          </div>
+          <div className="row g-2">
+            <div className="col-md-4 mb-3"><label className="form-label">Guarantor Name *</label><input className="form-control" required value={staffForm.guarantor_name} onChange={(e)=>setStaffForm((p)=>({...p,guarantor_name:e.target.value}))} /></div>
+            <div className="col-md-4 mb-3"><label className="form-label">Guarantor Phone *</label><input className="form-control" required value={staffForm.guarantor_phone_number} onChange={(e)=>setStaffForm((p)=>({...p,guarantor_phone_number:e.target.value}))} /></div>
+            <div className="col-md-4 mb-3"><label className="form-label">Guarantor National ID (optional)</label><input className="form-control" value={staffForm.guarantor_national_id} onChange={(e)=>setStaffForm((p)=>({...p,guarantor_national_id:e.target.value}))} /></div>
           </div>
           <button className="btn btn-success" disabled={saving}><UserPlus size={16} /> {saving ? 'Saving...' : 'Save Staff Profile'}</button>
         </form>
@@ -211,6 +239,12 @@ export default function StaffManagement() {
               <div className="row g-2">
                 <div className="col-md-4 mb-3"><label className="form-label">Role</label><input className="form-control" value={profile.role_preference === 'manager' ? 'Ground Manager' : profile.role_preference === 'other' ? 'Other' : 'Cashier'} readOnly /></div>
                 {profile.role_preference === 'other' && <div className="col-md-8 mb-3"><label className="form-label">Other Title</label><input className="form-control" value={profile.job_title || ''} onChange={(e)=>setProfile((p)=>({...p,job_title:e.target.value}))} /></div>}
+              </div>
+              <div className="row g-2">
+                <div className="col-md-4 mb-3"><label className="form-label">Hire Date</label><input type="date" className="form-control" value={(profile.hire_date || '').slice(0, 10)} readOnly /></div>
+                <div className="col-md-4 mb-3"><label className="form-label">Guarantor Name *</label><input className="form-control" value={profile.guarantor_name || ''} onChange={(e)=>setProfile((p)=>({...p,guarantor_name:e.target.value}))} /></div>
+                <div className="col-md-4 mb-3"><label className="form-label">Guarantor Phone *</label><input className="form-control" value={profile.guarantor_phone_number || ''} onChange={(e)=>setProfile((p)=>({...p,guarantor_phone_number:e.target.value}))} /></div>
+                <div className="col-md-4 mb-3"><label className="form-label">Guarantor National ID</label><input className="form-control" value={profile.guarantor_national_id || ''} onChange={(e)=>setProfile((p)=>({...p,guarantor_national_id:e.target.value}))} /></div>
               </div>
               <button className="btn btn-primary" onClick={async()=>{await editStaff(profile); setProfile(null);}}>Save Changes</button>
             </div>
