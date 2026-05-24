@@ -8,6 +8,7 @@ import { adminLifecycleRepository } from '../repositories/adminLifecycleReposito
 import { createStaffAccount, updateStaffAccount, archiveStaffAccount, archiveStaffProfile } from '../services/adminLifecycleService.js';
 
 const router = express.Router();
+let guarantorColumnsEnsured = false;
 
 function isEthiopianMobilePhone(value) {
   return /^\+251(9|7)\d{8}$/.test(String(value || '').trim());
@@ -62,8 +63,20 @@ async function hasStaffGuarantorColumns() {
   return Number(result.rows[0]?.count || 0) === 3;
 }
 
+async function ensureStaffGuarantorColumns() {
+  if (guarantorColumnsEnsured) return;
+  await query(
+    `ALTER TABLE IF EXISTS staff_profiles
+       ADD COLUMN IF NOT EXISTS guarantor_name VARCHAR(150),
+       ADD COLUMN IF NOT EXISTS guarantor_phone_number VARCHAR(20),
+       ADD COLUMN IF NOT EXISTS guarantor_national_id VARCHAR(100)`
+  );
+  guarantorColumnsEnsured = true;
+}
+
 router.get('/staff', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
+    await ensureStaffGuarantorColumns();
     const supportsGuarantorColumns = await hasStaffGuarantorColumns();
     const result = await query(
       `SELECT
@@ -120,6 +133,8 @@ router.post(
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
+      await ensureStaffGuarantorColumns();
+      const supportsGuarantorColumns = await hasStaffGuarantorColumns();
         const {
         full_name,
         national_id,
@@ -167,23 +182,20 @@ router.post(
           payment_due_date || 25,
         ]
       );
-      if (supportsGuarantorColumns) {
-        try {
-          await query(
-            `UPDATE staff_profiles
-             SET guarantor_name = $1,
-                 guarantor_phone_number = $2,
-                 guarantor_national_id = $3
-             WHERE id = $4`,
-            [String(guarantor_name || '').trim(), String(guarantor_phone_number || '').trim(), guarantor_national_id || null, inserted.rows[0].id]
-          );
-          inserted.rows[0].guarantor_name = String(guarantor_name || '').trim();
-          inserted.rows[0].guarantor_phone_number = String(guarantor_phone_number || '').trim();
-          inserted.rows[0].guarantor_national_id = guarantor_national_id || null;
-        } catch (writeErr) {
-          if (writeErr?.code !== '42703') throw writeErr;
-        }
+      if (!supportsGuarantorColumns) {
+        return res.status(500).json({ error: 'Guarantor columns are not available. Please run the latest database migration.', code: 'GUARANTOR_SCHEMA_MISSING', requestId: req.requestId });
       }
+      await query(
+        `UPDATE staff_profiles
+         SET guarantor_name = $1,
+             guarantor_phone_number = $2,
+             guarantor_national_id = $3
+         WHERE id = $4`,
+        [String(guarantor_name || '').trim(), String(guarantor_phone_number || '').trim(), guarantor_national_id || null, inserted.rows[0].id]
+      );
+      inserted.rows[0].guarantor_name = String(guarantor_name || '').trim();
+      inserted.rows[0].guarantor_phone_number = String(guarantor_phone_number || '').trim();
+      inserted.rows[0].guarantor_national_id = guarantor_national_id || null;
 
       await notifyAdmins(inserted.rows[0].location_id, 'Staff Profile Created', `${inserted.rows[0].full_name} was added as ${inserted.rows[0].job_title || inserted.rows[0].role_preference}.`, 'staff_profile_created');
 
@@ -211,6 +223,7 @@ router.put(
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
+      await ensureStaffGuarantorColumns();
       const supportsGuarantorColumns = await hasStaffGuarantorColumns();
       const id = Number(req.params.id);
       if (!Number.isInteger(id)) {
