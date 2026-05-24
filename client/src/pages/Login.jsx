@@ -182,7 +182,7 @@ export default function Login() {
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                   tabIndex={-1}
                 >
-                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                  {showPassword ? <Eye size={17} /> : <EyeOff size={17} />}
                 </button>
               </div>
               {errors.password && <div className="form-feedback-error">{errors.password.message}</div>}
@@ -272,7 +272,7 @@ export default function Login() {
                     required
                   />
                   <button type="button" className="password-toggle" onClick={() => setShowRecoveryPass((p) => !p)}>
-                    {showRecoveryPass ? <EyeOff size={17} /> : <Eye size={17} />}
+                    {showRecoveryPass ? <Eye size={17} /> : <EyeOff size={17} />}
                   </button>
                 </div>
                 {recoveryPassword && !validatePassword(recoveryPassword) && (
@@ -292,7 +292,7 @@ export default function Login() {
                     required
                   />
                   <button type="button" className="password-toggle" onClick={() => setShowRecoveryConfirm((p) => !p)}>
-                    {showRecoveryConfirm ? <EyeOff size={17} /> : <Eye size={17} />}
+                    {showRecoveryConfirm ? <Eye size={17} /> : <EyeOff size={17} />}
                   </button>
                 </div>
               </div>
