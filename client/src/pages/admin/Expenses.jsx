@@ -98,7 +98,7 @@ export default function ExpensesPage() {
     }
     setIsSubmittingExpense(true);
     try {
-      const payload = isAdmin ? formData : { ...formData, expense_date: today };
+      const payload = { ...formData, expense_date: today };
       if (editingExpense) {
         await api.put(`/expenses/${editingExpense.id}`, payload);
       } else {
@@ -110,7 +110,7 @@ export default function ExpensesPage() {
     } catch (err) {
       if (!editingExpense && !err.response) {
         const idempotencyKey = `expense-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        await enqueueOperation({ url: '/expenses', method: 'post', data: formData, idempotencyKey });
+        await enqueueOperation({ url: '/expenses', method: 'post', data: { ...formData, expense_date: today }, idempotencyKey });
         setMessage({ type: 'warning', text: 'Offline: expense queued for sync.' });
         resetForm();
       } else {
@@ -234,7 +234,7 @@ export default function ExpensesPage() {
             )}
             <div className="mb-3"><label className="form-label">Description</label><textarea className="form-control" rows="3" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} /></div>
             <div className="mb-3"><label className="form-label">Amount *</label><input type="number" className="form-control" min="0" step="0.01" inputMode="decimal" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required {...moneyInputGuards} /></div>
-            {isAdmin ? <div className="mb-3"><label className="form-label">Date *</label><input type="date" className="form-control" value={formData.expense_date} onChange={(e) => setFormData({ ...formData, expense_date: e.target.value })} required /></div> : null}
+            <div className="mb-3"><label className="form-label">Date</label><input type="text" className="form-control" value={new Date(today).toLocaleDateString()} readOnly /></div>
             <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForm} disabled={isSubmittingExpense}>Cancel</button><button type="submit" className="btn btn-primary" disabled={isSubmittingExpense}>{isSubmittingExpense ? 'Saving…' : (editingExpense ? 'Update Expense' : 'Add Expense')}</button></div>
           </form>
         </div></div>

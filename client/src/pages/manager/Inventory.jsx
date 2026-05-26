@@ -227,11 +227,13 @@ export default function Inventory() {
       return;
     }
 
+    const payload = { items: cart, notes: 'Batch sent from manager' };
+    const idempotencyKey = `batch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
     setLoading(true);
     try {
-      await api.post('/inventory/batches', {
-        items: cart,
-        notes: 'Batch sent from manager',
+      await api.post('/inventory/batches', payload, {
+        headers: { 'X-Idempotency-Key': idempotencyKey },
       });
 
       toast.success('Batch sent successfully!');
@@ -244,8 +246,6 @@ export default function Inventory() {
       
     } catch (err) {
       if (!err.response) {
-        const payload = { items: cart, notes: 'Batch sent from manager' };
-        const idempotencyKey = `batch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         await enqueueOperation({ url: '/inventory/batches', method: 'post', data: payload, idempotencyKey });
         const optimisticInventory = applyBatchItemsToInventory(inventory, cart);
         setInventory(optimisticInventory);

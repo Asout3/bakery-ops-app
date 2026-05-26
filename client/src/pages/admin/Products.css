@@ -10,8 +10,21 @@
   grid-template-columns: minmax(260px, 1fr) minmax(300px, auto);
   gap: 0.75rem;
   align-items: end;
+  min-width: 0;
 }
+.products-controls-grid > div { min-width: 0; }
+.products-category-add-row { min-width: 0; }
+.products-category-add-row .form-control { min-width: 0; }
+.products-category-add-row .btn { white-space: nowrap; }
 
 @media (max-width: 700px) {
   .products-controls-grid { grid-template-columns: 1fr; }
+  .products-category-add-row {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .products-category-add-row .form-control,
+  .products-category-add-row .btn {
+    width: 100%;
+  }
 }

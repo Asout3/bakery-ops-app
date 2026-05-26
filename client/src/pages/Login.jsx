@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, ShoppingCart, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -115,7 +115,7 @@ export default function Login() {
       >
         <div className="login-panel-content">
           <div className="login-panel-icon">
-            <ShoppingCart size={36} />
+            <img src="/sina-logo.svg" alt="Sina Sweet logo" className="login-logo-image" />
           </div>
           <h2 className="login-panel-heading">{t('appTitle')}</h2>
           <p className="login-panel-sub">Bakery Operations System</p>
@@ -182,7 +182,7 @@ export default function Login() {
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                   tabIndex={-1}
                 >
-                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                  {showPassword ? <Eye size={17} /> : <EyeOff size={17} />}
                 </button>
               </div>
               {errors.password && <div className="form-feedback-error">{errors.password.message}</div>}
@@ -272,7 +272,7 @@ export default function Login() {
                     required
                   />
                   <button type="button" className="password-toggle" onClick={() => setShowRecoveryPass((p) => !p)}>
-                    {showRecoveryPass ? <EyeOff size={17} /> : <Eye size={17} />}
+                    {showRecoveryPass ? <Eye size={17} /> : <EyeOff size={17} />}
                   </button>
                 </div>
                 {recoveryPassword && !validatePassword(recoveryPassword) && (
@@ -292,7 +292,7 @@ export default function Login() {
                     required
                   />
                   <button type="button" className="password-toggle" onClick={() => setShowRecoveryConfirm((p) => !p)}>
-                    {showRecoveryConfirm ? <EyeOff size={17} /> : <Eye size={17} />}
+                    {showRecoveryConfirm ? <Eye size={17} /> : <EyeOff size={17} />}
                   </button>
                 </div>
               </div>

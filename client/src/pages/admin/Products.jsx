@@ -6,6 +6,12 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 
 const UNIT_OPTIONS = ['piece', 'kg', 'gram', 'liter', 'pack', 'tray'];
+const numberInputGuards = {
+  onWheel: (e) => e.currentTarget.blur(),
+  onKeyDown: (e) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+  },
+};
 const emptyVariant = { name: '', price: '', cost: '', unit: 'piece', source: 'baked', category_id: '', low_stock_threshold: '', shelf_life_days: '' };
 const formatProductDisplayId = (product) => {
   const group = (product.group_name || product.name || 'PRD').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) || 'PRD';
@@ -14,13 +20,6 @@ const formatProductDisplayId = (product) => {
 
 
 const productsControlsCardStyle = { border: '1px solid var(--border-light)' };
-
-const productsControlsRowStyle = {
-  display: 'grid',
-  gridTemplateColumns: 'minmax(280px, 1fr) minmax(320px, auto)',
-  gap: '0.75rem',
-  alignItems: 'center',
-};
 
 export default function ProductsPage() {
   const { t } = useLanguage();
@@ -42,7 +41,8 @@ export default function ProductsPage() {
   const [formData, setFormData] = useState({ name: '', group_name: '', category_id: '', price: '', cost: '', unit: 'piece', source: 'baked', low_stock_threshold: '', shelf_life_days: '', is_active: true });
 
   const hasMandatoryFields = (variant) => (
-    variant.low_stock_threshold !== ''
+    variant.category_id !== ''
+    && variant.low_stock_threshold !== ''
     && variant.shelf_life_days !== ''
     && Number(variant.shelf_life_days) >= 1
     && Number(variant.low_stock_threshold) >= 0
@@ -106,12 +106,16 @@ export default function ProductsPage() {
     try {
       const validVariants = groupData.variants.filter((variant) => variant.name && variant.price !== '');
       if (!validVariants.length) {
-        setMessage({ type: 'warning', text: 'Add at least one variant.' });
+        const warningMessage = 'Add at least one variant.';
+        setMessage({ type: 'warning', text: warningMessage });
+        toast.warning(warningMessage);
         setSaving(false);
         return;
       }
       if (!validVariants.every(hasMandatoryFields)) {
-        setMessage({ type: 'warning', text: 'Low stock threshold and shelf life (>=1 day) are required for every variant.' });
+        const warningMessage = 'Please select a category and complete low stock threshold and shelf life (>=1 day) for every variant.';
+        setMessage({ type: 'warning', text: warningMessage });
+        toast.warning(warningMessage);
         setSaving(false);
         return;
       }
@@ -119,7 +123,7 @@ export default function ProductsPage() {
         await api.post('/products', {
           name: variant.name,
           group_name: groupData.group_name,
-          category_id: variant.category_id || null,
+          category_id: Number(variant.category_id),
           price: variant.price,
           cost: variant.cost || null,
           unit: variant.unit || 'piece',
@@ -146,14 +150,16 @@ export default function ProductsPage() {
     setSaving(true);
     try {
       if (!hasMandatoryFields(variantData)) {
-        setMessage({ type: 'warning', text: 'Low stock threshold and shelf life (>=1 day) are required.' });
+        const warningMessage = 'Please select a category and complete low stock threshold and shelf life (>=1 day).';
+        setMessage({ type: 'warning', text: warningMessage });
+        toast.warning(warningMessage);
         setSaving(false);
         return;
       }
       await api.post('/products', {
         name: variantData.name,
         group_name: variantData.group_name,
-        category_id: variantData.category_id || null,
+        category_id: Number(variantData.category_id),
         price: variantData.price,
         cost: variantData.cost || null,
         unit: variantData.unit || 'piece',
@@ -178,7 +184,14 @@ export default function ProductsPage() {
     if (saving) return;
     setSaving(true);
     try {
-      const payload = { ...formData, low_stock_threshold: formData.low_stock_threshold !== '' ? Number(formData.low_stock_threshold) : null, shelf_life_days: formData.shelf_life_days !== '' ? Number(formData.shelf_life_days) : null };
+      if (!formData.category_id) {
+        const warningMessage = 'Please select a category before updating this variant.';
+        setMessage({ type: 'warning', text: warningMessage });
+        toast.warning(warningMessage);
+        setSaving(false);
+        return;
+      }
+      const payload = { ...formData, category_id: Number(formData.category_id), low_stock_threshold: formData.low_stock_threshold !== '' ? Number(formData.low_stock_threshold) : null, shelf_life_days: formData.shelf_life_days !== '' ? Number(formData.shelf_life_days) : null };
       await api.put(`/products/${editingProduct.id}`, payload);
       await fetchProducts();
       resetForms();
@@ -266,7 +279,7 @@ export default function ProductsPage() {
       </div>
 
       <div className="card mb-3" style={productsControlsCardStyle}>
-        <div className="card-body" style={productsControlsRowStyle}>
+        <div className="card-body products-controls-grid">
           <div>
             <label className="form-label mb-1">{t('searchProducts')}</label>
             <div className="search-bar" style={{ maxWidth: '100%' }}>
@@ -276,7 +289,7 @@ export default function ProductsPage() {
           </div>
           <div>
             <label className="form-label mb-1">{t('addCategory')}</label>
-            <div className="d-flex gap-2" style={{ minWidth: '320px' }}>
+            <div className="products-category-add-row d-flex gap-2">
               <input className="form-control" placeholder="New category" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
               <button className="btn btn-outline-primary" onClick={handleCreateCategory}>{t('addCategory')}</button>
             </div>
@@ -333,7 +346,7 @@ export default function ProductsPage() {
               <form onSubmit={handleCreateGroup} className="modal-body">
                 <div className="mb-3"><label className="form-label">Group Name *</label><input className="form-control" value={groupData.group_name} onChange={(e) => setGroupData({ ...groupData, group_name: e.target.value })} required /></div>
                 {groupData.variants.map((variant, index) => (
-                  <div className="card mb-2" key={index}><div className="card-body"><div className="row g-2"><div className="col-md-4"><label className="form-label">Variant Name *</label><input className="form-control" value={variant.name} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, name: e.target.value } : row) }))} required /></div><div className="col-md-2"><label className="form-label">Price *</label><input type="number" min="0" step="0.01" className="form-control" value={variant.price} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, price: e.target.value } : row) }))} required /></div><div className="col-md-2"><label className="form-label">Cost</label><input type="number" min="0" step="0.01" className="form-control" value={variant.cost} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, cost: e.target.value } : row) }))} /></div><div className="col-md-2"><label className="form-label">Unit</label><select className="form-select" value={variant.unit} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, unit: e.target.value } : row) }))}>{UNIT_OPTIONS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></div><div className="col-md-2"><label className="form-label">Source</label><select className="form-select" value={variant.source} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, source: e.target.value } : row) }))}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-4"><label className="form-label">Category</label><select className="form-select" value={variant.category_id} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, category_id: e.target.value } : row) }))}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div><div className="col-md-4"><label className="form-label">Low Stock Threshold *</label><input type="number" min="0" className="form-control" value={variant.low_stock_threshold} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, low_stock_threshold: e.target.value } : row) }))} required /></div><div className="col-md-4"><label className="form-label">Shelf Life (Days) *</label><input type="number" min="1" className="form-control" value={variant.shelf_life_days} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, shelf_life_days: e.target.value } : row) }))} required /></div></div></div></div>
+                  <div className="card mb-2" key={index}><div className="card-body"><div className="row g-2"><div className="col-md-4"><label className="form-label">Variant Name *</label><input className="form-control" value={variant.name} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, name: e.target.value } : row) }))} required /></div><div className="col-md-2"><label className="form-label">Price *</label><input type="number" min="0" step="0.01" className="form-control" value={variant.price} {...numberInputGuards} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, price: e.target.value } : row) }))} required /></div><div className="col-md-2"><label className="form-label">Cost</label><input type="number" min="0" step="0.01" className="form-control" value={variant.cost} {...numberInputGuards} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, cost: e.target.value } : row) }))} /></div><div className="col-md-2"><label className="form-label">Unit</label><select className="form-select" value={variant.unit} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, unit: e.target.value } : row) }))}>{UNIT_OPTIONS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></div><div className="col-md-2"><label className="form-label">Source</label><select className="form-select" value={variant.source} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, source: e.target.value } : row) }))}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-4"><label className="form-label">Category *</label><select className="form-select" value={variant.category_id} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, category_id: e.target.value } : row) }))}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div><div className="col-md-4"><label className="form-label">Low Stock Threshold *</label><input type="number" min="0" className="form-control" value={variant.low_stock_threshold} {...numberInputGuards} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, low_stock_threshold: e.target.value } : row) }))} required /></div><div className="col-md-4"><label className="form-label">Shelf Life (Days) *</label><input type="number" min="1" className="form-control" value={variant.shelf_life_days} {...numberInputGuards} onChange={(e) => setGroupData((prev) => ({ ...prev, variants: prev.variants.map((row, i) => i === index ? { ...row, shelf_life_days: e.target.value } : row) }))} required /></div></div></div></div>
                 ))}
                 <div className="d-flex gap-2"><button type="button" className="btn btn-outline-secondary" onClick={() => setGroupData((prev) => ({ ...prev, variants: [...prev.variants, { ...emptyVariant }] }))}>+ Add Variant Row</button>{groupData.variants.length > 1 && <button type="button" className="btn btn-outline-danger" onClick={() => setGroupData((prev) => ({ ...prev, variants: prev.variants.slice(0, -1) }))}>Remove Last</button>}</div>
                 <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForms}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Create Group'}</button></div>
@@ -341,13 +354,13 @@ export default function ProductsPage() {
             )}
             {showVariantForm && (
               <form onSubmit={handleCreateVariant} className="modal-body">
-                <div className="row g-2"><div className="col-md-4"><label className="form-label">Variant Name *</label><input className="form-control" value={variantData.name} onChange={(e) => setVariantData({ ...variantData, name: e.target.value })} required /></div><div className="col-md-2"><label className="form-label">Price *</label><input type="number" className="form-control" min="0" step="0.01" value={variantData.price} onChange={(e) => setVariantData({ ...variantData, price: e.target.value })} required /></div><div className="col-md-2"><label className="form-label">Cost</label><input type="number" className="form-control" min="0" step="0.01" value={variantData.cost} onChange={(e) => setVariantData({ ...variantData, cost: e.target.value })} /></div><div className="col-md-2"><label className="form-label">Unit</label><select className="form-select" value={variantData.unit} onChange={(e) => setVariantData({ ...variantData, unit: e.target.value })}>{UNIT_OPTIONS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></div><div className="col-md-2"><label className="form-label">Source</label><select className="form-select" value={variantData.source} onChange={(e) => setVariantData({ ...variantData, source: e.target.value })}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-4"><label className="form-label">Category</label><select className="form-select" value={variantData.category_id} onChange={(e) => setVariantData({ ...variantData, category_id: e.target.value })}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div><div className="col-md-4"><label className="form-label">Low Stock Threshold *</label><input type="number" min="0" className="form-control" value={variantData.low_stock_threshold} onChange={(e) => setVariantData({ ...variantData, low_stock_threshold: e.target.value })} required /></div><div className="col-md-4"><label className="form-label">Shelf Life (Days) *</label><input type="number" min="1" className="form-control" value={variantData.shelf_life_days} onChange={(e) => setVariantData({ ...variantData, shelf_life_days: e.target.value })} required /></div></div>
+                <div className="row g-2"><div className="col-md-4"><label className="form-label">Variant Name *</label><input className="form-control" value={variantData.name} onChange={(e) => setVariantData({ ...variantData, name: e.target.value })} required /></div><div className="col-md-2"><label className="form-label">Price *</label><input type="number" className="form-control" min="0" step="0.01" value={variantData.price} {...numberInputGuards} onChange={(e) => setVariantData({ ...variantData, price: e.target.value })} required /></div><div className="col-md-2"><label className="form-label">Cost</label><input type="number" className="form-control" min="0" step="0.01" value={variantData.cost} {...numberInputGuards} onChange={(e) => setVariantData({ ...variantData, cost: e.target.value })} /></div><div className="col-md-2"><label className="form-label">Unit</label><select className="form-select" value={variantData.unit} onChange={(e) => setVariantData({ ...variantData, unit: e.target.value })}>{UNIT_OPTIONS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></div><div className="col-md-2"><label className="form-label">Source</label><select className="form-select" value={variantData.source} onChange={(e) => setVariantData({ ...variantData, source: e.target.value })}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-4"><label className="form-label">Category *</label><select className="form-select" value={variantData.category_id} onChange={(e) => setVariantData({ ...variantData, category_id: e.target.value })}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div><div className="col-md-4"><label className="form-label">Low Stock Threshold *</label><input type="number" min="0" className="form-control" value={variantData.low_stock_threshold} {...numberInputGuards} onChange={(e) => setVariantData({ ...variantData, low_stock_threshold: e.target.value })} required /></div><div className="col-md-4"><label className="form-label">Shelf Life (Days) *</label><input type="number" min="1" className="form-control" value={variantData.shelf_life_days} {...numberInputGuards} onChange={(e) => setVariantData({ ...variantData, shelf_life_days: e.target.value })} required /></div></div>
                 <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForms}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Add Variant'}</button></div>
               </form>
             )}
             {editingProduct && (
               <form onSubmit={handleEditSubmit} className="modal-body">
-                <div className="row g-2"><div className="col-md-6"><label className="form-label">Group *</label><input className="form-control" value={formData.group_name} onChange={(e) => setFormData({ ...formData, group_name: e.target.value })} required /></div><div className="col-md-6"><label className="form-label">Variant Name *</label><input className="form-control" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required /></div><div className="col-md-3"><label className="form-label">Price *</label><input type="number" className="form-control" min="0" step="0.01" value={formData.price} onChange={(e) => setFormData({ ...formData, price: e.target.value })} required /></div><div className="col-md-3"><label className="form-label">Cost</label><input type="number" className="form-control" min="0" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} /></div><div className="col-md-3"><label className="form-label">Unit *</label><select className="form-select" value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value })} required>{UNIT_OPTIONS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></div><div className="col-md-3"><label className="form-label">Source *</label><select className="form-select" value={formData.source} onChange={(e) => setFormData({ ...formData, source: e.target.value })}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-6"><label className="form-label">Category</label><select className="form-select" value={formData.category_id} onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div><div className="col-md-6"><label className="form-label">Low Stock Threshold *</label><input type="number" min="0" className="form-control" value={formData.low_stock_threshold} onChange={(e) => setFormData({ ...formData, low_stock_threshold: e.target.value })} required /></div><div className="col-md-6"><label className="form-label">Shelf Life (Days) *</label><input type="number" min="1" className="form-control" value={formData.shelf_life_days} onChange={(e) => setFormData({ ...formData, shelf_life_days: e.target.value })} required /></div></div><div className="row g-2 mt-1"><div className="col-md-6"><label className="form-label">Status</label><select className="form-select" value={formData.is_active ? 'active' : 'inactive'} onChange={(e) => setFormData({ ...formData, is_active: e.target.value === 'active' })}><option value="active">Active</option><option value="inactive">Inactive</option></select></div></div>
+                <div className="row g-2"><div className="col-md-6"><label className="form-label">Group *</label><input className="form-control" value={formData.group_name} onChange={(e) => setFormData({ ...formData, group_name: e.target.value })} required /></div><div className="col-md-6"><label className="form-label">Variant Name *</label><input className="form-control" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required /></div><div className="col-md-3"><label className="form-label">Price *</label><input type="number" className="form-control" min="0" step="0.01" value={formData.price} {...numberInputGuards} onChange={(e) => setFormData({ ...formData, price: e.target.value })} required /></div><div className="col-md-3"><label className="form-label">Cost</label><input type="number" className="form-control" min="0" step="0.01" value={formData.cost} {...numberInputGuards} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} /></div><div className="col-md-3"><label className="form-label">Unit *</label><select className="form-select" value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value })} required>{UNIT_OPTIONS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></div><div className="col-md-3"><label className="form-label">Source *</label><select className="form-select" value={formData.source} onChange={(e) => setFormData({ ...formData, source: e.target.value })}><option value="baked">Baked</option><option value="purchased">Purchased</option></select></div><div className="col-md-6"><label className="form-label">Category *</label><select className="form-select" value={formData.category_id} onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}><option value="">Select Category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div><div className="col-md-6"><label className="form-label">Low Stock Threshold *</label><input type="number" min="0" className="form-control" value={formData.low_stock_threshold} {...numberInputGuards} onChange={(e) => setFormData({ ...formData, low_stock_threshold: e.target.value })} required /></div><div className="col-md-6"><label className="form-label">Shelf Life (Days) *</label><input type="number" min="1" className="form-control" value={formData.shelf_life_days} {...numberInputGuards} onChange={(e) => setFormData({ ...formData, shelf_life_days: e.target.value })} required /></div></div><div className="row g-2 mt-1"><div className="col-md-6"><label className="form-label">Status</label><select className="form-select" value={formData.is_active ? 'active' : 'inactive'} onChange={(e) => setFormData({ ...formData, is_active: e.target.value === 'active' })}><option value="active">Active</option><option value="inactive">Inactive</option></select></div></div>
                 <div className="modal-footer"><button type="button" className="btn btn-secondary" onClick={resetForms}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Update Variant'}</button></div>
               </form>
             )}

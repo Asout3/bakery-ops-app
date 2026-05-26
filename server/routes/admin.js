@@ -8,6 +8,7 @@ import { adminLifecycleRepository } from '../repositories/adminLifecycleReposito
 import { createStaffAccount, updateStaffAccount, archiveStaffAccount, archiveStaffProfile } from '../services/adminLifecycleService.js';
 
 const router = express.Router();
+let guarantorColumnsEnsured = false;
 
 function isEthiopianMobilePhone(value) {
   return /^\+251(9|7)\d{8}$/.test(String(value || '').trim());
@@ -51,10 +52,57 @@ async function notifyAdmins(locationId, title, message, type = 'admin_event') {
   );
 }
 
+async function hasStaffGuarantorColumns() {
+  const result = await query(
+    `SELECT COUNT(*)::int AS count
+     FROM information_schema.columns
+     WHERE table_name = 'staff_profiles'
+       AND table_schema = ANY(current_schemas(false))
+       AND column_name IN ('guarantor_name', 'guarantor_phone_number', 'guarantor_national_id')`
+  );
+  return Number(result.rows[0]?.count || 0) === 3;
+}
+
+async function ensureStaffGuarantorColumns() {
+  if (guarantorColumnsEnsured) return;
+  await query(
+    `ALTER TABLE IF EXISTS staff_profiles
+       ADD COLUMN IF NOT EXISTS guarantor_name VARCHAR(150),
+       ADD COLUMN IF NOT EXISTS guarantor_phone_number VARCHAR(20),
+       ADD COLUMN IF NOT EXISTS guarantor_national_id VARCHAR(100)`
+  );
+  guarantorColumnsEnsured = true;
+}
+
 router.get('/staff', authenticateToken, authorizeRoles('admin'), async (req, res) => {
   try {
+    await ensureStaffGuarantorColumns();
+    const supportsGuarantorColumns = await hasStaffGuarantorColumns();
     const result = await query(
-      `SELECT sp.*, l.name AS location_name, u.username AS account_username, u.role AS account_role, u.is_active AS account_active
+      `SELECT
+         sp.id,
+         COALESCE(NULLIF(sp.full_name, ''), u.full_name, u.username) AS full_name,
+         sp.role_preference,
+         sp.job_title,
+         COALESCE(sp.national_id, u.national_id) AS national_id,
+         COALESCE(sp.phone_number, u.phone_number) AS phone_number,
+         COALESCE(sp.age, u.age) AS age,
+         COALESCE(sp.monthly_salary, u.monthly_salary, 0) AS monthly_salary,
+         sp.location_id,
+         sp.hire_date,
+         sp.termination_date,
+         sp.payment_due_date,
+         sp.is_active,
+         sp.linked_user_id,
+         sp.created_at,
+         sp.updated_at,
+         ${supportsGuarantorColumns ? 'sp.guarantor_name' : 'NULL::text AS guarantor_name'},
+         ${supportsGuarantorColumns ? 'sp.guarantor_phone_number' : 'NULL::text AS guarantor_phone_number'},
+         ${supportsGuarantorColumns ? 'sp.guarantor_national_id' : 'NULL::text AS guarantor_national_id'},
+         l.name AS location_name,
+         u.username AS account_username,
+         u.role AS account_role,
+         u.is_active AS account_active
        FROM staff_profiles sp
        LEFT JOIN locations l ON l.id = sp.location_id
        LEFT JOIN users u ON u.id = sp.linked_user_id
@@ -78,11 +126,15 @@ router.post(
   body('age').optional().isInt({ min: 17, max: 100 }),
   body('monthly_salary').optional().isFloat({ min: 0 }),
   body('payment_due_date').optional().isInt({ min: 1, max: 28 }),
+  body('guarantor_name').trim().isLength({ min: 2 }).withMessage('Guarantor name is required'),
+  body('guarantor_phone_number').trim().isLength({ min: 5 }).withMessage('Guarantor phone number is required'),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
+      await ensureStaffGuarantorColumns();
+      const supportsGuarantorColumns = await hasStaffGuarantorColumns();
         const {
         full_name,
         national_id,
@@ -94,6 +146,9 @@ router.post(
         other_role_title,
         hire_date,
         payment_due_date,
+        guarantor_name,
+        guarantor_phone_number,
+        guarantor_national_id,
       } = req.body;
 
       if (!isEthiopianMobilePhone(phone_number)) {
@@ -127,6 +182,20 @@ router.post(
           payment_due_date || 25,
         ]
       );
+      if (!supportsGuarantorColumns) {
+        return res.status(500).json({ error: 'Guarantor columns are not available. Please run the latest database migration.', code: 'GUARANTOR_SCHEMA_MISSING', requestId: req.requestId });
+      }
+      await query(
+        `UPDATE staff_profiles
+         SET guarantor_name = $1,
+             guarantor_phone_number = $2,
+             guarantor_national_id = $3
+         WHERE id = $4`,
+        [String(guarantor_name || '').trim(), String(guarantor_phone_number || '').trim(), guarantor_national_id || null, inserted.rows[0].id]
+      );
+      inserted.rows[0].guarantor_name = String(guarantor_name || '').trim();
+      inserted.rows[0].guarantor_phone_number = String(guarantor_phone_number || '').trim();
+      inserted.rows[0].guarantor_national_id = guarantor_national_id || null;
 
       await notifyAdmins(inserted.rows[0].location_id, 'Staff Profile Created', `${inserted.rows[0].full_name} was added as ${inserted.rows[0].job_title || inserted.rows[0].role_preference}.`, 'staff_profile_created');
 
@@ -147,11 +216,15 @@ router.put(
   body('role_preference').optional().isIn(['cashier', 'manager', 'other']),
   body('age').optional({ nullable: true }).isInt({ min: 17, max: 100 }),
   body('monthly_salary').optional({ nullable: true }).isFloat({ min: 0 }),
+  body('guarantor_name').optional().trim().isLength({ min: 2 }),
+  body('guarantor_phone_number').optional().trim().isLength({ min: 5 }),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
+      await ensureStaffGuarantorColumns();
+      const supportsGuarantorColumns = await hasStaffGuarantorColumns();
       const id = Number(req.params.id);
       if (!Number.isInteger(id)) {
         return res.status(400).json({ error: 'Invalid staff id', code: 'INVALID_STAFF_ID', requestId: req.requestId });
@@ -179,6 +252,9 @@ router.put(
       const nextSalary = req.body.monthly_salary === undefined || req.body.monthly_salary === null || req.body.monthly_salary === ''
         ? Number(staff.monthly_salary || 0)
         : Number(req.body.monthly_salary);
+      const nextGuarantorName = req.body.guarantor_name === undefined ? staff.guarantor_name : String(req.body.guarantor_name || '').trim();
+      const nextGuarantorPhone = req.body.guarantor_phone_number === undefined ? staff.guarantor_phone_number : String(req.body.guarantor_phone_number || '').trim();
+      const nextGuarantorNationalId = req.body.guarantor_national_id === undefined ? staff.guarantor_national_id : (req.body.guarantor_national_id || null);
 
       if (!isEthiopianMobilePhone(nextPhoneNumber)) {
         return res.status(400).json({ error: 'Phone number must be +2519XXXXXXXX or +2517XXXXXXXX', code: 'INVALID_PHONE_NUMBER', requestId: req.requestId });
@@ -186,6 +262,9 @@ router.put(
 
       if (nextAge !== null && nextAge < 17) {
         return res.status(400).json({ error: 'Age must be greater than 16', code: 'INVALID_AGE', requestId: req.requestId });
+      }
+      if (!nextGuarantorName || !nextGuarantorPhone) {
+        return res.status(400).json({ error: 'Guarantor name and phone number are required', code: 'MISSING_GUARANTOR_INFO', requestId: req.requestId });
       }
 
       if (nextNationalId) {
@@ -198,29 +277,59 @@ router.put(
         }
       }
 
-      const updated = await query(
-        `UPDATE staff_profiles
-         SET full_name = COALESCE($1, full_name),
-             national_id = $2,
-             phone_number = $3,
-             age = $4,
-             monthly_salary = $5,
-             role_preference = $6,
-             job_title = $7,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $8
-         RETURNING *`,
-        [
-          req.body.full_name || null,
-          nextNationalId,
-          nextPhoneNumber,
-          nextAge,
-          nextSalary,
-          nextRolePreference,
-          nextJobTitle,
-          id,
-        ]
-      );
+      const updated = supportsGuarantorColumns
+        ? await query(
+          `UPDATE staff_profiles
+           SET full_name = COALESCE($1, full_name),
+               national_id = $2,
+               phone_number = $3,
+               age = $4,
+               monthly_salary = $5,
+               role_preference = $6,
+               job_title = $7,
+               guarantor_name = $8,
+               guarantor_phone_number = $9,
+               guarantor_national_id = $10,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $11
+           RETURNING *`,
+          [
+            req.body.full_name || null,
+            nextNationalId,
+            nextPhoneNumber,
+            nextAge,
+            nextSalary,
+            nextRolePreference,
+            nextJobTitle,
+            nextGuarantorName,
+            nextGuarantorPhone,
+            nextGuarantorNationalId,
+            id,
+          ]
+        )
+        : await query(
+          `UPDATE staff_profiles
+           SET full_name = COALESCE($1, full_name),
+               national_id = $2,
+               phone_number = $3,
+               age = $4,
+               monthly_salary = $5,
+               role_preference = $6,
+               job_title = $7,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $8
+           RETURNING *`,
+          [
+            req.body.full_name || null,
+            nextNationalId,
+            nextPhoneNumber,
+            nextAge,
+            nextSalary,
+            nextRolePreference,
+            nextJobTitle,
+            id,
+          ]
+        );
 
       if (staff.user_id) {
         await query(
@@ -784,3 +893,4 @@ router.delete('/users/:id', authenticateToken, authorizeRoles('admin'), async (r
 });
 
 export default router;
+      const supportsGuarantorColumns = await hasStaffGuarantorColumns();
